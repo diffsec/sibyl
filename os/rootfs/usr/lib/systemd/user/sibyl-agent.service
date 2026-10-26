@@ -5,3 +5,5 @@ ConditionUser=sibyl
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/sibyl/agent
+# A benchmark loads a large model twice.
+TimeoutStartSec=45min

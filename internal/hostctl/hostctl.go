@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"time"
@@ -29,7 +30,12 @@ const (
 	Restart Action = "restart"
 	// Reload runs daemon-reload, so Quadlet regenerates units from changed files.
 	Reload Action = "reload"
+	// Bench runs llama-bench with both backend images on one model.
+	Bench Action = "bench"
 )
+
+// benchTarget matches the model IDs that the host agent accepts.
+var benchTarget = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 
 // UnitState is one unit's state as the agent last saw it.
 type UnitState struct {
@@ -63,6 +69,10 @@ func (c *Client) Request(a Action, unit string) error {
 	case Restart:
 		if !slices.Contains(Units, unit) {
 			return fmt.Errorf("unit %q is not one of %v", unit, Units)
+		}
+	case Bench:
+		if !benchTarget.MatchString(unit) {
+			return fmt.Errorf("model ID %q is not valid for a benchmark", unit)
 		}
 	default:
 		return fmt.Errorf("unknown action %q", a)

@@ -71,6 +71,8 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /models", s.getModels)
 	auth.HandleFunc("PUT /models/{id}", s.putModel)
 	auth.HandleFunc("DELETE /models/{id}", s.deleteModel)
+	auth.HandleFunc("POST /models/{id}/benchmark", s.startBenchmark)
+	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
 	auth.HandleFunc("POST /apply", s.postApply)
 	auth.HandleFunc("GET /services", s.getServices)
 	auth.HandleFunc("POST /services/{name}/restart", s.restartService)
@@ -167,7 +169,8 @@ func (s *Server) putHardware(w http.ResponseWriter, r *http.Request) {
 
 type modelView struct {
 	models.Model
-	Settings models.Settings `json:"settings"`
+	Settings  models.Settings `json:"settings"`
+	Benchmark *Benchmark      `json:"benchmark,omitempty"`
 }
 
 func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
@@ -184,6 +187,9 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 	out := make([]modelView, len(installed))
 	for i, m := range installed {
 		out[i] = modelView{Model: m, Settings: settings[m.ID]}
+		if b, ok := s.readBenchmark(m.ID); ok {
+			out[i].Benchmark = &b
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

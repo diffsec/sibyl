@@ -1,15 +1,22 @@
 #!/bin/bash
 # Sibyl host agent. Runs as the sibyl user, outside every container.
 #
-# The System API cannot reach the systemd bus. It asks for actions by creating
-# empty files named <timestamp>.<action>.<unit> in $RUN/requests. This script
-# accepts only the actions and units below, runs them, and deletes the request.
-# With --status it only writes the unit states to $RUN/status.json.
+# The System API cannot reach the systemd bus or start containers. It asks for
+# actions by creating empty files named <timestamp>.<action>.<target> in
+# $RUN/requests. This script accepts only the actions and targets below, runs
+# them, and deletes the request. With --status it only writes the unit states
+# to $RUN/status.json.
+#
+#   restart.<unit>   restart one Sibyl unit
+#   reload.all       systemctl --user daemon-reload
+#   bench.<model>    run llama-bench with the HIP and the Vulkan image
 set -euo pipefail
 
 RUN=/var/lib/sibyl/run
 UNITS=(llama-swap open-webui caddy arcane system-api)
 REQUEST_RE='^[0-9]{1,20}\.(restart|reload)\.(all|llama-swap|open-webui|caddy|arcane|system-api)$'
+BENCH_RE='^[0-9]{1,20}\.bench\.([a-z0-9][a-z0-9._-]{0,127})$'
+MODELS=/var/lib/sibyl/models
 
 write_status() {
     local tmp sep="" unit active sub since
@@ -29,13 +36,55 @@ write_status() {
     mv -f "$tmp" "$RUN/status.json"
 }
 
+# bench runs llama-bench for one model with each backend image. The API wrote
+# the model's relative path and the selected GPUs into $RUN/bench/<model>.*.
+bench() {
+    local id="$1" dir="$RUN/bench" rel gpus model tag backend image visible split
+    rel="$(cat "$dir/$id.path" 2>/dev/null || true)"
+    gpus="$(cat "$dir/$id.gpus" 2>/dev/null || true)"
+    model="$(realpath -e -- "$MODELS/$rel" 2>/dev/null || true)"
+    if [[ -z "$rel" || "$rel" != *.gguf || "$model" != "$(realpath "$MODELS")"/* || ! "$gpus" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+        echo "failed: invalid benchmark request" > "$dir/$id.status"
+        return
+    fi
+    rel="${model#"$(realpath "$MODELS")"/}"
+    split=none
+    [[ "$gpus" == *,* ]] && split=layer
+    tag="$(cat /usr/share/sibyl/image-tag)"
+    echo "running $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/$id.status"
+
+    # Free the GPUs: llama-swap starts the model again on the next request.
+    podman exec llama-swap curl -fsS http://127.0.0.1:8080/unload >/dev/null 2>&1 || true
+
+    for backend in hip vulkan; do
+        image="ghcr.io/ihavespoons/sibyl-llama-swap:${tag}-${backend}"
+        visible=HIP_VISIBLE_DEVICES
+        [[ "$backend" == vulkan ]] && visible=GGML_VK_VISIBLE_DEVICES
+        echo "sibyl-agent: benchmarking $id with $backend"
+        if ! podman run --rm --network none \
+            --device /dev/kfd --device /dev/dri --group-add keep-groups \
+            --userns keep-id:uid=10001,gid=10001 --cap-drop all --security-opt no-new-privileges \
+            -v "$MODELS:/models:ro,z" -v llama-swap-cache:/app/.cache:U \
+            -e "$visible=$gpus" --entrypoint /opt/llama/bin/llama-bench "$image" \
+            -m "/models/$rel" -ngl 999 -fa on -sm "$split" -p 512 -n 128 -r 2 -o json \
+            > "$dir/$id.$backend.json" 2> "$dir/$id.$backend.log"; then
+            echo "sibyl-agent: $backend benchmark failed, see $dir/$id.$backend.log" >&2
+        fi
+    done
+    echo "done $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/$id.status"
+}
+
 handle_requests() {
     local f name action unit reload=0
-    local -a restarts=()
+    local -a restarts=() benches=()
     shopt -s nullglob
     for f in "$RUN"/requests/*; do
         name="$(basename "$f")"
         rm -f -- "$f"
+        if [[ "$name" =~ $BENCH_RE ]]; then
+            benches+=("${BASH_REMATCH[1]}")
+            continue
+        fi
         if [[ ! "$name" =~ $REQUEST_RE ]]; then
             echo "sibyl-agent: rejected request '$name'" >&2
             continue
@@ -59,6 +108,10 @@ handle_requests() {
             systemctl --user restart --no-block "$unit.service"
         done
     fi
+    # Benchmarks run last: they take minutes and unload the running models.
+    for unit in "${benches[@]}"; do
+        bench "$unit"
+    done
 }
 
 if [[ "${1:-}" != "--status" ]]; then

@@ -187,7 +187,9 @@ Device names differ per backend: `ROCm0` for HIP and `Vulkan0` for Vulkan. The S
 
 ### Benchmark
 
-`scripts/bench.sh` runs `llama-bench` from both images against each installed model. It records prompt-processing and token-generation speed at 512, 8192 and 32768 tokens of context. The System API stores the faster backend per model and writes it into the llama-swap configuration.
+`POST /models/{id}/benchmark` (key `b` in the TUI) compares the backends on one model. The host agent unloads llama-swap's models, then runs `llama-bench` in the HIP image and in the Vulkan image, on the selected GPUs: 512 prompt tokens and 128 generated tokens, twice each. `GET /models/{id}/benchmark` and the model list report tokens per second for each backend, and recommend the faster one by generation speed.
+
+llama-swap runs one image, so the backend applies to every model. The recommendation is advice: the user sets the backend in the Hardware screen. Longer contexts, such as 8192 or 32768 tokens, are a later addition.
 
 ### Embeddings for Open WebUI
 

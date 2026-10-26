@@ -67,7 +67,7 @@ func (v *modelsView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	return "↑/↓ select · enter edit · d delete"
+	return "↑/↓ select · enter edit · b benchmark HIP vs Vulkan · d delete"
 }
 
 func (v *modelsView) selected() (client.Model, bool) {
@@ -224,6 +224,18 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 				if m, ok := v.selected(); ok {
 					return v.deleteForm(m)
 				}
+			case "b":
+				if m, ok := v.selected(); ok {
+					id := m.ID
+					return func() tea.Msg {
+						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+						defer cancel()
+						if err := v.c.StartBenchmark(ctx, id); err != nil {
+							return noteMsg{"benchmark " + id + ": " + err.Error(), false}
+						}
+						return noteMsg{"benchmark of " + id + " queued; it unloads running models and takes a few minutes", true}
+					}
+				}
 			}
 			return nil
 		}
@@ -287,7 +299,34 @@ func (v *modelsView) render(int) string {
 		m := v.list[i]
 		line := fmt.Sprintf("%-40s %10s  %s", m.ID, gib(m.Size), mutedSty.Render(summary(m.Settings)))
 		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
+		if bench := benchLine(m.Benchmark); bench != "" {
+			b.WriteString("    " + mutedSty.Render(bench) + "\n")
+		}
 	}
 	b.WriteString(more(start, end, len(v.list)))
 	return b.String()
+}
+
+// benchLine summarises a model's latest benchmark.
+func benchLine(b *client.Benchmark) string {
+	if b == nil {
+		return ""
+	}
+	if b.Status != "done" {
+		return "benchmark " + b.Status
+	}
+	var parts []string
+	for _, backend := range []string{"hip", "vulkan"} {
+		r := b.Results[backend]
+		if r.Error != "" {
+			parts = append(parts, backend+" failed")
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %.1f tok/s gen, %.0f tok/s prompt", backend, r.GenTPS, r.PromptTPS))
+	}
+	line := "benchmark: " + strings.Join(parts, " · ")
+	if b.Recommended != "" {
+		line += " · faster: " + b.Recommended
+	}
+	return line
 }

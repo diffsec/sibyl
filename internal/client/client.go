@@ -118,7 +118,23 @@ type Status struct {
 // Model is one entry of GET /models.
 type Model struct {
 	models.Model
-	Settings models.Settings `json:"settings"`
+	Settings  models.Settings `json:"settings"`
+	Benchmark *Benchmark      `json:"benchmark,omitempty"`
+}
+
+// BackendResult is one backend's llama-bench result.
+type BackendResult struct {
+	PromptTPS float64 `json:"prompt_tokens_per_second,omitempty"`
+	GenTPS    float64 `json:"generation_tokens_per_second,omitempty"`
+	Error     string  `json:"error,omitempty"`
+}
+
+// Benchmark is a model's HIP versus Vulkan benchmark.
+type Benchmark struct {
+	Status      string                   `json:"status"`
+	Updated     string                   `json:"updated,omitempty"`
+	Results     map[string]BackendResult `json:"results,omitempty"`
+	Recommended string                   `json:"recommended,omitempty"`
 }
 
 // ApplyResult is the response of every call that regenerates the config.
@@ -177,6 +193,10 @@ func (c *Client) SetModel(ctx context.Context, id string, s models.Settings) (Ap
 func (c *Client) DeleteModel(ctx context.Context, id string) (ApplyResult, error) {
 	var r ApplyResult
 	return r, c.do(ctx, http.MethodDelete, "/models/"+url.PathEscape(id), nil, &r)
+}
+
+func (c *Client) StartBenchmark(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/benchmark", nil, nil)
 }
 
 func (c *Client) Restart(ctx context.Context, unit string) error {

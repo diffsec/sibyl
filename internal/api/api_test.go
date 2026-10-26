@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -270,5 +271,46 @@ func TestPutModelTuning(t *testing.T) {
 	self := `{"speculative":{"types":["draft-simple"],"draft_model":"big"}}`
 	if code, _ := f.do(t, "PUT", "/models/big", self, true); code != http.StatusUnprocessableEntity {
 		t.Errorf("self draft: code = %d, want 422", code)
+	}
+}
+
+func TestBenchmark(t *testing.T) {
+	f := newFixture(t)
+	f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[1,0],"layout":"span"}`, true)
+	if code, b := f.do(t, "POST", "/models/big/benchmark", "", true); code != http.StatusAccepted {
+		t.Fatalf("start = %d %v", code, b)
+	}
+	dir := filepath.Join(f.run, "bench")
+	for ext, want := range map[string]string{".path": "big-00001-of-00002.gguf", ".gpus": "0,1"} {
+		got, _ := os.ReadFile(filepath.Join(dir, "big"+ext))
+		if string(got) != want {
+			t.Errorf("%s = %q, want %q", ext, got, want)
+		}
+	}
+	if got := f.requests(t); !slices.Contains(got, "bench.big") {
+		t.Errorf("requests = %v, want bench.big among them", got)
+	}
+	if code, b := f.do(t, "GET", "/models/big/benchmark", "", true); code != 200 || b["status"] != "queued" {
+		t.Errorf("queued = %d %v", code, b)
+	}
+
+	// The agent finishes: HIP produced results, Vulkan failed.
+	write(t, filepath.Join(dir, "big.status"), "done 2026-10-26T00:00:00Z")
+	write(t, filepath.Join(dir, "big.hip.json"), `[{"n_prompt":512,"n_gen":0,"avg_ts":901.5},{"n_prompt":0,"n_gen":128,"avg_ts":38.2}]`)
+	write(t, filepath.Join(dir, "big.vulkan.json"), ``)
+	write(t, filepath.Join(dir, "big.vulkan.log"), "loading\nerror: failed to load model\n")
+	code, b := f.do(t, "GET", "/models/big/benchmark", "", true)
+	if code != 200 || b["recommended"] != "hip" {
+		t.Fatalf("done = %d %v", code, b)
+	}
+	res := b["results"].(map[string]any)
+	if res["hip"].(map[string]any)["generation_tokens_per_second"] != 38.2 {
+		t.Errorf("hip = %v", res["hip"])
+	}
+	if res["vulkan"].(map[string]any)["error"] != "error: failed to load model" {
+		t.Errorf("vulkan = %v", res["vulkan"])
+	}
+	if code, _ := f.do(t, "POST", "/models/missing/benchmark", "", true); code != http.StatusNotFound {
+		t.Errorf("missing model = %d", code)
 	}
 }
