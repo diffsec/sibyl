@@ -48,6 +48,9 @@ RUN apt-get update \
 COPY --from=build /out/ /
 COPY --from=llama-swap-dl /out/llama-swap /app/llama-swap
 COPY config.yaml /app/config/config.yaml
+COPY check-libs.sh /usr/local/bin/check-libs.sh
+# Fail the build if any binary or library has an unresolved dependency.
+RUN LD_LIBRARY_PATH=/opt/llama/lib /usr/local/bin/check-libs.sh /opt/llama/bin /opt/llama/lib
 
 ENV PATH=/app:/opt/llama/bin:${PATH} \
     LD_LIBRARY_PATH=/opt/llama/lib \

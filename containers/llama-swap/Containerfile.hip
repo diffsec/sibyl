@@ -50,6 +50,7 @@ FROM ${RUNTIME_IMAGE}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libgomp1 libssl3t64 curl \
+        libdrm2 libdrm-amdgpu1 libelf1t64 libnuma1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 --home /app --no-create-home app
@@ -57,6 +58,9 @@ RUN apt-get update \
 COPY --from=build /out/ /
 COPY --from=llama-swap-dl /out/llama-swap /app/llama-swap
 COPY config.yaml /app/config/config.yaml
+COPY check-libs.sh /usr/local/bin/check-libs.sh
+# Fail the build if any binary or library has an unresolved dependency.
+RUN LD_LIBRARY_PATH=/opt/rocm/lib:/opt/llama/lib /usr/local/bin/check-libs.sh /opt/llama/bin /opt/llama/lib /opt/rocm/lib
 
 ENV PATH=/app:/opt/llama/bin:${PATH} \
     LD_LIBRARY_PATH=/opt/rocm/lib:/opt/llama/lib \
