@@ -7,10 +7,15 @@ network --bootproto=dhcp --device=link --activate --hostname=sibyl
 
 # Wipe the target disk and encrypt it. No passphrase is set here, so the
 # installer asks for one at the console. Enroll the TPM after the first boot.
+#
+# One encrypted root fills the disk, so /var (and /var/lib/sibyl/models)
+# gets all the space. autopart splits off a separate /var/home and leaves
+# /var with only 70 GB, which cannot hold a large model.
 ignoredisk --only-use=@INSTALL_DISK@
 zerombr
 clearpart --all --initlabel --disklabel=gpt --drives=@INSTALL_DISK@
-autopart --type=plain --fstype=xfs --encrypted --luks-version=luks2
+reqpart --add-boot
+part / --grow --fstype=xfs --encrypted --luks-version=luks2
 
 # Install the Sibyl bootc image. CI signs it with cosign, not with an ostree
 # signature, so ostree verification is off here.

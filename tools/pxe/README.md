@@ -49,10 +49,13 @@ cd www && python3 -c 'import http.server as h; h.SimpleHTTPRequestHandler.protoc
 ## After the install
 
 1. Connect with `ssh admin@<box-ip>`.
-2. Bind the disk to the TPM, so that the box boots without a passphrase:
+2. Turn on Secure Boot in the firmware first. If the firmware is in Setup Mode, install its default keys. Make sure that `mokutil --sb-state` prints `SecureBoot enabled`.
+3. Bind the encrypted root partition to the TPM, so that the box boots without a passphrase. The command asks for the current passphrase, which stays valid as the recovery key:
 
 ```bash
 sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 /dev/nvme0n1p3
 ```
 
-Check the partition name with `lsblk` before you run it.
+Check the partition name with `lsblk` before you run it. PCR 7 records the Secure Boot state, so a binding made with Secure Boot off does not protect the disk, and it breaks when Secure Boot is turned on.
+
+4. Reboot with `sudo systemctl reboot`. A staged `bootc upgrade` is applied only during a clean shutdown.
