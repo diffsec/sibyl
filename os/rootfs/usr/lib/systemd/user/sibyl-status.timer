@@ -1,0 +1,11 @@
+[Unit]
+Description=Sibyl service status snapshot every 15 seconds
+ConditionUser=sibyl
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

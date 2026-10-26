@@ -59,6 +59,35 @@ systemd owns the core services. The Quadlet files are in the OS image under `/et
 
 nftables redirects host port 443 to 10443 (Open WebUI), 8443 to 18443 (OpenAI API and System API), and 9443 to 19443 (Arcane). The input chain accepts the high ports only for redirected connections. This keeps `net.ipv4.ip_unprivileged_port_start` at its default of 1024.
 
+## System API and host agent
+
+The System API is a Go service (`cmd/sibyl-api`, `internal/`). It runs in a container with no access to the systemd bus, so SELinux confinement stays on. It reads and writes only these directories:
+
+| Host path | In the container | Content |
+|---|---|---|
+| `/var/lib/sibyl/config` | `/config` | `hardware.yaml`, `models.yaml`, `llama-swap/config.yaml` |
+| `/var/lib/sibyl/models` | `/models` | GGUF files |
+| `/var/lib/sibyl/run` | `/run/sibyl` | Request queue and `status.json` |
+| `/var/lib/sibyl/home/.config/containers/systemd/llama-swap.container.d` | `/quadlet` | `backend.conf`, which overrides the image default |
+
+Each change to the hardware or to model settings runs an apply. The apply regenerates the llama-swap configuration, and llama-swap reloads it without a restart. llama-swap polls the file with `stat`, so the configuration is mounted as a directory: a single-file bind mount keeps the old inode after an atomic rename. If the backend or the GPU set changes, the apply also rewrites `backend.conf` and queues a reload and a restart.
+
+The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System API creates an empty file named `<timestamp>.<action>.<unit>` in the request queue. The `sibyl-agent.path` user unit starts the agent, which accepts only `restart` and `reload` for the five Sibyl units and deletes every request. The `sibyl-status.timer` writes the unit states to `status.json` every 15 seconds.
+
+| Route | Purpose |
+|---|---|
+| `GET /health` | Liveness, no token |
+| `GET /status` | Version, GPU count, hardware choice, unit states |
+| `GET /gpus` | Detected GPUs from sysfs, in PCI order |
+| `GET, PUT /hardware` | Backend, selected GPUs, default layout. PUT applies. |
+| `GET /models` | Installed models with their settings |
+| `PUT /models/{id}` | Layout, context size, embedding flag, extra arguments. Applies. |
+| `DELETE /models/{id}` | Deletes the model and all of its shards. Applies. |
+| `POST /apply` | Regenerates the configuration |
+| `GET /services`, `POST /services/{name}/restart` | Unit states and restarts through the host agent |
+
+Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
+
 ## Inference
 
 ### Images
@@ -188,6 +217,5 @@ When the GPU set changes, for example after a card is added, the System API dete
 
 ## Open items
 
-- The System API runs in a container, so it cannot run `systemctl`. It must call the user systemd manager over D-Bus. Phase 2 must design that interface and limit it to the Sibyl units.
 - The TUI runs on the console. As a container it needs `/dev/tty1`. Phase 2 must decide between a container on tty1 and a host package.
 - Arcane Git Sync polls and has no webhooks. Compose files pulled from Git are read-only in the Arcane UI.

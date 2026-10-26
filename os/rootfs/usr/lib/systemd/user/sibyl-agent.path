@@ -1,0 +1,10 @@
+[Unit]
+Description=Sibyl host agent request queue
+ConditionUser=sibyl
+
+[Path]
+DirectoryNotEmpty=/var/lib/sibyl/run/requests
+MakeDirectory=no
+
+[Install]
+WantedBy=default.target

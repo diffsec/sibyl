@@ -6,7 +6,7 @@ Sibyl is tuned first for AMD RDNA3. The inference images are built for `gfx1100`
 
 ## Status
 
-Sibyl is pre-alpha. Phase 1 is in progress: the host image, the inference images, the Quadlet units and CI. The design and the phase plan are in [docs/design.md](docs/design.md).
+Sibyl is pre-alpha. Phase 1 (host image, inference images, Quadlet units, CI) is written. Phase 2 has started with the System API. The design and the phase plan are in [docs/design.md](docs/design.md).
 
 ## Stack
 
@@ -18,6 +18,7 @@ Sibyl is pre-alpha. Phase 1 is in progress: the host image, the inference images
 | Chat UI | Open WebUI |
 | Container UI | Arcane |
 | TLS | Caddy on Wolfi |
+| Management | Sibyl System API (Go), with a host agent for unit control |
 
 ## Build
 
@@ -46,7 +47,7 @@ Run this on a Linux host with the `amdgpu` driver loaded. Put GGUF files in `~/m
 podman run --rm -p 8080:8080 \
   --device /dev/kfd --device /dev/dri --group-add keep-groups \
   -v ~/models:/models:ro,z \
-  -v ./containers/llama-swap/config.yaml:/app/config.yaml:ro,z \
+  -v ./containers/llama-swap:/app/config:ro,z \
   ghcr.io/ihavespoons/sibyl-llama-swap:latest-hip
 ```
 

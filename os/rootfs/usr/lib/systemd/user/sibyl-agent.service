@@ -1,0 +1,7 @@
+[Unit]
+Description=Sibyl host agent
+ConditionUser=sibyl
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/agent

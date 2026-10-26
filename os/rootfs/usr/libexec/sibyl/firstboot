@@ -31,7 +31,7 @@ if [ ! -s "$TLS_DIR/server.crt" ]; then
 fi
 
 if ! secret_exists sibyl-api-key; then
-    printf 'nd-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-api-key - >/dev/null
+    printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-api-key - >/dev/null
 fi
 
 if ! secret_exists arcane-encryption-key; then

@@ -1,0 +1,233 @@
+package api
+
+import (
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/ihavespoons/sibyl/internal/hostctl"
+)
+
+const token = "test-token"
+
+type fixture struct {
+	srv   *httptest.Server
+	paths Paths
+	run   string
+}
+
+func mkdir(t *testing.T, p string) {
+	t.Helper()
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func write(t *testing.T, p, body string) {
+	t.Helper()
+	mkdir(t, filepath.Dir(p))
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// newFixture builds a fake host with two AMD GPUs and two models.
+func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	root := t.TempDir()
+	p := Paths{
+		Config:    filepath.Join(root, "config"),
+		Models:    filepath.Join(root, "models"),
+		DropIn:    filepath.Join(root, "dropin"),
+		SysfsRoot: filepath.Join(root, "sys"),
+	}
+	run := filepath.Join(root, "run")
+	for _, d := range []string{filepath.Join(p.Config, "llama-swap"), p.Models, p.DropIn, filepath.Join(run, "requests")} {
+		mkdir(t, d)
+	}
+	for i, addr := range []string{"0000:03:00.0", "0000:83:00.0"} {
+		dev := filepath.Join(p.SysfsRoot, "devices", addr)
+		write(t, filepath.Join(dev, "vendor"), "0x1002")
+		card := filepath.Join(p.SysfsRoot, "class", "drm", "card"+string(rune('0'+i)))
+		mkdir(t, card)
+		if err := os.Symlink(dev, filepath.Join(card, "device")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, filepath.Join(p.Models, "chat-14b.gguf"), "x")
+	write(t, filepath.Join(p.Models, "big-00001-of-00002.gguf"), "x")
+	write(t, filepath.Join(p.Models, "big-00002-of-00002.gguf"), "x")
+
+	s := &Server{
+		Paths:    p,
+		Host:     hostctl.New(run),
+		Token:    token,
+		Registry: "ghcr.io/ihavespoons",
+		ImageTag: "test",
+		Version:  "test",
+		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	return &fixture{srv: srv, paths: p, run: run}
+}
+
+func (f *fixture) do(t *testing.T, method, path, body string, auth bool) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(method, f.srv.URL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	return resp.StatusCode, out
+}
+
+func (f *fixture) requests(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(f.run, "requests"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		// strip the timestamp prefix
+		names = append(names, e.Name()[strings.Index(e.Name(), ".")+1:])
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestAuth(t *testing.T) {
+	f := newFixture(t)
+	if code, _ := f.do(t, "GET", "/health", "", false); code != http.StatusOK {
+		t.Errorf("/health without token = %d, want 200", code)
+	}
+	if code, _ := f.do(t, "GET", "/gpus", "", false); code != http.StatusUnauthorized {
+		t.Errorf("/gpus without token = %d, want 401", code)
+	}
+	req, _ := http.NewRequest("GET", f.srv.URL+"/gpus", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("/gpus with wrong token = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestPutHardwareAppliesConfig(t *testing.T) {
+	f := newFixture(t)
+
+	code, body := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[0,1],"layout":"span"}`, true)
+	if code != http.StatusOK {
+		t.Fatalf("PUT /hardware = %d %v", code, body)
+	}
+	if body["models"].(float64) != 2 || body["backend_changed"] != true {
+		t.Errorf("apply result = %v", body)
+	}
+
+	cfg, err := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "--device ROCm0,ROCm1") {
+		t.Errorf("llama-swap config does not span both GPUs:\n%s", cfg)
+	}
+	dropIn, err := os.ReadFile(filepath.Join(f.paths.DropIn, "backend.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dropIn), "HIP_VISIBLE_DEVICES=0,1") {
+		t.Errorf("drop-in = %s", dropIn)
+	}
+	if got := f.requests(t); len(got) != 2 || got[0] != "reload.all" || got[1] != "restart.llama-swap" {
+		t.Errorf("requests = %v", got)
+	}
+
+	// Applying again with no change must not restart llama-swap.
+	if code, body := f.do(t, "POST", "/apply", "", true); code != http.StatusOK || body["backend_changed"] != false {
+		t.Errorf("second apply = %d %v", code, body)
+	}
+	if got := f.requests(t); len(got) != 2 {
+		t.Errorf("second apply queued more requests: %v", got)
+	}
+}
+
+func TestPutHardwareRejectsUnknownGPU(t *testing.T) {
+	f := newFixture(t)
+	if code, _ := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[2],"layout":"span"}`, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("code = %d, want 422", code)
+	}
+	if code, _ := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[0],"layout":"span","extra":1}`, true); code != http.StatusBadRequest {
+		t.Errorf("unknown field: code = %d, want 400", code)
+	}
+}
+
+func TestModelSettingsAndDelete(t *testing.T) {
+	f := newFixture(t)
+	f.do(t, "PUT", "/hardware", `{"backend":"vulkan","gpus":[0,1],"layout":"span"}`, true)
+
+	if code, b := f.do(t, "PUT", "/models/chat-14b", `{"layout":"gpu:1","ctx_size":16384}`, true); code != http.StatusOK {
+		t.Fatalf("PUT model = %d %v", code, b)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if !strings.Contains(string(cfg), "--ctx-size 16384 --split-mode none --device Vulkan1") {
+		t.Errorf("config:\n%s", cfg)
+	}
+	if code, _ := f.do(t, "PUT", "/models/chat-14b", `{"args":["--port=1"]}`, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("reserved arg: code = %d, want 422", code)
+	}
+	if code, _ := f.do(t, "PUT", "/models/missing", `{}`, true); code != http.StatusNotFound {
+		t.Errorf("missing model: code = %d, want 404", code)
+	}
+
+	if code, b := f.do(t, "DELETE", "/models/big", "", true); code != http.StatusOK {
+		t.Fatalf("DELETE = %d %v", code, b)
+	}
+	left, _ := filepath.Glob(filepath.Join(f.paths.Models, "big-*"))
+	if len(left) != 0 {
+		t.Errorf("shards left after delete: %v", left)
+	}
+	if _, err := os.Stat(filepath.Join(f.paths.Models, "chat-14b.gguf")); err != nil {
+		t.Errorf("delete removed the wrong model: %v", err)
+	}
+}
+
+func TestRestartService(t *testing.T) {
+	f := newFixture(t)
+	if code, _ := f.do(t, "POST", "/services/open-webui/restart", "", true); code != http.StatusAccepted {
+		t.Errorf("code = %d, want 202", code)
+	}
+	if code, _ := f.do(t, "POST", "/services/sshd/restart", "", true); code != http.StatusBadRequest {
+		t.Errorf("sshd: code = %d, want 400", code)
+	}
+	if got := f.requests(t); len(got) != 1 || got[0] != "restart.open-webui" {
+		t.Errorf("requests = %v", got)
+	}
+}

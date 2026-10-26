@@ -1,0 +1,7 @@
+[Unit]
+Description=Sibyl service status snapshot
+ConditionUser=sibyl
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/agent --status

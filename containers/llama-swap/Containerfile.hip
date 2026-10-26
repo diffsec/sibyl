@@ -56,7 +56,7 @@ RUN apt-get update \
 
 COPY --from=build /out/ /
 COPY --from=llama-swap-dl /out/llama-swap /app/llama-swap
-COPY config.yaml /app/config.yaml
+COPY config.yaml /app/config/config.yaml
 
 ENV PATH=/app:/opt/llama/bin:${PATH} \
     LD_LIBRARY_PATH=/opt/rocm/lib:/opt/llama/lib \
@@ -68,4 +68,4 @@ USER 10001:10001
 WORKDIR /app
 EXPOSE 8080
 HEALTHCHECK CMD ["curl", "-fsS", "http://127.0.0.1:8080/health"]
-ENTRYPOINT ["/app/llama-swap", "-listen", ":8080", "-config", "/app/config.yaml", "-watch-config"]
+ENTRYPOINT ["/app/llama-swap", "-listen", ":8080", "-config", "/app/config/config.yaml", "-watch-config"]

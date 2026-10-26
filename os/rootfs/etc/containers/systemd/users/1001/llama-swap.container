@@ -12,7 +12,8 @@ AddDevice=/dev/dri
 GroupAdd=keep-groups
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:ro,z
-Volume=/var/lib/sibyl/config/llama-swap.yaml:/app/config.yaml:ro,z
+# A directory mount, so llama-swap sees the API's atomic rewrites of config.yaml.
+Volume=/var/lib/sibyl/config/llama-swap:/app/config:ro,z
 DropCapability=ALL
 NoNewPrivileges=true
 ReadOnly=true

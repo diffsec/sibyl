@@ -1,0 +1,22 @@
+# Sibyl System API: one static Go binary on a distroless Wolfi base.
+# Build context: the repository root.
+
+ARG GO_IMAGE=cgr.dev/chainguard/go@sha256:85788137110936acab58b7a2901df787f71377ffac4809a9b04db7401f689580
+ARG RUNTIME_IMAGE=cgr.dev/chainguard/static@sha256:c12f0107f8afb0bbc1b0eff96ff8675e85a10c6083d039b777c51fef5c27420f
+
+FROM ${GO_IMAGE} AS build
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ cmd/
+COPY internal/ internal/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-api ./cmd/sibyl-api
+
+FROM ${RUNTIME_IMAGE}
+
+COPY --from=build /out/sibyl-api /usr/bin/sibyl-api
+
+USER 10001:10001
+EXPOSE 3001
+ENTRYPOINT ["/usr/bin/sibyl-api"]

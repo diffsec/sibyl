@@ -1,0 +1,67 @@
+#!/bin/bash
+# Sibyl host agent. Runs as the sibyl user, outside every container.
+#
+# The System API cannot reach the systemd bus. It asks for actions by creating
+# empty files named <timestamp>.<action>.<unit> in $RUN/requests. This script
+# accepts only the actions and units below, runs them, and deletes the request.
+# With --status it only writes the unit states to $RUN/status.json.
+set -euo pipefail
+
+RUN=/var/lib/sibyl/run
+UNITS=(llama-swap open-webui caddy arcane system-api)
+REQUEST_RE='^[0-9]{1,20}\.(restart|reload)\.(all|llama-swap|open-webui|caddy|arcane|system-api)$'
+
+write_status() {
+    local tmp sep="" unit active sub since
+    tmp="$(mktemp "$RUN/.status.XXXXXX")"
+    {
+        printf '{"updated":"%s","units":{' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        for unit in "${UNITS[@]}"; do
+            active="$(systemctl --user show -P ActiveState "$unit.service" 2>/dev/null || echo unknown)"
+            sub="$(systemctl --user show -P SubState "$unit.service" 2>/dev/null || echo unknown)"
+            since="$(systemctl --user show -P ActiveEnterTimestamp "$unit.service" 2>/dev/null || true)"
+            printf '%s"%s":{"active":"%s","sub":"%s","since":"%s"}' "$sep" "$unit" "$active" "$sub" "$since"
+            sep=","
+        done
+        printf '}}\n'
+    } > "$tmp"
+    chmod 0640 "$tmp"
+    mv -f "$tmp" "$RUN/status.json"
+}
+
+handle_requests() {
+    local f name action unit reload=0
+    local -a restarts=()
+    shopt -s nullglob
+    for f in "$RUN"/requests/*; do
+        name="$(basename "$f")"
+        rm -f -- "$f"
+        if [[ ! "$name" =~ $REQUEST_RE ]]; then
+            echo "sibyl-agent: rejected request '$name'" >&2
+            continue
+        fi
+        action="${BASH_REMATCH[1]}"
+        unit="${BASH_REMATCH[2]}"
+        case "$action" in
+            reload) reload=1 ;;
+            restart) [[ "$unit" != all ]] && restarts+=("$unit") ;;
+        esac
+    done
+
+    # A reload must run before restarts, so a restart uses the new unit.
+    if (( reload )); then
+        systemctl --user daemon-reload
+    fi
+    if (( ${#restarts[@]} )); then
+        mapfile -t restarts < <(printf '%s\n' "${restarts[@]}" | sort -u)
+        for unit in "${restarts[@]}"; do
+            echo "sibyl-agent: restarting $unit"
+            systemctl --user restart --no-block "$unit.service"
+        done
+    fi
+}
+
+if [[ "${1:-}" != "--status" ]]; then
+    handle_requests
+fi
+write_status
