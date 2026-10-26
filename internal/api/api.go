@@ -281,6 +281,7 @@ func (s *Server) restartService(w http.ResponseWriter, r *http.Request) {
 type ApplyResult struct {
 	Models         int               `json:"models"`
 	Issues         []llamaswap.Issue `json:"issues,omitempty"`
+	ConfigChanged  bool              `json:"config_changed"`
 	BackendChanged bool              `json:"backend_changed"`
 }
 
@@ -306,10 +307,15 @@ func (s *Server) Apply() (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	if err := hardware.WriteFileAtomic(s.Paths.llamaSwapFile(), body, 0o640); err != nil {
-		return ApplyResult{}, err
-	}
+	// llama-swap reloads on any change to the file's size or modification
+	// time, and a reload unloads the running models. Write only on a change.
 	res := ApplyResult{Models: len(cfg.Models), Issues: issues}
+	if cur, err := os.ReadFile(s.Paths.llamaSwapFile()); err != nil || !bytes.Equal(cur, body) {
+		if err := hardware.WriteFileAtomic(s.Paths.llamaSwapFile(), body, 0o640); err != nil {
+			return ApplyResult{}, err
+		}
+		res.ConfigChanged = true
+	}
 
 	dropIn := []byte(llamaswap.DropIn(hw, s.Registry, s.ImageTag))
 	old, err := os.ReadFile(s.Paths.dropInFile())

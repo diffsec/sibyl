@@ -170,9 +170,14 @@ func TestPutHardwareAppliesConfig(t *testing.T) {
 		t.Errorf("requests = %v", got)
 	}
 
-	// Applying again with no change must not restart llama-swap.
-	if code, body := f.do(t, "POST", "/apply", "", true); code != http.StatusOK || body["backend_changed"] != false {
+	// Applying again with no change must not touch the config or restart llama-swap.
+	cfgPath := filepath.Join(f.paths.Config, "llama-swap", "config.yaml")
+	before, _ := os.Stat(cfgPath)
+	if code, body := f.do(t, "POST", "/apply", "", true); code != http.StatusOK || body["backend_changed"] != false || body["config_changed"] != false {
 		t.Errorf("second apply = %d %v", code, body)
+	}
+	if after, _ := os.Stat(cfgPath); !after.ModTime().Equal(before.ModTime()) {
+		t.Error("an unchanged apply rewrote config.yaml")
 	}
 	if got := f.requests(t); len(got) != 2 {
 		t.Errorf("second apply queued more requests: %v", got)
