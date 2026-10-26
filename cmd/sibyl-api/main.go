@@ -16,6 +16,7 @@ import (
 	"github.com/ihavespoons/sibyl/internal/download"
 	"github.com/ihavespoons/sibyl/internal/hf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
+	"github.com/ihavespoons/sibyl/internal/ollama"
 )
 
 func env(key, def string) string {
@@ -69,6 +70,11 @@ func run(log *slog.Logger) error {
 		HF:        s.HF,
 		Log:       log,
 		OnDone:    s.OnDownloadDone,
+	}
+	s.Ollama = &ollama.Shim{
+		Upstream: env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080"),
+		Models:   s.OllamaModels,
+		HTTP:     &http.Client{},
 	}
 
 	// Bring the generated files in line with the disk at startup, for example

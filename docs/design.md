@@ -193,9 +193,14 @@ Device names differ per backend: `ROCm0` for HIP and `Vulkan0` for Vulkan. The S
 
 Open WebUI uses `RAG_EMBEDDING_ENGINE=openai` against a llama-swap model that runs `llama-server --embedding`. That model sits in a persistent group so chat swaps do not unload it.
 
-### Ollama-compatible shim
+### Ollama-compatible API
 
-Many clients speak only the Ollama API, and llama-swap has none. The System API adds `/api/tags`, `/api/show`, `/api/chat`, `/api/generate`, `/api/pull` and `/api/ps`. Each route translates to the llama-swap OpenAI API or to the Hugging Face download path. Caddy routes `/api/*` on port 8443 to the shim, and `/v1/*` to llama-swap.
+Many clients speak only the Ollama API, and llama-swap has none. The System API serves `/api/version`, `/api/tags`, `/api/show`, `/api/ps`, `/api/chat`, `/api/generate`, `/api/embed` and `/api/embeddings` (`internal/ollama`). Each call translates to llama-swap's OpenAI API. Caddy routes `/api/*` on port 8443 to the System API, and `/v1/*` to llama-swap. Both need the API key.
+
+- Streaming turns OpenAI server-sent events into Ollama's NDJSON frames, with `thinking` from llama-server's `reasoning_content`.
+- Tool calls convert in both directions: Ollama sends arguments as a JSON object, and OpenAI as a JSON string.
+- Ollama `options` map to OpenAI and llama-server fields: `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `seed`, `num_predict`, `stop`. `format` maps to JSON mode or a JSON schema.
+- `/api/pull`, `/api/create` and the other model management calls return 501, because Sibyl downloads models through its own picker.
 
 ## Host image
 

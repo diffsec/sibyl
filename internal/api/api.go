@@ -3,6 +3,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 	"github.com/ihavespoons/sibyl/internal/llamaswap"
 	"github.com/ihavespoons/sibyl/internal/models"
+	"github.com/ihavespoons/sibyl/internal/ollama"
 )
 
 // Paths are the directories that the API reads and writes, as seen inside its container.
@@ -48,6 +50,7 @@ type Server struct {
 	Log       *slog.Logger
 	HF        *hf.Client
 	Downloads *download.Manager
+	Ollama    *ollama.Shim
 
 	// mu serializes every change to the configuration files.
 	mu sync.Mutex
@@ -78,6 +81,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /downloads/{id}", s.getDownload)
 	auth.HandleFunc("DELETE /downloads/{id}", s.cancelDownload)
 	auth.HandleFunc("POST /downloads/{id}/retry", s.retryDownload)
+	if s.Ollama != nil {
+		s.Ollama.Register(auth)
+	}
 	mux.Handle("/", s.requireToken(auth))
 	return mux
 }
@@ -426,4 +432,25 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func writeError(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, map[string]string{"error": err.Error()})
+}
+
+// OllamaModels lists installed models for the Ollama-compatible API.
+func (s *Server) OllamaModels(context.Context) ([]ollama.ModelInfo, error) {
+	installed, err := models.Scan(s.Paths.Models)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := models.LoadSettings(s.Paths.settingsFile())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ollama.ModelInfo, 0, len(installed))
+	for _, m := range installed {
+		st := settings[m.ID]
+		if st.Hidden {
+			continue
+		}
+		out = append(out, ollama.ModelInfo{ID: m.ID, Size: m.Size, Embedding: st.Embedding})
+	}
+	return out, nil
 }
