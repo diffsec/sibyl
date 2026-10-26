@@ -10,9 +10,10 @@ services:
       SSH_KEY: ${SSH_KEY:?set SSH_KEY}
       INSTALL_DISK: ${INSTALL_DISK:-nvme0n1}
       TIMEZONE: ${TIMEZONE:-Etc/UTC}
+      GRUB_KERNEL_VIA: ${GRUB_KERNEL_VIA:-http}
     ports:
       - "69:69/udp"
-      - "80:80/tcp"
+      - "${HTTP_PORT:-80}:80/tcp"
     volumes:
       - pxe-cache:/data
     read_only: true

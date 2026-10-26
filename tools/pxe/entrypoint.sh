@@ -10,6 +10,15 @@ FEDORA_MIRROR="${FEDORA_MIRROR:-https://dl.fedoraproject.org/pub/fedora/linux/re
 SIBYL_IMAGE="${SIBYL_IMAGE:-ghcr.io/ihavespoons/sibyl-os:latest-amd}"
 INSTALL_DISK="${INSTALL_DISK:-nvme0n1}"
 TIMEZONE="${TIMEZONE:-Etc/UTC}"
+# GRUB_KERNEL_VIA=http is fast (seconds) but needs a direct path to the HTTP
+# server. GRUB's small TCP stack fails through the Docker port forwarder on
+# macOS. tftp works everywhere but takes about 14 minutes for the initrd.
+GRUB_KERNEL_VIA="${GRUB_KERNEL_VIA:-http}"
+case "$GRUB_KERNEL_VIA" in
+    http) BOOT_SOURCE="(http,$PXE_SERVER_IP)" ;;
+    tftp) BOOT_SOURCE="" ;;
+    *) echo "GRUB_KERNEL_VIA must be http or tftp" >&2; exit 1 ;;
+esac
 
 TREE="$FEDORA_MIRROR/$FEDORA_RELEASE/Everything/x86_64/os"
 # The root filesystem is read-only. Rendered files and downloads both go to
@@ -35,19 +44,24 @@ for f in images/pxeboot/vmlinuz images/pxeboot/initrd.img images/install.img; do
     mv "$DATA/$f.part" "$DATA/$f"
 done
 ln -sfn "$DATA" "$WEB/fedora"
+ln -sfn "$DATA" "$TFTP/fedora"
 
 render() {
     sed -e "s|@PXE_SERVER_IP@|$PXE_SERVER_IP|g" \
         -e "s|@SIBYL_IMAGE@|$SIBYL_IMAGE|g" \
         -e "s|@INSTALL_DISK@|$INSTALL_DISK|g" \
         -e "s|@TIMEZONE@|$TIMEZONE|g" \
+        -e "s|@BOOT_SOURCE@|$BOOT_SOURCE|g" \
         -e "s|@SSH_KEY@|$SSH_KEY|g" "$1"
 }
 render /opt/pxe/grub.cfg.in > "$TFTP/uefi/grub.cfg"
 chmod 0644 "$TFTP/uefi/grub.cfg"
+# shim asks for grubx64.efi at the TFTP root, not next to itself, and GRUB
+# then reads grub.cfg from the directory it was loaded from.
+cp "$TFTP/uefi/grubx64.efi" "$TFTP/uefi/grub.cfg" "$TFTP/"
 render /opt/pxe/sibyl.ks.in > "$WEB/sibyl.ks"
 
 echo "PXE ready. Router DHCP: next-server (option 66) = $PXE_SERVER_IP, boot file (option 67) = uefi/shimx64.efi"
-httpd -f -p 80 -h "$WEB" &
+httpd -f -v -p 80 -h "$WEB" &
 exec dnsmasq --no-daemon --port=0 --enable-tftp --tftp-root="$TFTP" \
     --tftp-single-port --log-facility=-

@@ -4,3 +4,4 @@ output/
 *.raw
 .DS_Store
 tools/pxe/.env
+tools/pxe/www/
