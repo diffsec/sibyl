@@ -18,6 +18,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 ## Rules
 
 - Pin third-party images by digest, and pin GitHub Actions by commit SHA at the latest release.
+- Quay deletes old `fedora-bootc` manifests after the tag moves. If the host build fails with `not found` on the base image, run `scripts/bump-base-image.sh`. The `bump base image` workflow does this weekly.
 - Fix linter findings. Do not add exclusions. Ask the maintainer if a finding cannot be fixed.
 - `bootc container lint` must pass with no warnings.
 - Every container drops all capabilities and sets `NoNewPrivileges=true`. Only Arcane runs with `SecurityLabelDisable=true`, because its Podman socket and D-Bus mounts need it.

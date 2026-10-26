@@ -1,0 +1,39 @@
+name: bump base image
+
+# Quay deletes old fedora-bootc manifests after the tag moves, so the digest
+# pinned in os/Containerfile goes stale. This opens a pull request with the
+# current digest. Pull requests opened with GITHUB_TOKEN do not start other
+# workflows; the image builds when the pull request is merged to main.
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Pin the current digest
+        run: scripts/bump-base-image.sh
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo "Base image digest is current."
+            exit 0
+          fi
+          branch="bump-base-$(date -u +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "Bump fedora-bootc base image digest"
+          git push -u origin "$branch"
+          gh pr create --fill --base main --head "$branch"
