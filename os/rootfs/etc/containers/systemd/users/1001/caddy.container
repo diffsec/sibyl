@@ -14,8 +14,8 @@ Secret=sibyl-api-key,type=env,target=SIBYL_API_KEY
 DropCapability=ALL
 NoNewPrivileges=true
 ReadOnly=true
-Tmpfs=/data:rw,size=16m,uid=10001
-Tmpfs=/config:rw,size=16m,uid=10001
+Tmpfs=/data:rw,size=16m,mode=1777
+Tmpfs=/config:rw,size=16m,mode=1777
 PidsLimit=512
 
 [Service]

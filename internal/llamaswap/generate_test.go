@@ -1,6 +1,7 @@
 package llamaswap
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -112,5 +113,19 @@ func TestDropIn(t *testing.T) {
 	hw := hardware.Config{Backend: hardware.BackendVulkan, GPUs: []int{1}}
 	if got := DropIn(hw, "r", "t"); !strings.Contains(got, "Environment=GGML_VK_VISIBLE_DEVICES=1\n") {
 		t.Errorf("vulkan drop-in:\n%s", got)
+	}
+}
+
+// The image ships a default backend.conf. It must match the drop-in for the
+// default hardware byte for byte, or the first apply restarts llama-swap.
+func TestImageDefaultDropIn(t *testing.T) {
+	raw, err := os.ReadFile("../../os/rootfs/etc/containers/systemd/users/1001/llama-swap.container.d/backend.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.ReplaceAll(string(raw), "@IMAGE_TAG@", "tag")
+	want := DropIn(hardware.Default(), "ghcr.io/ihavespoons", "tag")
+	if got != want {
+		t.Errorf("image default drop-in differs from DropIn(Default()):\n--- image\n%s--- generated\n%s", got, want)
 	}
 }

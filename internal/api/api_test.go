@@ -231,3 +231,19 @@ func TestRestartService(t *testing.T) {
 		t.Errorf("requests = %v", got)
 	}
 }
+
+// With no hardware.yaml, the first apply must match the image default
+// drop-in and leave llama-swap alone.
+func TestFirstApplyDoesNotRestart(t *testing.T) {
+	f := newFixture(t)
+	code, body := f.do(t, "POST", "/apply", "", true)
+	if code != http.StatusOK || body["backend_changed"] != false {
+		t.Fatalf("first apply = %d %v", code, body)
+	}
+	if got := f.requests(t); len(got) != 0 {
+		t.Errorf("first apply queued %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(f.paths.DropIn, "backend.conf")); !os.IsNotExist(err) {
+		t.Errorf("first apply wrote a drop-in: %v", err)
+	}
+}

@@ -19,7 +19,7 @@ Volume=%t/podman/podman.sock:/var/run/docker.sock
 Volume=%t/bus:%t/bus
 Volume=arcane.volume:/app/data
 Volume=/var/lib/sibyl/stacks:/var/lib/sibyl/stacks
-Secret=arcane-encryption-key,type=mount,target=/run/secrets/arcane-key,mode=0400
+Secret=arcane-encryption-key,type=mount,target=/run/secrets/arcane-key,mode=0400,uid=1001,gid=1001
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
 Environment=PUID=1001
 Environment=PGID=1001

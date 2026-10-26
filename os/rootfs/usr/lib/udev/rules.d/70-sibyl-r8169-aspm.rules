@@ -1,0 +1,6 @@
+# Realtek RTL8168/8111 NICs (r8169) can hang their transmit queue when PCIe
+# ASPM is on: "NETDEV WATCHDOG: transmit queue 0 timed out". On the first
+# boot of a test host this stopped DHCP for the whole boot. The driver turns
+# ASPM off only after a timeout, so turn it off as soon as the NIC appears.
+ACTION=="add", SUBSYSTEM=="net", DRIVERS=="r8169", TEST=="device/link/l1_aspm", ATTR{device/link/l1_aspm}="0"
+ACTION=="add", SUBSYSTEM=="net", DRIVERS=="r8169", TEST=="device/link/l0s_aspm", ATTR{device/link/l0s_aspm}="0"

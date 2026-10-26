@@ -291,7 +291,14 @@ func (s *Server) Apply() (ApplyResult, error) {
 
 	dropIn := []byte(llamaswap.DropIn(hw, s.Registry, s.ImageTag))
 	old, err := os.ReadFile(s.Paths.dropInFile())
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) {
+		// No override yet, so the image default is in effect. It matches the
+		// drop-in for the default hardware (see TestImageDefaultDropIn), so a
+		// first boot with no hardware.yaml does not restart llama-swap
+		// in the middle of its first image pull.
+		old, err = []byte(llamaswap.DropIn(hardware.Default(), s.Registry, s.ImageTag)), nil
+	}
+	if err != nil {
 		return res, err
 	}
 	if !bytes.Equal(old, dropIn) {
