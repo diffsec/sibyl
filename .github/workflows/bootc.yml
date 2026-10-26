@@ -91,29 +91,85 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # inputs: every path whose content goes into the image. An image whose
+        # inputs are unchanged is retagged, not rebuilt.
         include:
           - name: sibyl-llama-swap
             context: containers/llama-swap
             file: containers/llama-swap/Containerfile.hip
             suffix: -hip
+            inputs: containers/llama-swap
           - name: sibyl-llama-swap
             context: containers/llama-swap
             file: containers/llama-swap/Containerfile.vulkan
             suffix: -vulkan
+            inputs: containers/llama-swap
           - name: sibyl-caddy
             context: containers/caddy
             file: containers/caddy/Containerfile
             suffix: ''
+            inputs: containers/caddy
           - name: sibyl-system-api
             context: .
             file: containers/system-api/Containerfile
             suffix: ''
+            inputs: containers/system-api cmd internal go.mod go.sum
+    env:
+      IMAGE: ghcr.io/ihavespoons/${{ matrix.name }}
+      CACHE: ghcr.io/ihavespoons/sibyl-buildcache:${{ matrix.name }}${{ matrix.suffix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: src
+        name: Check for an image built from the same inputs
+        env:
+          INPUTS: ${{ matrix.inputs }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          read -ra paths <<< "$INPUTS"
+          tag="src-$(scripts/ci/input-hash.sh "${paths[@]}")${SUFFIX}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "${IMAGE}:${tag}" > /dev/null 2>&1; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            echo "Reusing ${IMAGE}:${tag}"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+            echo "No image for ${tag}; building"
+          fi
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+            suffix=${{ matrix.suffix }}
+          tags: |
+            type=raw,value=${{ needs.tag.outputs.image_tag }}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Retag the existing image
+        if: steps.src.outputs.hit == 'true' && needs.tag.outputs.push == 'true'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          SRC: ${{ steps.src.outputs.tag }}
+        run: |
+          # The digest does not change, so its cosign signature still applies.
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(--tag "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}:${SRC}"
+
       # The ROCm build image is ~25 GB unpacked.
       - name: Free disk space
-        if: matrix.suffix == '-hip'
+        if: steps.src.outputs.hit != 'true' && matrix.suffix == '-hip'
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
             /usr/local/share/boost /usr/local/graalvm /usr/local/.ghcup \
@@ -122,47 +178,34 @@ jobs:
           sudo docker image prune -af
           df -h /
 
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: steps.src.outputs.hit != 'true'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - if: needs.tag.outputs.push == 'true'
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.name }}
-          flavor: |
-            latest=false
-            suffix=${{ matrix.suffix }}
-          tags: |
-            type=raw,value=${{ needs.tag.outputs.image_tag }}
-            type=raw,value=latest,enable={{is_default_branch}}
-
+      # Layer cache in GHCR, not the GitHub Actions cache: the ROCm layers alone
+      # exceed the 10 GB per-repository Actions cache limit.
       - id: build
+        if: steps.src.outputs.hit != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: linux/amd64
           push: ${{ needs.tag.outputs.push == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ env.IMAGE }}:${{ steps.src.outputs.tag }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=${{ matrix.name }}${{ matrix.suffix }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}${{ matrix.suffix }}
+          cache-from: type=registry,ref=${{ env.CACHE }}
+          cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true', env.CACHE) || '' }}
 
-      - if: needs.tag.outputs.push == 'true'
+      - if: steps.src.outputs.hit != 'true' && needs.tag.outputs.push == 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image
-        if: needs.tag.outputs.push == 'true'
+        if: steps.src.outputs.hit != 'true' && needs.tag.outputs.push == 'true'
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
@@ -183,8 +226,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - if: needs.tag.outputs.push == 'true'
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -214,8 +256,8 @@ jobs:
             GPU_VARIANT=${{ matrix.variant }}
             IMAGE_TAG=${{ needs.tag.outputs.image_tag }}
             SIBYL_VERSION=${{ needs.tag.outputs.image_tag }}
-          cache-from: type=gha,scope=os-${{ matrix.variant }}
-          cache-to: type=gha,mode=max,scope=os-${{ matrix.variant }}
+          cache-from: type=registry,ref=ghcr.io/ihavespoons/sibyl-buildcache:os-${{ matrix.variant }}
+          cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref=ghcr.io/ihavespoons/sibyl-buildcache:os-{0},mode=max,image-manifest=true,oci-mediatypes=true', matrix.variant) || '' }}
 
       - if: needs.tag.outputs.push == 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
