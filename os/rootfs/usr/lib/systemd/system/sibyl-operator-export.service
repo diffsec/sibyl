@@ -1,0 +1,12 @@
+[Unit]
+Description=Sibyl API key and certificate for the sibyl-operators group
+After=sibyl-firstboot.service user-runtime-dir@1001.service systemd-tmpfiles-setup.service systemd-sysusers.service
+Requires=user-runtime-dir@1001.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sibyl/operator-export
+
+[Install]
+WantedBy=multi-user.target

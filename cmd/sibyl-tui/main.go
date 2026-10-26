@@ -4,7 +4,8 @@
 //
 //	SIBYL_API_URL       default http://system-api:3001 (inside the sibyl network)
 //	SIBYL_API_KEY_FILE  default /run/secrets/api-key
-//	SIBYL_CA_FILE       optional PEM file to trust, for https:// on the host's port 8443
+//	SIBYL_CA_FILE       optional PEM file to trust, for the host's self-signed certificate
+//	SIBYL_TLS_SERVER_NAME  optional name to verify, such as sibyl.local when connecting to 127.0.0.1
 package main
 
 import (
@@ -37,7 +38,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	c, err := client.New(env("SIBYL_API_URL", "http://system-api:3001"), strings.TrimSpace(string(key)), os.Getenv("SIBYL_CA_FILE"))
+	c, err := client.New(env("SIBYL_API_URL", "http://system-api:3001"), strings.TrimSpace(string(key)), os.Getenv("SIBYL_CA_FILE"), os.Getenv("SIBYL_TLS_SERVER_NAME"))
 	if err != nil {
 		return err
 	}

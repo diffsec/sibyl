@@ -31,4 +31,7 @@ reboot
 # admin has no password and logs in with its SSH key only.
 echo 'admin ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/admin
 chmod 0440 /etc/sudoers.d/admin
+# admin may run the TUI (sibyl) without sudo.
+groupadd -r -f sibyl-operators
+usermod -aG sibyl-operators admin
 %end

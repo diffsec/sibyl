@@ -94,7 +94,9 @@ Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sib
 
 ### Console interface
 
-The TUI (`cmd/sibyl-tui`, `internal/tui`) is a container image, `sibyl-tui`. It talks only to the System API, so it has no host privileges. `sudo sibyl` on the host starts it on the `sibyl` network, read-only, with all capabilities dropped and the API key mounted as a secret.
+The TUI (`cmd/sibyl-tui`, `internal/tui`) is a container image, `sibyl-tui`. It talks only to the System API, so it has no host privileges. Members of the `sibyl-operators` group run it with `sibyl`, with no sudo. The command starts the TUI in the caller's own rootless Podman, read-only with all capabilities dropped. The TUI connects through Caddy on `127.0.0.1:18443` and verifies the host certificate as `sibyl.local`.
+
+At each boot, `sibyl-operator-export.service` copies the API key and the certificate to `/var/lib/sibyl-operator/`, readable by `sibyl-operators` only. Membership gives full control of the System API, so add only trusted users: `sudo usermod -aG sibyl-operators <user>`.
 
 | Screen | Purpose |
 |---|---|
@@ -103,7 +105,7 @@ The TUI (`cmd/sibyl-tui`, `internal/tui`) is a container image, `sibyl-tui`. It 
 | Models | Installed models, the settings editor, and delete |
 | Download | Hugging Face search, variants with fit, confirmation, and download jobs |
 
-The network, account and SSH key steps of the setup wizard need host-level changes that the System API does not offer yet.
+The network, account and SSH key steps of the setup wizard need host-level changes that the System API does not offer yet. Phase 3 adds them.
 
 ### Model downloads
 
@@ -269,7 +271,7 @@ When the GPU set changes, for example after a card is added, the System API dete
 |---|---|---|
 | 1 | Inference images, host Containerfile, Quadlets, Caddy image, CI build and signing | The AMD host image boots in a VM. llama-swap serves a GGUF model on the 7900 XTX. |
 | 2 | System API and TUI in containers. They control units through the systemd D-Bus API. Setup wizard with GPU selection and layout. TUI editor for model settings: sampling, speculative decoding, KV cache, context and layout. Hugging Face picker. Ollama shim. Benchmark. | The API test suite passes against a running host. The wizard configures one card and two cards on the target host. |
-| 3 | Live ISO, persistence, guided disk installer that ends in the setup wizard, LUKS with TPM2, model pools | Install from USB to disk on the target host, and unlock without a passphrase. |
+| 3 | Live ISO, persistence, guided disk installer that ends in the setup wizard, LUKS with TPM2, model pools. Privileged host changes for the wizard (network, accounts, SSH keys) as allowlisted host agent actions | Install from USB to disk on the target host, and unlock without a passphrase. |
 | 4 | NVIDIA and Intel variants, offline update bundles, signature policy enforced | Each variant boots. An unsigned image fails to pull. |
 | 5 | User guide and developer guide | A new user installs Sibyl on a fresh host from the guide alone. |
 | 6 | Smart model router: a gateway in front of llama-swap that serves local requests that fit and routes others to frontier providers (Anthropic, OpenAI, OpenRouter and similar), using request profiles and customisable rules, optionally decided by a small local classifier model | Design to be written when phases 2 to 5 are done |

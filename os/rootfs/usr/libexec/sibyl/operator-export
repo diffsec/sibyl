@@ -1,0 +1,17 @@
+#!/bin/bash
+# Copy the System API key and the TLS certificate where members of
+# sibyl-operators can read them, so they can run the TUI without sudo.
+set -euo pipefail
+
+dir=/var/lib/sibyl-operator
+uid="$(id -u sibyl)"
+key="$(runuser -u sibyl -- env XDG_RUNTIME_DIR="/run/user/$uid" HOME=/var/lib/sibyl/home \
+    podman secret inspect --showsecret --format '{{.SecretData}}' sibyl-api-key)"
+
+umask 077
+printf '%s' "$key" > "$dir/.api.key.tmp"
+chown root:sibyl-operators "$dir/.api.key.tmp"
+chmod 0640 "$dir/.api.key.tmp"
+mv -f "$dir/.api.key.tmp" "$dir/api.key"
+
+install -o root -g sibyl-operators -m 0644 /var/lib/sibyl/tls/server.crt "$dir/ca.crt"

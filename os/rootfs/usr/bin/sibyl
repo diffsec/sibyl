@@ -1,17 +1,28 @@
 #!/bin/bash
-# Start the Sibyl console interface: sudo sibyl
-# The TUI runs as a rootless container on the sibyl network and talks only to
-# the System API, with the API key mounted as a Podman secret.
+# Start the Sibyl console interface. Members of sibyl-operators can run it
+# without sudo. The TUI runs in the caller's own rootless Podman and talks to
+# the System API through Caddy on this host, verifying its TLS certificate.
 set -euo pipefail
 
-if [[ $EUID -ne 0 ]]; then
-    exec sudo "$0" "$@"
+dir=/var/lib/sibyl-operator
+if [[ ! -r "$dir/api.key" ]]; then
+    echo "sibyl: $(id -un) is not in the sibyl-operators group." >&2
+    echo "An administrator can add you with: sudo usermod -aG sibyl-operators $(id -un)" >&2
+    echo "Then log out and back in." >&2
+    exit 1
 fi
 
-tag="$(cat /usr/share/sibyl/image-tag)"
-exec runuser -u sibyl -- env XDG_RUNTIME_DIR=/run/user/1001 HOME=/var/lib/sibyl/home \
-    podman run --rm -it --network sibyl \
+cd /
+# Copy the key and certificate into Podman secrets in the caller's own store.
+podman secret create --replace sibyl-api-key "$dir/api.key" >/dev/null
+podman secret create --replace sibyl-ca "$dir/ca.crt" >/dev/null
+
+exec podman run --rm -it --network host \
     --read-only --cap-drop all --security-opt no-new-privileges \
     -e TERM="${TERM:-xterm-256color}" \
+    -e SIBYL_API_URL=https://127.0.0.1:18443/system \
+    -e SIBYL_TLS_SERVER_NAME=sibyl.local \
+    -e SIBYL_CA_FILE=/run/secrets/sibyl-ca \
     --secret sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0444 \
-    "ghcr.io/ihavespoons/sibyl-tui:${tag}"
+    --secret sibyl-ca,type=mount,target=/run/secrets/sibyl-ca,mode=0444 \
+    "ghcr.io/ihavespoons/sibyl-tui:$(cat /usr/share/sibyl/image-tag)"

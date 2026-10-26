@@ -33,8 +33,11 @@ type Client struct {
 
 // New returns a client. caFile, if set, is a PEM file of extra trusted CA
 // certificates, such as the host's self-signed /var/lib/sibyl/tls/server.crt.
-func New(base, token, caFile string) (*Client, error) {
+// serverName, if set, is the name to verify instead of the URL's host, for
+// connecting to 127.0.0.1 with a certificate issued for sibyl.local.
+func New(base, token, caFile, serverName string) (*Client, error) {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{ServerName: serverName, MinVersion: tls.VersionTLS12}
 	if caFile != "" {
 		pem, err := os.ReadFile(caFile)
 		if err != nil {
@@ -47,7 +50,7 @@ func New(base, token, caFile string) (*Client, error) {
 		if !pool.AppendCertsFromPEM(pem) {
 			return nil, fmt.Errorf("%s: no PEM certificates found", caFile)
 		}
-		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		tr.TLSClientConfig.RootCAs = pool
 	}
 	return &Client{Base: strings.TrimSuffix(base, "/"), Token: token, HTTP: &http.Client{Timeout: 60 * time.Second, Transport: tr}}, nil
 }
