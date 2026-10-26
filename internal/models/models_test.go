@@ -25,12 +25,15 @@ func TestScan(t *testing.T) {
 	touch(t, filepath.Join(dir, "mmproj-F16.gguf"), 3)
 	touch(t, filepath.Join(dir, ".partial", "x.gguf"), 3)
 	touch(t, filepath.Join(dir, "readme.txt"), 3)
+	touch(t, filepath.Join(dir, "Coder-7B", "Coder-7B-00001-of-00002.gguf"), 2)
+	touch(t, filepath.Join(dir, "Coder-7B", "Coder-7B-00002-of-00002.gguf"), 2)
 
 	got, err := Scan(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []Model{
+		{ID: "coder-7b", Path: filepath.Join("Coder-7B", "Coder-7B-00001-of-00002.gguf"), Size: 4, Shards: 2},
 		{ID: "llama--llama-3.3-70b-q4_k_m", Path: filepath.Join("llama", "Llama-3.3-70B-Q4_K_M-00001-of-00002.gguf"), Size: 12, Shards: 2},
 		{ID: "qwen3-14b-q8_0", Path: "Qwen3-14B-Q8_0.gguf", Size: 10, Shards: 1},
 	}

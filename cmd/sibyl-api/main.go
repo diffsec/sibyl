@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/ihavespoons/sibyl/internal/api"
+	"github.com/ihavespoons/sibyl/internal/download"
+	"github.com/ihavespoons/sibyl/internal/hf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 )
 
@@ -42,6 +44,7 @@ func run(log *slog.Logger) error {
 			Models:    env("SIBYL_MODELS_DIR", "/models"),
 			DropIn:    env("SIBYL_DROPIN_DIR", "/quadlet"),
 			SysfsRoot: env("SIBYL_SYSFS", "/sys"),
+			MemInfo:   env("SIBYL_MEMINFO", "/proc/meminfo"),
 		},
 		Host:     hostctl.New(env("SIBYL_RUN_DIR", "/run/sibyl")),
 		Token:    strings.TrimSpace(string(token)),
@@ -52,6 +55,20 @@ func run(log *slog.Logger) error {
 	}
 	if s.Token == "" {
 		return errors.New("the API key file is empty")
+	}
+
+	// An optional Hugging Face token, for gated repositories.
+	hfToken := ""
+	if b, err := os.ReadFile(env("SIBYL_HF_TOKEN_FILE", "/run/secrets/hf-token")); err == nil {
+		hfToken = strings.TrimSpace(string(b))
+	}
+	s.HF = hf.New(env("SIBYL_HF_BASE", hf.DefaultBase), hfToken)
+	s.Downloads = &download.Manager{
+		ModelsDir: s.Paths.Models,
+		StateFile: s.Paths.Config + "/downloads.json",
+		HF:        s.HF,
+		Log:       log,
+		OnDone:    s.OnDownloadDone,
 	}
 
 	// Bring the generated files in line with the disk at startup, for example
@@ -73,6 +90,9 @@ func run(log *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if err := s.Downloads.Start(ctx); err != nil {
+		return err
+	}
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", srv.Addr)

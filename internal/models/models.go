@@ -91,7 +91,12 @@ func Scan(dir string) ([]Model, error) {
 }
 
 // ID turns a relative path into a model ID that is safe in URLs and llama-swap config.
+// A file in a folder of the same name, such as qwen/Qwen.gguf, gets the short ID "qwen".
 func ID(rel string) string {
+	if dir, base := filepath.Split(filepath.ToSlash(rel)); dir != "" &&
+		strings.EqualFold(filepath.Base(strings.TrimSuffix(dir, "/")), base) {
+		rel = strings.TrimSuffix(dir, "/")
+	}
 	id := strings.ToLower(filepath.ToSlash(rel))
 	id = strings.ReplaceAll(id, "/", "--")
 	id = idUnsafe.ReplaceAllString(id, "-")

@@ -85,8 +85,26 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `DELETE /models/{id}` | Deletes the model and all of its shards. Applies. |
 | `POST /apply` | Regenerates the configuration |
 | `GET /services`, `POST /services/{name}/restart` | Unit states and restarts through the host agent |
+| `GET /hf/search?q=` | Search Hugging Face for GGUF repositories, most downloaded first |
+| `GET /hf/repos/{owner}/{name}` | Complete GGUF variants at a pinned commit, with size and fit (`gpu`, `split` or `no`) |
+| `GET, POST /downloads` | List download jobs, or queue one: `{"repo", "variant", "revision"}` |
+| `GET, DELETE /downloads/{id}`, `POST /downloads/{id}/retry` | One job: progress, cancel, or resume a failed job |
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
+
+### Model downloads
+
+The download manager (`internal/download`) runs one job at a time. Each job pins a commit, so every file comes from one revision even if the repository changes during the download.
+
+1. The job checks that the disk has room for the rest of the download plus 2 GiB.
+2. Files go to `/models/.partial-<job>/`. The model scanner skips hidden folders, so a half-downloaded model is never listed.
+3. A dropped transfer resumes with an HTTP Range request. An attempt that receives no data for 2 minutes is retried, up to 10 times.
+4. Each file must match the SHA-256 that Hugging Face records for it. A file that fails is deleted.
+5. The folder is renamed to `/models/<variant>/`, with a `.sibyl-source.json` that records the repository, commit and digests. The API then regenerates the llama-swap configuration.
+
+Jobs are saved in `/config/downloads.json` and resume after a restart. A Podman secret `hf-token`, if it exists, is sent to Hugging Face for gated repositories.
+
+The fit estimate compares the file size with the VRAM of the selected GPUs, less 2 GiB per GPU for the KV cache. `split` means the model needs system RAM as well. Some models still run fully on GPU, because llama.cpp keeps a large token embedding table in system RAM; the model card says so.
 
 ### Model settings
 

@@ -14,8 +14,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ihavespoons/sibyl/internal/download"
 	"github.com/ihavespoons/sibyl/internal/gpu"
 	"github.com/ihavespoons/sibyl/internal/hardware"
+	"github.com/ihavespoons/sibyl/internal/hf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 	"github.com/ihavespoons/sibyl/internal/llamaswap"
 	"github.com/ihavespoons/sibyl/internal/models"
@@ -27,6 +29,7 @@ type Paths struct {
 	Models    string // GGUF files
 	DropIn    string // llama-swap.container.d in the sibyl user's Quadlet directory
 	SysfsRoot string // normally /sys
+	MemInfo   string // normally /proc/meminfo
 }
 
 func (p Paths) hardwareFile() string  { return filepath.Join(p.Config, "hardware.yaml") }
@@ -36,13 +39,15 @@ func (p Paths) dropInFile() string    { return filepath.Join(p.DropIn, "backend.
 
 // Server holds the API state.
 type Server struct {
-	Paths    Paths
-	Host     *hostctl.Client
-	Token    string
-	Registry string
-	ImageTag string
-	Version  string
-	Log      *slog.Logger
+	Paths     Paths
+	Host      *hostctl.Client
+	Token     string
+	Registry  string
+	ImageTag  string
+	Version   string
+	Log       *slog.Logger
+	HF        *hf.Client
+	Downloads *download.Manager
 
 	// mu serializes every change to the configuration files.
 	mu sync.Mutex
@@ -66,6 +71,13 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /apply", s.postApply)
 	auth.HandleFunc("GET /services", s.getServices)
 	auth.HandleFunc("POST /services/{name}/restart", s.restartService)
+	auth.HandleFunc("GET /hf/search", s.hfSearch)
+	auth.HandleFunc("GET /hf/repos/{owner}/{name}", s.hfRepo)
+	auth.HandleFunc("GET /downloads", s.listDownloads)
+	auth.HandleFunc("POST /downloads", s.addDownload)
+	auth.HandleFunc("GET /downloads/{id}", s.getDownload)
+	auth.HandleFunc("DELETE /downloads/{id}", s.cancelDownload)
+	auth.HandleFunc("POST /downloads/{id}/retry", s.retryDownload)
 	mux.Handle("/", s.requireToken(auth))
 	return mux
 }
