@@ -1,0 +1,20 @@
+# Usage: put PXE_SERVER_IP and SSH_KEY in tools/pxe/.env (git ignores it), then
+#   docker compose up --build -d
+services:
+  pxe:
+    build:
+      context: .
+      dockerfile: Containerfile
+    environment:
+      PXE_SERVER_IP: ${PXE_SERVER_IP:?set PXE_SERVER_IP}
+      SSH_KEY: ${SSH_KEY:?set SSH_KEY}
+      INSTALL_DISK: ${INSTALL_DISK:-nvme0n1}
+      TIMEZONE: ${TIMEZONE:-Etc/UTC}
+    ports:
+      - "69:69/udp"
+      - "80:80/tcp"
+    volumes:
+      - pxe-cache:/data
+    read_only: true
+volumes:
+  pxe-cache:

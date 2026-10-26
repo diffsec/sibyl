@@ -1,0 +1,27 @@
+# PXE boot server for installing Sibyl over the network.
+# TFTP serves Fedora's signed shim and GRUB (Secure Boot works). HTTP serves
+# the installer kernel, initrd, stage 2 image and the kickstart file.
+
+ARG FEDORA_IMAGE=quay.io/fedora/fedora:44@sha256:40005ed606ff7bbdc5344f3625e043f64493358b3dfaf2cc6b1995282189f3f5
+ARG ALPINE_IMAGE=docker.io/library/alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f
+
+# dnf checks the Fedora GPG signature on both RPMs before it extracts them.
+FROM ${FEDORA_IMAGE} AS efi
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+WORKDIR /rpms
+RUN dnf -y install --setopt=install_weak_deps=False cpio \
+    && dnf download --forcearch=x86_64 --arch=x86_64 shim-x64 grub2-efi-x64 \
+    && dnf clean all \
+    && rpm -K ./*.rpm \
+    && mkdir /x \
+    && for r in ./*.rpm; do rpm2cpio "$r" | cpio -idm --quiet -D /x; done \
+    && mkdir -p /out/uefi \
+    && cp "$(find /x/usr/lib/efi/shim -path '*/EFI/fedora/shimx64.efi')" \
+          "$(find /x/usr/lib/efi/grub2 -path '*/EFI/fedora/grubx64.efi')" /out/uefi/
+
+FROM ${ALPINE_IMAGE}
+RUN apk add --no-cache dnsmasq busybox-extras curl
+COPY --from=efi /out/uefi/ /opt/pxe/uefi/
+COPY grub.cfg.in sibyl.ks.in entrypoint.sh /opt/pxe/
+EXPOSE 69/udp 80/tcp
+ENTRYPOINT ["/bin/sh", "/opt/pxe/entrypoint.sh"]

@@ -1,0 +1,12 @@
+# Served over TFTP to Fedora's network GRUB. Kernel and initrd come over HTTP.
+set default=0
+set timeout=10
+
+menuentry 'Install Sibyl (wipes @INSTALL_DISK@)' --id sibyl {
+    linux (http,@PXE_SERVER_IP@)/fedora/images/pxeboot/vmlinuz ip=dhcp inst.stage2=http://@PXE_SERVER_IP@/fedora inst.ks=http://@PXE_SERVER_IP@/sibyl.ks inst.text
+    initrd (http,@PXE_SERVER_IP@)/fedora/images/pxeboot/initrd.img
+}
+
+menuentry 'Boot from local disk' --id local {
+    exit
+}

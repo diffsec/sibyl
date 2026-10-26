@@ -1,0 +1,29 @@
+# Sibyl network install. Rendered by tools/pxe/entrypoint.sh.
+text
+lang en_US.UTF-8
+keyboard us
+timezone @TIMEZONE@ --utc
+network --bootproto=dhcp --device=link --activate --hostname=sibyl
+
+# Wipe the target disk and encrypt it. No passphrase is set here, so the
+# installer asks for one at the console. Enroll the TPM after the first boot.
+ignoredisk --only-use=@INSTALL_DISK@
+zerombr
+clearpart --all --initlabel --disklabel=gpt --drives=@INSTALL_DISK@
+autopart --type=plain --fstype=xfs --encrypted --luks-version=luks2
+
+# Install the Sibyl bootc image. CI signs it with cosign, not with an ostree
+# signature, so ostree verification is off here.
+ostreecontainer --url=@SIBYL_IMAGE@ --transport=registry --no-signature-verification
+
+rootpw --lock
+user --name=admin --groups=wheel --lock
+sshkey --username=admin "@SSH_KEY@"
+
+reboot
+
+%post --erroronfail
+# admin has no password and logs in with its SSH key only.
+echo 'admin ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/admin
+chmod 0440 /etc/sudoers.d/admin
+%end
