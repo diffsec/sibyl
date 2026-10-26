@@ -27,6 +27,9 @@ Environment=ANONYMIZED_TELEMETRY=false
 Environment=DO_NOT_TRACK=true
 Environment=SCARF_NO_ANALYTICS=true
 Environment=HF_HUB_OFFLINE=1
+# API keys let the System API set the embedding model (Admin, Settings, Documents).
+# Open WebUI stores this in its database, so it applies on the first start only.
+Environment=ENABLE_API_KEYS=true
 DropCapability=ALL
 NoNewPrivileges=true
 PidsLimit=2048

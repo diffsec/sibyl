@@ -178,6 +178,7 @@ func (s *Server) OnDownloadDone() {
 	if _, err := s.Apply(); err != nil {
 		s.Log.Error("apply after download", "err", err)
 	}
+	go s.SyncOpenWebUI()
 }
 
 type errString string

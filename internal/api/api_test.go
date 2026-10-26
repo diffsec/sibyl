@@ -19,9 +19,10 @@ import (
 const token = "test-token"
 
 type fixture struct {
-	srv   *httptest.Server
-	paths Paths
-	run   string
+	server *Server
+	srv    *httptest.Server
+	paths  Paths
+	run    string
 }
 
 func mkdir(t *testing.T, p string) {
@@ -77,7 +78,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
-	return &fixture{srv: srv, paths: p, run: run}
+	return &fixture{server: s, srv: srv, paths: p, run: run}
 }
 
 func (f *fixture) do(t *testing.T, method, path, body string, auth bool) (int, map[string]any) {
@@ -312,5 +313,42 @@ func TestBenchmark(t *testing.T) {
 	}
 	if code, _ := f.do(t, "POST", "/models/missing/benchmark", "", true); code != http.StatusNotFound {
 		t.Errorf("missing model = %d", code)
+	}
+}
+
+func TestOpenWebUIIntegration(t *testing.T) {
+	f := newFixture(t)
+	var gotModel string
+	owuiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer good-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/api/v1/retrieval/embedding/update" {
+			var b map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			gotModel, _ = b["RAG_EMBEDDING_MODEL"].(string)
+		}
+		_, _ = w.Write([]byte(`{"RAG_EMBEDDING_ENGINE":"","RAG_EMBEDDING_MODEL":"x","openai_config":{"url":""}}`))
+	}))
+	defer owuiSrv.Close()
+	f.server.OpenWebUI = &OpenWebUI{Base: owuiSrv.URL, EmbedURL: "http://llama-swap:8080/v1"}
+
+	if code, _ := f.do(t, "PUT", "/integrations/open-webui", `{"api_key":"bad-key"}`, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("bad key = %d, want 422", code)
+	}
+	if _, err := os.Stat(filepath.Join(f.paths.Config, "open-webui.key")); !os.IsNotExist(err) {
+		t.Error("a rejected key was stored")
+	}
+	f.do(t, "PUT", "/models/chat-14b", `{"embedding":true}`, true)
+	code, b := f.do(t, "PUT", "/integrations/open-webui", `{"api_key":"good-key"}`, true)
+	if code != 200 || b["configured"] != true || b["embedding_model"] != "chat-14b" {
+		t.Fatalf("good key = %d %v", code, b)
+	}
+	if gotModel != "chat-14b" {
+		t.Errorf("open webui was set to %q", gotModel)
+	}
+	if st, err := os.Stat(filepath.Join(f.paths.Config, "open-webui.key")); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("key file: %v %v", st, err)
 	}
 }

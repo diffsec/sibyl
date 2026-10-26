@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/ihavespoons/sibyl/internal/client"
 	"github.com/ihavespoons/sibyl/internal/gpu"
@@ -16,7 +17,13 @@ import (
 type statusMsg struct {
 	status client.Status
 	gpus   []gpu.GPU
+	owui   client.OpenWebUI
 	err    error
+}
+
+type owuiSaved struct {
+	st  client.OpenWebUI
+	err error
 }
 
 type statusTick struct{}
@@ -27,6 +34,8 @@ type statusView struct {
 	units  []string
 	cursor int
 	ticks  bool
+	form   *huh.Form
+	key    string
 }
 
 func newStatusView(c *client.Client) *statusView { return &statusView{c: c} }
@@ -40,7 +49,11 @@ func (v *statusView) fetch() tea.Cmd {
 			return statusMsg{err: err}
 		}
 		g, err := v.c.GPUs(ctx)
-		return statusMsg{status: s, gpus: g, err: err}
+		if err != nil {
+			return statusMsg{status: s, err: err}
+		}
+		o, err := v.c.OpenWebUI(ctx)
+		return statusMsg{status: s, gpus: g, owui: o, err: err}
 	}
 }
 
@@ -52,9 +65,27 @@ func (v *statusView) activate() tea.Cmd {
 	return tea.Batch(v.fetch(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusTick{} }))
 }
 
-func (v *statusView) capturing() bool { return false }
+func (v *statusView) capturing() bool { return v.form != nil }
 
-func (v *statusView) help() string { return "↑/↓ select · r restart service" }
+func (v *statusView) help() string {
+	if v.form != nil {
+		return "enter save · esc discard"
+	}
+	return "↑/↓ select · r restart service · o Open WebUI key"
+}
+
+func (v *statusView) keyForm() tea.Cmd {
+	v.key = ""
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewNote().Title("Connect Open WebUI").Description(
+			"Sibyl sets Open WebUI's document embedding model for you.\n"+
+				"1. In Open WebUI: Admin Panel, Settings, General: turn on API Keys.\n"+
+				"2. As an admin: Settings, Account, API Keys: create a key.\n"+
+				"3. Paste it here. Sibyl checks it before saving."),
+		huh.NewInput().Title("Open WebUI API key").EchoMode(huh.EchoModePassword).Value(&v.key),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
 
 func (v *statusView) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
@@ -70,8 +101,23 @@ func (v *statusView) update(msg tea.Msg) tea.Cmd {
 		if v.cursor >= len(v.units) {
 			v.cursor = 0
 		}
+	case owuiSaved:
+		if msg.err != nil {
+			return note(false, "open webui: %v", msg.err)
+		}
+		v.data.owui = msg.st
+		return note(true, "Open WebUI connected: %s", msg.st.LastSync)
 	case tea.KeyPressMsg:
+		if v.form != nil {
+			if msg.String() == "esc" {
+				v.form = nil
+				return nil
+			}
+			return v.formStep(msg)
+		}
 		switch msg.String() {
+		case "o":
+			return v.keyForm()
 		case "up", "k":
 			if v.cursor > 0 {
 				v.cursor--
@@ -95,10 +141,32 @@ func (v *statusView) update(msg tea.Msg) tea.Cmd {
 			}
 		}
 	}
+	if v.form != nil {
+		return v.formStep(msg)
+	}
 	return nil
 }
 
+func (v *statusView) formStep(msg tea.Msg) tea.Cmd {
+	m, cmd := v.form.Update(msg)
+	v.form = m.(*huh.Form)
+	if v.form.State != huh.StateCompleted {
+		return cmd
+	}
+	v.form = nil
+	key := strings.TrimSpace(v.key)
+	v.key = ""
+	if key == "" {
+		return cmd
+	}
+	return tea.Batch(cmd, call(func(ctx context.Context) (client.OpenWebUI, error) { return v.c.SetOpenWebUIKey(ctx, key) },
+		func(o client.OpenWebUI, err error) tea.Msg { return owuiSaved{o, err} }))
+}
+
 func (v *statusView) render(int) string {
+	if v.form != nil {
+		return v.form.View()
+	}
 	var b strings.Builder
 	if v.data.err != nil {
 		b.WriteString(badSty.Render("API error: "+v.data.err.Error()) + "\n\n")
@@ -128,6 +196,16 @@ func (v *statusView) render(int) string {
 	}
 	if s.Services.Updated != "" {
 		b.WriteString(mutedSty.Render("  updated "+s.Services.Updated) + "\n")
+	}
+	b.WriteString("\n" + titleSty.Render("Open WebUI") + "\n")
+	o := v.data.owui
+	switch {
+	case !o.Configured:
+		b.WriteString("  " + mutedSty.Render("not connected · press o to add an API key, so Sibyl can set the embedding model") + "\n")
+	case o.Error != "":
+		b.WriteString("  " + badSty.Render(o.Error) + "\n")
+	default:
+		b.WriteString("  " + goodSty.Render("connected") + " · " + o.LastSync + "\n")
 	}
 	return b.String()
 }

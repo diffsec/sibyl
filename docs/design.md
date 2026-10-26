@@ -193,7 +193,13 @@ llama-swap runs one image, so the backend applies to every model. The recommenda
 
 ### Embeddings for Open WebUI
 
-Open WebUI uses `RAG_EMBEDDING_ENGINE=openai` against a llama-swap model that runs `llama-server --embedding`. That model sits in a persistent group so chat swaps do not unload it.
+Open WebUI's document search uses an embedding model from llama-swap through its OpenAI engine. The matrix router keeps the embedding model loaded beside a chat model.
+
+Open WebUI stores its embedding settings in its database (`rag.embedding_model` is persistent configuration in v0.12.4), so environment variables apply on the first start only. Sibyl sets them through Open WebUI's admin API instead:
+
+1. An admin turns on API keys in Open WebUI (Admin Panel, Settings, General) and creates a key. The image sets `ENABLE_API_KEYS=true`, so a fresh install has the switch on already.
+2. The admin enters the key in the TUI (Status screen, key `o`) or with `PUT /integrations/open-webui`. The System API checks the key against an admin-only endpoint before it stores it in `/config/open-webui.key` with mode 0600.
+3. After each configuration change, and at startup, the System API points Open WebUI at the first installed model marked as an embedding model, through `POST /api/v1/retrieval/embedding/update`. It changes nothing when Open WebUI already uses that model.
 
 ### Ollama-compatible API
 

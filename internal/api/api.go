@@ -51,6 +51,7 @@ type Server struct {
 	HF        *hf.Client
 	Downloads *download.Manager
 	Ollama    *ollama.Shim
+	OpenWebUI *OpenWebUI
 
 	// mu serializes every change to the configuration files.
 	mu sync.Mutex
@@ -75,6 +76,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
 	auth.HandleFunc("POST /apply", s.postApply)
 	auth.HandleFunc("GET /services", s.getServices)
+	auth.HandleFunc("GET /integrations/open-webui", s.getOpenWebUI)
+	auth.HandleFunc("PUT /integrations/open-webui", s.putOpenWebUI)
+	auth.HandleFunc("DELETE /integrations/open-webui", s.deleteOpenWebUI)
 	auth.HandleFunc("POST /services/{name}/restart", s.restartService)
 	auth.HandleFunc("GET /hf/search", s.hfSearch)
 	auth.HandleFunc("GET /hf/repos/{owner}/{name}", s.hfRepo)
@@ -365,6 +369,7 @@ func (s *Server) respondApply(w http.ResponseWriter) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("apply: %w", err))
 		return
 	}
+	go s.SyncOpenWebUI()
 	writeJSON(w, http.StatusOK, res)
 }
 

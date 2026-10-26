@@ -71,6 +71,10 @@ func run(log *slog.Logger) error {
 		Log:       log,
 		OnDone:    s.OnDownloadDone,
 	}
+	s.OpenWebUI = &api.OpenWebUI{
+		Base:     env("SIBYL_OPEN_WEBUI_URL", "http://open-webui:8080"),
+		EmbedURL: env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080") + "/v1",
+	}
 	s.Ollama = &ollama.Shim{
 		Upstream: env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080"),
 		Models:   s.OllamaModels,
@@ -84,6 +88,8 @@ func run(log *slog.Logger) error {
 	} else {
 		log.Info("startup apply", "models", res.Models, "backend_changed", res.BackendChanged)
 	}
+
+	go s.SyncOpenWebUI()
 
 	srv := &http.Server{
 		Addr:              env("SIBYL_LISTEN", ":3001"),

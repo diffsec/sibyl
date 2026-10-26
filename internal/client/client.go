@@ -199,6 +199,25 @@ func (c *Client) StartBenchmark(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/benchmark", nil, nil)
 }
 
+// OpenWebUI is the Open WebUI integration status.
+type OpenWebUI struct {
+	Configured bool   `json:"configured"`
+	Desired    string `json:"embedding_model,omitempty"`
+	LastSync   string `json:"last_sync,omitempty"`
+	LastSyncAt string `json:"last_sync_at,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+func (c *Client) OpenWebUI(ctx context.Context) (OpenWebUI, error) {
+	var o OpenWebUI
+	return o, c.do(ctx, http.MethodGet, "/integrations/open-webui", nil, &o)
+}
+
+func (c *Client) SetOpenWebUIKey(ctx context.Context, key string) (OpenWebUI, error) {
+	var o OpenWebUI
+	return o, c.do(ctx, http.MethodPut, "/integrations/open-webui", map[string]string{"api_key": key}, &o)
+}
+
 func (c *Client) Restart(ctx context.Context, unit string) error {
 	return c.do(ctx, http.MethodPost, "/services/"+url.PathEscape(unit)+"/restart", nil, nil)
 }
