@@ -92,6 +92,19 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
 
+### Console interface
+
+The TUI (`cmd/sibyl-tui`, `internal/tui`) is a container image, `sibyl-tui`. It talks only to the System API, so it has no host privileges. `sudo sibyl` on the host starts it on the `sibyl` network, read-only, with all capabilities dropped and the API key mounted as a secret.
+
+| Screen | Purpose |
+|---|---|
+| Status | GPUs with VRAM in use, and service states with restarts |
+| Hardware | The GPU part of the setup wizard: GPUs for inference, backend, default layout |
+| Models | Installed models, the settings editor, and delete |
+| Download | Hugging Face search, variants with fit, confirmation, and download jobs |
+
+The network, account and SSH key steps of the setup wizard need host-level changes that the System API does not offer yet.
+
 ### Model downloads
 
 The download manager (`internal/download`) runs one job at a time. Each job pins a commit, so every file comes from one revision even if the repository changes during the download.
@@ -259,8 +272,8 @@ When the GPU set changes, for example after a card is added, the System API dete
 | 3 | Live ISO, persistence, guided disk installer that ends in the setup wizard, LUKS with TPM2, model pools | Install from USB to disk on the target host, and unlock without a passphrase. |
 | 4 | NVIDIA and Intel variants, offline update bundles, signature policy enforced | Each variant boots. An unsigned image fails to pull. |
 | 5 | User guide and developer guide | A new user installs Sibyl on a fresh host from the guide alone. |
+| 6 | Smart model router: a gateway in front of llama-swap that serves local requests that fit and routes others to frontier providers (Anthropic, OpenAI, OpenRouter and similar), using request profiles and customisable rules, optionally decided by a small local classifier model | Design to be written when phases 2 to 5 are done |
 
 ## Open items
 
-- The TUI runs on the console. As a container it needs `/dev/tty1`. Phase 2 must decide between a container on tty1 and a host package.
 - Arcane Git Sync polls and has no webhooks. Compose files pulled from Git are read-only in the Arcane UI.

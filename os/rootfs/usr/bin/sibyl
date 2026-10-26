@@ -1,0 +1,17 @@
+#!/bin/bash
+# Start the Sibyl console interface: sudo sibyl
+# The TUI runs as a rootless container on the sibyl network and talks only to
+# the System API, with the API key mounted as a Podman secret.
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+    exec sudo "$0" "$@"
+fi
+
+tag="$(cat /usr/share/sibyl/image-tag)"
+exec runuser -u sibyl -- env XDG_RUNTIME_DIR=/run/user/1001 HOME=/var/lib/sibyl/home \
+    podman run --rm -it --network sibyl \
+    --read-only --cap-drop all --security-opt no-new-privileges \
+    -e TERM="${TERM:-xterm-256color}" \
+    --secret sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0444 \
+    "ghcr.io/ihavespoons/sibyl-tui:${tag}"

@@ -114,6 +114,11 @@ jobs:
             file: containers/system-api/Containerfile
             suffix: ''
             inputs: containers/system-api cmd internal go.mod go.sum
+          - name: sibyl-tui
+            context: .
+            file: containers/tui/Containerfile
+            suffix: ''
+            inputs: containers/tui cmd internal go.mod go.sum
     env:
       IMAGE: ghcr.io/ihavespoons/${{ matrix.name }}
       CACHE: ghcr.io/ihavespoons/sibyl-buildcache:${{ matrix.name }}${{ matrix.suffix }}

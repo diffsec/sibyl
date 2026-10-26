@@ -27,6 +27,7 @@ RUN grep -E '^(render|video):' /usr/lib/group >> /etc/group \
     && grep -E '^(render|video):' /usr/lib/group | awk -F: '{print $1":!::"}' >> /etc/gshadow
 
 RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
+    && echo "${IMAGE_TAG}" > /usr/share/sibyl/image-tag \
     && echo "${GPU_VARIANT}" > /usr/share/sibyl/gpu-variant \
     && systemctl enable nftables.service sibyl-selinux.service sibyl-firstboot.service \
     && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
