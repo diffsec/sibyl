@@ -26,9 +26,11 @@ on:
 permissions:
   contents: read
 
+# Pull requests cancel stale runs. Pushes to main queue instead, because the
+# HIP image takes about an hour to build and a cancel throws that work away.
 concurrency:
   group: bootc-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REGISTRY: ghcr.io
