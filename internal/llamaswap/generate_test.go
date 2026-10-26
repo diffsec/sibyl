@@ -22,14 +22,14 @@ func twoGPUs(layout hardware.Layout) hardware.Config {
 }
 
 func TestGenerateSpanDefault(t *testing.T) {
-	cfg, skipped := Generate(twoGPUs(hardware.LayoutSpan), installed, map[string]models.Settings{
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), installed, map[string]models.Settings{
 		"chat-14b":  {Layout: "gpu:0", CtxSize: 32768},
 		"coder-32b": {Layout: "gpu:1"},
 		"embed":     {Embedding: true},
 	})
 
-	if len(skipped) != 1 || skipped[0].ID != "bad path" {
-		t.Fatalf("skipped = %+v, want only the model with a space in its path", skipped)
+	if len(issues) != 1 || issues[0].ID != "bad path" || !issues[0].Skipped {
+		t.Fatalf("issues = %+v, want only the model with a space in its path, skipped", issues)
 	}
 	big := cfg.Models["big-70b"].Cmd
 	if !strings.Contains(big, "--split-mode layer --device ROCm0,ROCm1") {
@@ -127,5 +127,44 @@ func TestImageDefaultDropIn(t *testing.T) {
 	want := DropIn(hardware.Default(), "ghcr.io/ihavespoons", "tag")
 	if got != want {
 		t.Errorf("image default drop-in differs from DropIn(Default()):\n--- image\n%s--- generated\n%s", got, want)
+	}
+}
+
+func TestGenerateTuning(t *testing.T) {
+	temp, draftMax := 0.6, 3
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "drafter", Path: "d/drafter.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
+		"big": {
+			CtxSize:     262144,
+			Sampling:    models.Sampling{Temperature: &temp},
+			Speculative: models.Speculative{Types: []string{"draft-dflash"}, DraftModel: "drafter", DraftMax: &draftMax},
+			KVCache:     models.KVCache{TypeK: "q8_0", TypeV: "q8_0"},
+		},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	cmd := cfg.Models["big"].Cmd
+	for _, want := range []string{
+		"--cache-type-k q8_0 --cache-type-v q8_0",
+		"--temp 0.6",
+		"--spec-type draft-dflash --spec-draft-model /models/d/drafter.gguf --spec-draft-n-max 3",
+	} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("cmd missing %q:\n%s", want, cmd)
+		}
+	}
+}
+
+func TestGenerateMissingDraftModel(t *testing.T) {
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
+		"big": {Speculative: models.Speculative{Types: []string{"draft-simple"}, DraftModel: "gone"}},
+	})
+	if len(issues) != 1 || issues[0].Skipped {
+		t.Fatalf("issues = %+v, want one non-skipping issue", issues)
+	}
+	if strings.Contains(cfg.Models["big"].Cmd, "--spec-type") {
+		t.Errorf("speculative flags emitted with a missing draft model: %s", cfg.Models["big"].Cmd)
 	}
 }

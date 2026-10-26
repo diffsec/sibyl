@@ -88,6 +88,33 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
 
+### Model settings
+
+Each model has typed settings in `models.yaml`. The System API checks every value, and the generator turns the settings into llama-server flags. The TUI and any other client edit these fields through `PUT /models/{id}`. They never edit flags.
+
+| Setting | llama-server flag | Allowed values |
+|---|---|---|
+| `layout` | `--split-mode`, `--device` | `span` or `gpu:N` |
+| `ctx_size` | `--ctx-size` | 0 (model default) or more |
+| `sampling.temperature` | `--temp` | 0 to 5 |
+| `sampling.top_k` | `--top-k` | 0 to 1000 |
+| `sampling.top_p` | `--top-p` | 0 to 1 |
+| `sampling.min_p` | `--min-p` | 0 to 1 |
+| `sampling.repeat_penalty` | `--repeat-penalty` | 0 to 5 |
+| `sampling.presence_penalty` | `--presence-penalty` | -2 to 2 |
+| `speculative.types` | `--spec-type` | `none`, `draft-simple`, `draft-eagle3`, `draft-mtp`, `draft-dflash`, `draft-dspark`, `ngram-simple`, `ngram-map-k`, `ngram-map-k4v`, `ngram-mod`, `ngram-cache` |
+| `speculative.draft_model` | `--spec-draft-model` | The ID of another installed model |
+| `speculative.draft_max`, `draft_min` | `--spec-draft-n-max`, `--spec-draft-n-min` | 1 to 64, and 0 to 64 |
+| `speculative.ngram_mod_min`, `ngram_mod_max` | `--spec-ngram-mod-n-min`, `--spec-ngram-mod-n-max` | 1 to 64 |
+| `kv_cache.type_k`, `type_v` | `--cache-type-k`, `--cache-type-v` | `f32`, `f16`, `bf16`, `q8_0`, `q4_0`, `q4_1`, `iq4_nl`, `q5_0`, `q5_1` |
+
+The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.cpp upgrade must recheck them, because llama.cpp renames speculative flags between releases.
+
+- Sampling settings are server defaults. A client can still override them per request through the OpenAI API.
+- The types `draft-simple`, `draft-eagle3`, `draft-dflash` and `draft-dspark` need `draft_model`. `draft-mtp` uses the model's own multi-token prediction layer, and the `ngram-*` types need no second model.
+- If a draft model is deleted, the generator turns speculative decoding off for the models that used it, and reports an issue. The model itself keeps running.
+- Raw `args` cannot set a flag that has a typed setting, so each value has one source.
+
 ## Inference
 
 ### Images
@@ -210,7 +237,7 @@ When the GPU set changes, for example after a card is added, the System API dete
 | Phase | Scope | Exit check |
 |---|---|---|
 | 1 | Inference images, host Containerfile, Quadlets, Caddy image, CI build and signing | The AMD host image boots in a VM. llama-swap serves a GGUF model on the 7900 XTX. |
-| 2 | System API and TUI in containers. They control units through the systemd D-Bus API. Setup wizard with GPU selection and layout. Hugging Face picker. Ollama shim. Benchmark. | The API test suite passes against a running host. The wizard configures one card and two cards on the target host. |
+| 2 | System API and TUI in containers. They control units through the systemd D-Bus API. Setup wizard with GPU selection and layout. TUI editor for model settings: sampling, speculative decoding, KV cache, context and layout. Hugging Face picker. Ollama shim. Benchmark. | The API test suite passes against a running host. The wizard configures one card and two cards on the target host. |
 | 3 | Live ISO, persistence, guided disk installer that ends in the setup wizard, LUKS with TPM2, model pools | Install from USB to disk on the target host, and unlock without a passphrase. |
 | 4 | NVIDIA and Intel variants, offline update bundles, signature policy enforced | Each variant boots. An unsigned image fails to pull. |
 | 5 | User guide and developer guide | A new user installs Sibyl on a fresh host from the guide alone. |

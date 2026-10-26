@@ -184,6 +184,16 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	if d := set.Speculative.DraftModel; d != "" {
+		if d == id {
+			writeError(w, http.StatusUnprocessableEntity, errors.New("speculative.draft_model: a model cannot be its own draft model"))
+			return
+		}
+		if _, err := s.findModel(d); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("speculative.draft_model: %w", err))
+			return
+		}
+	}
 	hw, err := hardware.Load(s.Paths.hardwareFile())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -257,9 +267,9 @@ func (s *Server) restartService(w http.ResponseWriter, r *http.Request) {
 
 // ApplyResult reports what an apply changed.
 type ApplyResult struct {
-	Models         int                 `json:"models"`
-	Skipped        []llamaswap.Skipped `json:"skipped,omitempty"`
-	BackendChanged bool                `json:"backend_changed"`
+	Models         int               `json:"models"`
+	Issues         []llamaswap.Issue `json:"issues,omitempty"`
+	BackendChanged bool              `json:"backend_changed"`
 }
 
 // Apply regenerates the llama-swap config and the backend drop-in. llama-swap
@@ -279,7 +289,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 		return ApplyResult{}, err
 	}
 
-	cfg, skipped := llamaswap.Generate(hw, installed, settings)
+	cfg, issues := llamaswap.Generate(hw, installed, settings)
 	body, err := llamaswap.Marshal(cfg)
 	if err != nil {
 		return ApplyResult{}, err
@@ -287,7 +297,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 	if err := hardware.WriteFileAtomic(s.Paths.llamaSwapFile(), body, 0o640); err != nil {
 		return ApplyResult{}, err
 	}
-	res := ApplyResult{Models: len(cfg.Models), Skipped: skipped}
+	res := ApplyResult{Models: len(cfg.Models), Issues: issues}
 
 	dropIn := []byte(llamaswap.DropIn(hw, s.Registry, s.ImageTag))
 	old, err := os.ReadFile(s.Paths.dropInFile())
@@ -313,8 +323,8 @@ func (s *Server) Apply() (ApplyResult, error) {
 			return res, err
 		}
 	}
-	for _, sk := range skipped {
-		s.Log.Warn("model skipped", "id", sk.ID, "reason", sk.Reason)
+	for _, is := range issues {
+		s.Log.Warn("model issue", "id", is.ID, "reason", is.Reason, "skipped", is.Skipped)
 	}
 	return res, nil
 }

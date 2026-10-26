@@ -55,7 +55,7 @@ func TestSettingsValidate(t *testing.T) {
 		{"pin in range", Settings{Layout: "gpu:1"}, false},
 		{"pin out of range", Settings{Layout: "gpu:2"}, true},
 		{"bad layout", Settings{Layout: "both"}, true},
-		{"safe args", Settings{Args: []string{"--temp=0.6", "--cache-type-k=q8_0"}}, false},
+		{"safe args", Settings{Args: []string{"--batch-size=2048", "--ubatch-size=512"}}, false},
 		{"shell chars", Settings{Args: []string{"--temp;rm"}}, true},
 		{"reserved flag", Settings{Args: []string{"--port=1"}}, true},
 		{"reserved short flag", Settings{Args: []string{"-m"}}, true},

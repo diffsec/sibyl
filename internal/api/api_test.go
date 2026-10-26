@@ -247,3 +247,23 @@ func TestFirstApplyDoesNotRestart(t *testing.T) {
 		t.Errorf("first apply wrote a drop-in: %v", err)
 	}
 }
+
+func TestPutModelTuning(t *testing.T) {
+	f := newFixture(t)
+	body := `{"ctx_size":262144,"sampling":{"temperature":0.6,"top_k":20},"speculative":{"types":["draft-simple"],"draft_model":"chat-14b","draft_max":3},"kv_cache":{"type_k":"q8_0","type_v":"q8_0"}}`
+	if code, b := f.do(t, "PUT", "/models/big", body, true); code != http.StatusOK {
+		t.Fatalf("PUT tuning = %d %v", code, b)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if !strings.Contains(string(cfg), "--spec-draft-model /models/chat-14b.gguf") || !strings.Contains(string(cfg), "--temp 0.6") {
+		t.Errorf("config:\n%s", cfg)
+	}
+	missing := `{"speculative":{"types":["draft-simple"],"draft_model":"nope"}}`
+	if code, _ := f.do(t, "PUT", "/models/big", missing, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("missing draft model: code = %d, want 422", code)
+	}
+	self := `{"speculative":{"types":["draft-simple"],"draft_model":"big"}}`
+	if code, _ := f.do(t, "PUT", "/models/big", self, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("self draft: code = %d, want 422", code)
+	}
+}

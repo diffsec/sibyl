@@ -59,10 +59,12 @@ type ModelEntry struct {
 	Unlisted bool   `yaml:"unlisted,omitempty"`
 }
 
-// Skipped records a model that the generator left out, and why.
-type Skipped struct {
-	ID     string `json:"id"`
-	Reason string `json:"reason"`
+// Issue records a problem with one model. Skipped is true when the generator
+// left the model out; otherwise the model runs without the faulty setting.
+type Issue struct {
+	ID      string `json:"id"`
+	Reason  string `json:"reason"`
+	Skipped bool   `json:"skipped"`
 }
 
 // placement is where one model runs: on every selected GPU, or on one.
@@ -72,7 +74,7 @@ type placement struct {
 }
 
 // Generate builds the llama-swap configuration for the installed models.
-func Generate(hw hardware.Config, installed []models.Model, settings map[string]models.Settings) (Config, []Skipped) {
+func Generate(hw hardware.Config, installed []models.Model, settings map[string]models.Settings) (Config, []Issue) {
 	cfg := Config{
 		HealthCheckTimeout: 600,
 		LogLevel:           "info",
@@ -83,24 +85,42 @@ func Generate(hw hardware.Config, installed []models.Model, settings map[string]
 	selected := len(hw.GPUs)
 	devPrefix := DevicePrefix(hw.Backend)
 
-	var skipped []Skipped
+	var issues []Issue
+	byID := make(map[string]models.Model, len(installed))
+	for _, m := range installed {
+		byID[m.ID] = m
+	}
 	perGPU := make([][]string, selected) // chat models pinned to each GPU
 	var spanning, embedding []string
 
 	for _, m := range installed {
 		s := settings[m.ID]
 		if err := s.Validate(selected); err != nil {
-			skipped = append(skipped, Skipped{ID: m.ID, Reason: err.Error()})
+			issues = append(issues, Issue{ID: m.ID, Reason: err.Error(), Skipped: true})
 			continue
 		}
 		if strings.ContainsAny(m.Path, " \t\n\"'\\") {
-			skipped = append(skipped, Skipped{ID: m.ID, Reason: "file path contains spaces, quotes or backslashes"})
+			issues = append(issues, Issue{ID: m.ID, Reason: "file path contains spaces, quotes or backslashes", Skipped: true})
 			continue
+		}
+		draftPath := ""
+		if id := s.Speculative.DraftModel; id != "" {
+			d, ok := byID[id]
+			switch {
+			case !ok:
+				issues = append(issues, Issue{ID: m.ID, Reason: fmt.Sprintf("draft model %q is not installed; speculative decoding is off", id)})
+				s.Speculative = models.Speculative{}
+			case id == m.ID:
+				issues = append(issues, Issue{ID: m.ID, Reason: "a model cannot be its own draft model; speculative decoding is off"})
+				s.Speculative = models.Speculative{}
+			default:
+				draftPath = modelPath(d)
+			}
 		}
 		p := place(hw, s, selected)
 		cfg.Models[m.ID] = ModelEntry{
 			Name:     m.ID,
-			Cmd:      command(m, s, p, selected, devPrefix),
+			Cmd:      command(m, s, p, selected, devPrefix, draftPath),
 			Unlisted: s.Hidden,
 		}
 		switch {
@@ -114,7 +134,7 @@ func Generate(hw hardware.Config, installed []models.Model, settings map[string]
 	}
 
 	cfg.Routing = matrix(perGPU, spanning, embedding)
-	return cfg, skipped
+	return cfg, issues
 }
 
 // place picks the placement for a model. Embedding models default to the
@@ -135,12 +155,16 @@ func place(hw hardware.Config, s models.Settings, selected int) placement {
 	}
 }
 
-func command(m models.Model, s models.Settings, p placement, selected int, devPrefix string) string {
+func modelPath(m models.Model) string {
+	return path.Join(ModelsMount, strings.ReplaceAll(m.Path, "\\", "/"))
+}
+
+func command(m models.Model, s models.Settings, p placement, selected int, devPrefix, draftPath string) string {
 	args := []string{
 		ServerBinary,
 		"--host", "127.0.0.1",
 		"--port", "${PORT}",
-		"--model", path.Join(ModelsMount, strings.ReplaceAll(m.Path, "\\", "/")),
+		"--model", modelPath(m),
 		"--n-gpu-layers", "all",
 		"--flash-attn", "on",
 		"--metrics",
@@ -161,6 +185,11 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 		args = append(args, "--split-mode", "layer", "--device", strings.Join(devs, ","))
 	} else {
 		args = append(args, "--split-mode", "none", "--device", devPrefix+strconv.Itoa(p.gpu))
+	}
+	args = append(args, s.KVCache.Flags()...)
+	if !s.Embedding {
+		args = append(args, s.Sampling.Flags()...)
+		args = append(args, s.Speculative.Flags(draftPath)...)
 	}
 	args = append(args, s.Args...)
 	return strings.Join(args, " ")

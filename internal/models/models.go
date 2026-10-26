@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,11 +102,15 @@ func ID(rel string) string {
 type Settings struct {
 	// Layout overrides the hardware default: "span", or "gpu:N" where N is a
 	// position in the selected GPU list.
-	Layout    string   `yaml:"layout,omitempty" json:"layout,omitempty"`
-	CtxSize   int      `yaml:"ctx_size,omitempty" json:"ctx_size,omitempty"`
-	Embedding bool     `yaml:"embedding,omitempty" json:"embedding,omitempty"`
-	Hidden    bool     `yaml:"hidden,omitempty" json:"hidden,omitempty"`
-	Args      []string `yaml:"args,omitempty" json:"args,omitempty"`
+	Layout      string      `yaml:"layout,omitempty" json:"layout,omitempty"`
+	CtxSize     int         `yaml:"ctx_size,omitempty" json:"ctx_size,omitempty"`
+	Embedding   bool        `yaml:"embedding,omitempty" json:"embedding,omitempty"`
+	Hidden      bool        `yaml:"hidden,omitempty" json:"hidden,omitempty"`
+	Sampling    Sampling    `yaml:"sampling,omitempty" json:"sampling,omitzero"`
+	Speculative Speculative `yaml:"speculative,omitempty" json:"speculative,omitzero"`
+	KVCache     KVCache     `yaml:"kv_cache,omitempty" json:"kv_cache,omitzero"`
+	// Args are extra llama-server flags for anything the typed fields do not cover.
+	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
 var (
@@ -133,6 +138,15 @@ func (s Settings) Validate(selected int) error {
 	if s.CtxSize < 0 {
 		return errors.New("ctx_size: must not be negative")
 	}
+	if err := s.Sampling.Validate(); err != nil {
+		return err
+	}
+	if err := s.Speculative.Validate(); err != nil {
+		return err
+	}
+	if err := s.KVCache.Validate(); err != nil {
+		return err
+	}
 	for _, a := range s.Args {
 		if !safeArg.MatchString(a) {
 			return fmt.Errorf("args: %q contains characters that are not allowed", a)
@@ -140,6 +154,9 @@ func (s Settings) Validate(selected int) error {
 		flag, _, _ := strings.Cut(a, "=")
 		if reservedArg[flag] {
 			return fmt.Errorf("args: %q is set by Sibyl and cannot be overridden", flag)
+		}
+		if slices.Contains(typedFlags, flag) {
+			return fmt.Errorf("args: %q has a typed setting; set it there instead", flag)
 		}
 	}
 	return nil
