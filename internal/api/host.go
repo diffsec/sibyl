@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ihavespoons/sibyl/internal/disks"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 	"github.com/ihavespoons/sibyl/internal/hostd"
 )
@@ -137,4 +138,53 @@ func (s *Server) githubKeys(ctx context.Context, user string) ([]string, error) 
 		base = "https://github.com"
 	}
 	return hostd.GitHubKeys(ctx, base, user)
+}
+
+// poolsView is the GET /pools response: the pools, and the disks that could
+// become one.
+type poolsView struct {
+	Pools []hostd.Pool `json:"pools"`
+	Disks []disks.Disk `json:"disks"`
+}
+
+func (s *Server) getPools(w http.ResponseWriter, _ *http.Request) {
+	if s.HostAgent == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("host actions are not configured"))
+		return
+	}
+	st, err := s.HostAgent.State()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	v := poolsView{Pools: st.Pools, Disks: st.Disks}
+	if v.Pools == nil {
+		v.Pools = []hostd.Pool{}
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) createPool(w http.ResponseWriter, r *http.Request) {
+	var p hostd.CreatePoolReq
+	if err := readJSON(r, &p); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.hostAction(w, r, hostd.CreatePool, p)
+}
+
+// detachPool unloads llama-swap's models first, because a loaded model holds
+// its file open and the pool cannot be unmounted.
+func (s *Server) detachPool(w http.ResponseWriter, r *http.Request) {
+	if s.Ollama != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Ollama.Upstream+"/unload", nil)
+		if err == nil {
+			if resp, err := http.DefaultClient.Do(req); err == nil {
+				_ = resp.Body.Close()
+			}
+		}
+		cancel()
+	}
+	s.hostAction(w, r, hostd.DetachPool, hostd.PoolName{Name: r.PathValue("name")})
 }

@@ -21,6 +21,9 @@ const ServerBinary = "/opt/llama/bin/llama-server"
 // ModelsMount is where the models directory is mounted in the inference container.
 const ModelsMount = "/models"
 
+// PoolsMount is where the containers see the model pools.
+const PoolsMount = "/pools"
+
 // embeddingEvictCost keeps embedding models loaded when llama-swap must evict.
 const embeddingEvictCost = 100
 
@@ -156,6 +159,9 @@ func place(hw hardware.Config, s models.Settings, selected int) placement {
 }
 
 func modelPath(m models.Model) string {
+	if m.Pool != "" {
+		return path.Join(PoolsMount, m.Pool, strings.ReplaceAll(m.Path, "\\", "/"))
+	}
 	return path.Join(ModelsMount, strings.ReplaceAll(m.Path, "\\", "/"))
 }
 

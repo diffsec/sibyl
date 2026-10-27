@@ -43,6 +43,7 @@ func run(log *slog.Logger) error {
 		Paths: api.Paths{
 			Config:    env("SIBYL_CONFIG_DIR", "/config"),
 			Models:    env("SIBYL_MODELS_DIR", "/models"),
+			Pools:     env("SIBYL_POOLS_DIR", "/pools"),
 			DropIn:    env("SIBYL_DROPIN_DIR", "/quadlet"),
 			SysfsRoot: env("SIBYL_SYSFS", "/sys"),
 			MemInfo:   env("SIBYL_MEMINFO", "/proc/meminfo"),
@@ -68,6 +69,7 @@ func run(log *slog.Logger) error {
 	s.HF = hf.New(env("SIBYL_HF_BASE", hf.DefaultBase), hfToken)
 	s.Downloads = &download.Manager{
 		ModelsDir: s.Paths.Models,
+		PoolsDir:  s.Paths.Pools,
 		StateFile: s.Paths.Config + "/downloads.json",
 		HF:        s.HF,
 		Log:       log,

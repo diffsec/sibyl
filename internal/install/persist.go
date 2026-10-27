@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/ihavespoons/sibyl/internal/disks"
 )
 
 // PersistLabel is the XFS label of the persistence partition. XFS allows 12
@@ -72,7 +74,7 @@ func Persist(ctx context.Context, run Runner, disk string, size int64) (string, 
 		return "", err
 	}
 	n := len(pt.Partitions) + 1
-	part := Disk{Path: disk}.Partition(n)
+	part := disks.Disk{Path: disk}.Partition(n)
 	if _, err := run(ctx, Cmd{Name: "partx", Args: []string{"--add", "--nr", fmt.Sprint(n), disk}}); err != nil {
 		return "", err
 	}

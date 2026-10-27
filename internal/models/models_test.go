@@ -47,6 +47,39 @@ func TestScan(t *testing.T) {
 	}
 }
 
+func TestScanAll(t *testing.T) {
+	main, pools := t.TempDir(), t.TempDir()
+	touch(t, filepath.Join(main, "a.gguf"), 1)
+	touch(t, filepath.Join(pools, "pool-1", "b", "B.gguf"), 2)
+	touch(t, filepath.Join(pools, "pool-1", "a.gguf"), 3)
+	touch(t, filepath.Join(pools, "pool-2", "c.gguf"), 4)
+	touch(t, filepath.Join(pools, "other", "d.gguf"), 5)
+
+	got, err := ScanAll(main, pools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Model{
+		{ID: "a", Path: "a.gguf", Size: 1, Shards: 1},
+		{ID: "b", Path: filepath.Join("b", "B.gguf"), Pool: "pool-1", Size: 2, Shards: 1},
+		{ID: "c", Path: "c.gguf", Pool: "pool-2", Size: 4, Shards: 1},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("model %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if r := got[1].Root(main, pools); r != filepath.Join(pools, "pool-1") {
+		t.Errorf("root %s", r)
+	}
+	if got, err := ScanAll(main, filepath.Join(pools, "missing")); err != nil || len(got) != 1 {
+		t.Errorf("missing pools dir: %v %v", got, err)
+	}
+}
+
 func TestSettingsValidate(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -42,7 +42,7 @@ func (s *Server) owuiClient() (*owui.Client, error) {
 
 // embeddingModel is the first installed model marked as an embedding model.
 func (s *Server) embeddingModel() (string, error) {
-	installed, err := models.Scan(s.Paths.Models)
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
 	if err != nil {
 		return "", err
 	}

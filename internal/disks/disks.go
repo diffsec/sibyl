@@ -1,10 +1,6 @@
-// Package install is the guided disk installer. It runs as root on the live
-// USB. It partitions one disk, encrypts the root partition with LUKS2 bound
-// to the TPM2, and installs the Sibyl image with bootc install to-filesystem.
-//
-// bootc's own --block-setup tpm2-luks keeps no recovery key, so the
-// installer sets up LUKS itself, as the bootc documentation recommends.
-package install
+// Package disks lists whole disks from lsblk, and says which ones the
+// installer or a new model pool may erase.
+package disks
 
 import (
 	"encoding/json"
@@ -12,10 +8,6 @@ import (
 	"slices"
 	"strings"
 )
-
-// MinDiskSize is the smallest disk the installer offers. The image, its
-// rollback copy and one small model need about this much.
-const MinDiskSize = 64 << 30
 
 // Disk is one whole disk from lsblk.
 type Disk struct {
@@ -47,13 +39,13 @@ type lsblkDev struct {
 	Children    []lsblkDev `json:"children"`
 }
 
-// LsblkArgs are the lsblk arguments that ParseDisks reads.
+// LsblkArgs are the lsblk arguments that Parse reads.
 var LsblkArgs = []string{"-J", "-b", "-o", "NAME,PATH,SIZE,MODEL,SERIAL,TYPE,TRAN,RM,RO,MOUNTPOINTS"}
 
-// ParseDisks reads lsblk JSON and returns every whole disk. bootDisks are
-// the disks that hold the running system, such as the live USB. They, and
-// disks that are too small, read-only or in use, get a Reason.
-func ParseDisks(data []byte, bootDisks []string) ([]Disk, error) {
+// Parse reads lsblk JSON and returns every whole disk. bootDisks are the
+// disks that hold the running system, such as the live USB. They, and disks
+// that are smaller than minSize, read-only or in use, get a Reason.
+func Parse(data []byte, bootDisks []string, minSize int64) ([]Disk, error) {
 	var out struct {
 		Devices []lsblkDev `json:"blockdevices"`
 	}
@@ -72,10 +64,12 @@ func ParseDisks(data []byte, bootDisks []string) ([]Disk, error) {
 			disk.Reason = "the running system boots from it"
 		case d.RO:
 			disk.Reason = "read-only"
-		case d.Size < MinDiskSize:
-			disk.Reason = fmt.Sprintf("smaller than %d GiB", MinDiskSize>>30)
+		case d.Size < minSize:
+			disk.Reason = fmt.Sprintf("smaller than %d GiB", minSize>>30)
 		case len(disk.Mounted) > 0:
 			disk.Reason = "in use: mounted at " + strings.Join(disk.Mounted, ", ")
+		case holder(d) != "":
+			disk.Reason = "in use by " + holder(d)
 		}
 		disks = append(disks, disk)
 	}
@@ -93,6 +87,20 @@ func mounts(d lsblkDev) []string {
 		m = append(m, mounts(c)...)
 	}
 	return m
+}
+
+// holder returns the first device on top of a disk or its partitions that
+// is not a partition, such as an open LUKS mapping or an LVM volume.
+func holder(d lsblkDev) string {
+	for _, c := range d.Children {
+		if c.Type != "part" {
+			return c.Type + " " + c.Name
+		}
+		if h := holder(c); h != "" {
+			return h
+		}
+	}
+	return ""
 }
 
 func str(s *string) string {

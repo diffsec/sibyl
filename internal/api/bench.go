@@ -64,6 +64,7 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 	}
 	files := map[string]string{
 		".path":   filepath.ToSlash(m.Path),
+		".pool":   m.Pool,
 		".gpus":   strings.Join(list, ","),
 		".status": "queued " + time.Now().UTC().Format(time.RFC3339),
 	}

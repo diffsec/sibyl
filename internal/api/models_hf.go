@@ -126,6 +126,7 @@ type downloadRequest struct {
 	Repo     string `json:"repo"`
 	Revision string `json:"revision,omitempty"`
 	Variant  string `json:"variant"`
+	Pool     string `json:"pool,omitempty"`
 }
 
 func (s *Server) addDownload(w http.ResponseWriter, r *http.Request) {
@@ -134,7 +135,7 @@ func (s *Server) addDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	j, err := s.Downloads.Add(r.Context(), req.Repo, req.Revision, req.Variant)
+	j, err := s.Downloads.Add(r.Context(), req.Repo, req.Revision, req.Variant, req.Pool)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return

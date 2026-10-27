@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/ihavespoons/sibyl/internal/disks"
 )
 
 // Action is a request type.
@@ -42,10 +44,14 @@ const (
 	DeleteUser Action = "user-delete"
 	// Refresh only rewrites the state file.
 	Refresh Action = "state"
+	// CreatePool erases a disk and makes it a model pool.
+	CreatePool Action = "pool-create"
+	// DetachPool unmounts a pool and keeps its data.
+	DetachPool Action = "pool-detach"
 )
 
 // Actions are every action that sibyl-hostd accepts.
-var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh}
+var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh, CreatePool, DetachPool}
 
 // MaxRequestSize is the largest request file that sibyl-hostd reads.
 const MaxRequestSize = 64 << 10
@@ -289,6 +295,18 @@ func Decode(a Action, data []byte) (any, error) {
 			return nil, err
 		}
 		return u, ValidateUserName(u.Name)
+	case CreatePool:
+		var p CreatePoolReq
+		if err := dec(&p); err != nil {
+			return nil, err
+		}
+		return p, p.Validate()
+	case DetachPool:
+		var p PoolName
+		if err := dec(&p); err != nil {
+			return nil, err
+		}
+		return p, p.Validate()
 	case ConfirmNetwork, Refresh:
 		return nil, nil
 	}
@@ -297,11 +315,13 @@ func Decode(a Action, data []byte) (any, error) {
 
 // Result is the outcome of one request.
 type Result struct {
-	ID       string `json:"id"`
-	Action   Action `json:"action"`
-	OK       bool   `json:"ok"`
-	Error    string `json:"error,omitempty"`
-	Message  string `json:"message,omitempty"`
+	ID      string `json:"id"`
+	Action  Action `json:"action"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Message string `json:"message,omitempty"`
+	// Secret is shown to the user once, such as a recovery key. It is never logged.
+	Secret   string `json:"secret,omitempty"`
 	Finished string `json:"finished"`
 }
 
@@ -312,7 +332,10 @@ type State struct {
 	Interfaces []Interface     `json:"interfaces"`
 	Users      []Account       `json:"users"`
 	Pending    *PendingNetwork `json:"pending_network,omitempty"`
-	Errors     []string        `json:"errors,omitempty"`
+	Pools      []Pool          `json:"pools,omitempty"`
+	// Disks are the whole disks, with the reason when one cannot be a pool.
+	Disks  []disks.Disk `json:"disks,omitempty"`
+	Errors []string     `json:"errors,omitempty"`
 }
 
 // Interface is one physical network interface.

@@ -29,6 +29,8 @@ func main() {
 	data := flag.String("data", "/var/lib/sibyl-host", "records that only root reads")
 	label := flag.String("label", "system_u:object_r:container_file_t:s0", "SELinux context for the output files")
 	group := flag.String("group", "sibyl", "group that can read the output files")
+	etc := flag.String("etc", "/etc", "directory with crypttab and fstab")
+	pools := flag.String("pools", "/var/lib/sibyl-pools", "directory where model pools are mounted")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -42,7 +44,8 @@ func main() {
 		log.Error("exit", "err", err)
 		os.Exit(1)
 	}
-	a := &hostd.Agent{Queue: *queue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid}
+	a := &hostd.Agent{Queue: *queue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid,
+		Etc: *etc, PoolsDir: *pools}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	if *stateOnly {

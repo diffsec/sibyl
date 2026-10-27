@@ -8,6 +8,9 @@ Image=ghcr.io/ihavespoons/sibyl-system-api:@IMAGE_TAG@
 Network=sibyl.network
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:z
+# Model pools. Each pool's file system is mounted with a container label, so
+# no :z. rslave lets pools that are mounted or detached later show here.
+Volume=/var/lib/sibyl-pools:/pools:rslave
 Volume=/var/lib/sibyl/config:/config:z
 Volume=/var/lib/sibyl/run:/run/sibyl:z
 # Written by sibyl-hostd as root. It labels the files itself, so no :z here.

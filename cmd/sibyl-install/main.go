@@ -27,6 +27,7 @@ import (
 
 	"charm.land/huh/v2"
 
+	"github.com/ihavespoons/sibyl/internal/disks"
 	"github.com/ihavespoons/sibyl/internal/hostd"
 	"github.com/ihavespoons/sibyl/internal/install"
 )
@@ -48,9 +49,9 @@ func main() {
 			fmt.Println(msg)
 		}
 	case "disks":
-		var disks []install.Disk
-		if disks, err = listDisks(ctx); err == nil {
-			err = json.NewEncoder(os.Stdout).Encode(disks)
+		var list []disks.Disk
+		if list, err = listDisks(ctx); err == nil {
+			err = json.NewEncoder(os.Stdout).Encode(list)
 		}
 	case "persist":
 		err = persistCmd(ctx)
@@ -96,7 +97,7 @@ func quiet(ctx context.Context, name string, args ...string) (string, error) {
 // bootDisks returns the disks that hold the running system: the live USB,
 // its persistence partition, or the root of an installed system.
 func bootDisks(ctx context.Context) []string {
-	var disks []string
+	var list []string
 	for _, mnt := range []string{"/run/initramfs/live", "/sysroot", "/boot", "/var/lib/sibyl", "/"} {
 		src, err := quiet(ctx, "findmnt", "-n", "-o", "SOURCE", mnt)
 		if err != nil {
@@ -111,20 +112,20 @@ func bootDisks(ctx context.Context) []string {
 			continue
 		}
 		for _, line := range strings.Split(chain, "\n") {
-			if f := strings.Fields(line); len(f) == 2 && f[1] == "disk" && !slices.Contains(disks, f[0]) {
-				disks = append(disks, f[0])
+			if f := strings.Fields(line); len(f) == 2 && f[1] == "disk" && !slices.Contains(list, f[0]) {
+				list = append(list, f[0])
 			}
 		}
 	}
-	return disks
+	return list
 }
 
-func listDisks(ctx context.Context) ([]install.Disk, error) {
-	out, err := quiet(ctx, "lsblk", install.LsblkArgs...)
+func listDisks(ctx context.Context) ([]disks.Disk, error) {
+	out, err := quiet(ctx, "lsblk", disks.LsblkArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("lsblk: %w", err)
 	}
-	return install.ParseDisks([]byte(out), bootDisks(ctx))
+	return disks.Parse([]byte(out), bootDisks(ctx), install.MinDiskSize)
 }
 
 // images returns the image to install from local storage and the registry
@@ -156,7 +157,7 @@ func installCmd(ctx context.Context, config string) error {
 	if os.Geteuid() != 0 {
 		return errors.New("run it as root")
 	}
-	disks, err := listDisks(ctx)
+	list, err := listDisks(ctx)
 	if err != nil {
 		return err
 	}
@@ -175,17 +176,17 @@ func installCmd(ctx context.Context, config string) error {
 		if err := json.Unmarshal(b, &u); err != nil {
 			return fmt.Errorf("%s: %w", config, err)
 		}
-		i := slices.IndexFunc(disks, func(d install.Disk) bool { return d.Path == u.Disk })
+		i := slices.IndexFunc(list, func(d disks.Disk) bool { return d.Path == u.Disk })
 		if i < 0 {
 			return fmt.Errorf("disk %s not found", u.Disk)
 		}
-		o.Disk, o.Passphrase, o.Admin = disks[i], u.Passphrase, u.Admin
+		o.Disk, o.Passphrase, o.Admin = list[i], u.Passphrase, u.Admin
 		if o.Admin.PasswordHash == "" && u.Password != "" {
 			if o.Admin.PasswordHash, err = hashPassword(ctx, u.Password); err != nil {
 				return err
 			}
 		}
-	} else if err := ask(ctx, disks, &o); err != nil {
+	} else if err := ask(ctx, list, &o); err != nil {
 		return err
 	}
 
@@ -220,16 +221,16 @@ func installCmd(ctx context.Context, config string) error {
 	return nil
 }
 
-func ask(ctx context.Context, disks []install.Disk, o *install.Options) error {
+func ask(ctx context.Context, list []disks.Disk, o *install.Options) error {
 	var opts []huh.Option[string]
-	for _, d := range disks {
+	for _, d := range list {
 		if d.Reason == "" {
 			opts = append(opts, huh.NewOption(d.Label(), d.Path))
 		}
 	}
 	if len(opts) == 0 {
 		var b strings.Builder
-		for _, d := range disks {
+		for _, d := range list {
 			fmt.Fprintf(&b, "\n  %s: %s", d.Label(), d.Reason)
 		}
 		return errors.New("no disk can take the install:" + b.String())
@@ -291,8 +292,8 @@ func ask(ctx context.Context, disks []install.Disk, o *install.Options) error {
 	if err := form.Run(); err != nil {
 		return err
 	}
-	i := slices.IndexFunc(disks, func(d install.Disk) bool { return d.Path == disk })
-	o.Disk, o.Passphrase = disks[i], passphrase
+	i := slices.IndexFunc(list, func(d disks.Disk) bool { return d.Path == disk })
+	o.Disk, o.Passphrase = list[i], passphrase
 	o.Admin.Name = name
 	o.Admin.Keys = splitLines(keys)
 	if github = strings.TrimSpace(github); github != "" {

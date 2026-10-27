@@ -30,6 +30,7 @@ import (
 type Paths struct {
 	Config    string // hardware.yaml, models.yaml, llama-swap/config.yaml
 	Models    string // GGUF files
+	Pools     string // one directory per model pool, such as pool-1
 	DropIn    string // llama-swap.container.d in the sibyl user's Quadlet directory
 	SysfsRoot string // normally /sys
 	MemInfo   string // normally /proc/meminfo
@@ -93,6 +94,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /host/network/confirm", s.confirmNetwork)
 	auth.HandleFunc("PUT /host/users/{name}", s.putUser)
 	auth.HandleFunc("DELETE /host/users/{name}", s.deleteUser)
+	auth.HandleFunc("GET /pools", s.getPools)
+	auth.HandleFunc("POST /pools", s.createPool)
+	auth.HandleFunc("DELETE /pools/{name}", s.detachPool)
 	auth.HandleFunc("GET /hf/search", s.hfSearch)
 	auth.HandleFunc("GET /hf/repos/{owner}/{name}", s.hfRepo)
 	auth.HandleFunc("GET /downloads", s.listDownloads)
@@ -191,7 +195,7 @@ type modelView struct {
 }
 
 func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
-	installed, err := models.Scan(s.Paths.Models)
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -267,7 +271,7 @@ func (s *Server) deleteModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	if err := removeModelFiles(s.Paths.Models, m); err != nil {
+	if err := removeModelFiles(m.Root(s.Paths.Models, s.Paths.Pools), m); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -322,7 +326,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	installed, err := models.Scan(s.Paths.Models)
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -387,7 +391,7 @@ func (s *Server) respondApply(w http.ResponseWriter) {
 }
 
 func (s *Server) findModel(id string) (models.Model, error) {
-	installed, err := models.Scan(s.Paths.Models)
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
 	if err != nil {
 		return models.Model{}, err
 	}
@@ -460,7 +464,7 @@ func writeError(w http.ResponseWriter, code int, err error) {
 
 // OllamaModels lists installed models for the Ollama-compatible API.
 func (s *Server) OllamaModels(context.Context) ([]ollama.ModelInfo, error) {
-	installed, err := models.Scan(s.Paths.Models)
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
 	if err != nil {
 		return nil, err
 	}

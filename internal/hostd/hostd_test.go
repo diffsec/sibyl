@@ -365,3 +365,85 @@ func TestBadQueueNames(t *testing.T) {
 		t.Fatalf("queue not empty: %v", left)
 	}
 }
+
+const poolLsblk = `{"blockdevices":[
+ {"name":"nvme0n1","path":"/dev/nvme0n1","size":1000204886016,"model":"CT1000","serial":"ROOT1","type":"disk","tran":"nvme","rm":false,"ro":false,"mountpoints":[null],
+  "children":[{"name":"nvme0n1p3","path":"/dev/nvme0n1p3","size":75161927680,"type":"part","rm":false,"ro":false,"mountpoints":[null],
+   "children":[{"name":"luks-x","path":"/dev/mapper/luks-x","size":1,"type":"crypt","rm":false,"ro":false,"mountpoints":["/sysroot"]}]}]},
+ {"name":"sdb","path":"/dev/sdb","size":4000787030016,"model":"WDC","serial":"WD-POOL","type":"disk","tran":"sata","rm":false,"ro":false,"mountpoints":[null]},
+ {"name":"sdc","path":"/dev/sdc","size":4000787030016,"model":"WDC","serial":"WD-OPEN","type":"disk","tran":"sata","rm":false,"ro":false,"mountpoints":[null],
+  "children":[{"name":"sdc1","path":"/dev/sdc1","size":1,"type":"part","rm":false,"ro":false,"mountpoints":[null],
+   "children":[{"name":"vault","path":"/dev/mapper/vault","size":1,"type":"crypt","rm":false,"ro":false,"mountpoints":[null]}]}]}
+]}`
+
+const poolRecovery = "vbcrnjtk-ldrkfcug-khfivhtu-nhckhkhb-ttkfuvcb-hhgbnvcr-dlbkerkl-dteeikvc"
+
+func poolAgent(t *testing.T) *testAgent {
+	ta := newAgent(t)
+	ta.Etc = t.TempDir()
+	ta.PoolsDir = filepath.Join(t.TempDir(), "pools")
+	if err := os.WriteFile(filepath.Join(ta.Etc, "fstab"), []byte("UUID=1 / xfs defaults 0 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ta.host.answers["lsblk"] = poolLsblk
+	ta.host.answers["cryptsetup luksUUID /dev/sdb1"] = "aaaa-bbbb\n"
+	ta.host.answers["systemd-cryptenroll"] = "A secret recovery key has been generated:\n    " + poolRecovery + "\n"
+	return ta
+}
+
+func TestCreatePool(t *testing.T) {
+	ta := poolAgent(t)
+	for _, body := range []string{
+		`{"disk":"/dev/sdb","confirm":"wrong"}`,
+		`{"disk":"/dev/nvme0n1","confirm":"ROOT1"}`,
+		`{"disk":"/dev/sdc","confirm":"WD-OPEN"}`,
+		`{"disk":"/dev/sdb; reboot","confirm":"x"}`,
+	} {
+		if r := ta.submit(t, "0", CreatePool, body); r.OK || ta.host.ran("wipefs") {
+			t.Fatalf("%s: %+v, calls %v", body, r, ta.host.calls)
+		}
+	}
+
+	r := ta.submit(t, "1", CreatePool, `{"disk":"/dev/sdb","confirm":"WD-POOL"}`)
+	if !r.OK || r.Secret != poolRecovery || strings.Contains(r.Message, poolRecovery) {
+		t.Fatalf("result %+v", r)
+	}
+	key := filepath.Join(ta.Etc, "sibyl/pools/pool-1.key")
+	mount := filepath.Join(ta.PoolsDir, "pool-1")
+	for _, c := range []string{
+		"wipefs --all --force /dev/sdb",
+		"cryptsetup luksFormat --type luks2 --batch-mode --label sibyl-pool-1 --key-file " + key + " /dev/sdb1",
+		"cryptsetup open --key-file " + key + " /dev/sdb1 sibyl-pool-1",
+		"mkfs.xfs -f -L pool-1 /dev/mapper/sibyl-pool-1",
+		"mount " + mount,
+		"chown sibyl:sibyl " + mount,
+	} {
+		if !ta.host.ran(c) {
+			t.Fatalf("did not run %q: %v", c, ta.host.calls)
+		}
+	}
+	if fi, err := os.Stat(key); err != nil || fi.Mode().Perm() != 0o400 {
+		t.Fatalf("key file: %v %v", fi, err)
+	}
+	crypttab, _ := os.ReadFile(filepath.Join(ta.Etc, "crypttab"))
+	fstab, _ := os.ReadFile(filepath.Join(ta.Etc, "fstab"))
+	if string(crypttab) != "sibyl-pool-1 UUID=aaaa-bbbb "+key+" luks,nofail # sibyl pool-1\n" {
+		t.Fatalf("crypttab %q", crypttab)
+	}
+	if !strings.HasPrefix(string(fstab), "UUID=1 / xfs defaults 0 0\n/dev/mapper/sibyl-pool-1 "+mount+" xfs nofail,context=") {
+		t.Fatalf("fstab %q", fstab)
+	}
+
+	ta.host.answers["findmnt -n -o TARGET"] = mount + "\n"
+	if r := ta.submit(t, "2", DetachPool, `{"name":"pool-1"}`); !r.OK || !ta.host.ran("umount "+mount) {
+		t.Fatalf("detach %+v", r)
+	}
+	crypttab, _ = os.ReadFile(filepath.Join(ta.Etc, "crypttab"))
+	fstab, _ = os.ReadFile(filepath.Join(ta.Etc, "fstab"))
+	if strings.Contains(string(crypttab)+string(fstab), "pool-1") || !strings.Contains(string(fstab), "UUID=1 /") {
+		t.Fatalf("tables after detach: %q %q", crypttab, fstab)
+	}
+	if _, err := os.Stat(key); err != nil {
+		t.Fatal("detach removed the key file")
+	}
+}

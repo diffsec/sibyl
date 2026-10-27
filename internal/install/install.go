@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ihavespoons/sibyl/internal/disks"
 	"github.com/ihavespoons/sibyl/internal/hostd"
 )
 
@@ -54,9 +55,13 @@ func (a Admin) Validate() error {
 	return nil
 }
 
+// MinDiskSize is the smallest disk the installer offers. The image, its
+// rollback copy and one small model need about this much.
+const MinDiskSize = 64 << 30
+
 // Options are the choices for one install.
 type Options struct {
-	Disk Disk
+	Disk disks.Disk
 	// Payload is the image in local container storage that is installed.
 	Payload string
 	// Target is the registry image that bootc upgrade follows afterwards.

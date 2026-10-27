@@ -12,6 +12,9 @@ AddDevice=/dev/dri
 GroupAdd=keep-groups
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:ro,z
+# Model pools. Each pool's file system is mounted with a container label, so
+# no :z. rslave lets pools that are mounted or detached later show here.
+Volume=/var/lib/sibyl-pools:/pools:ro,rslave
 # A directory mount, so llama-swap sees the API's atomic rewrites of config.yaml.
 Volume=/var/lib/sibyl/config/llama-swap:/app/config:ro,z
 # GPU shader caches (Mesa RADV, ROCm). :U gives the volume to the container user.

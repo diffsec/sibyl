@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ihavespoons/sibyl/internal/disks"
 )
 
 // Runner runs a command with stdin and returns its standard output.
@@ -34,6 +36,10 @@ type Agent struct {
 	// Group is the group that owns the files in Out, so the System API can
 	// read them. -1 keeps the group of the process.
 	Group int
+	// Etc is /etc: crypttab, fstab and the pool key files.
+	Etc string
+	// PoolsDir is the root-owned directory where pools are mounted.
+	PoolsDir string
 }
 
 // requestRE matches queue file names: <unix-nanoseconds>.<action>.json.
@@ -88,7 +94,7 @@ func (a *Agent) handle(ctx context.Context, q queued) Result {
 			err = errors.New("invalid request name")
 		} else {
 			res.Action = Action(m[2])
-			res.Message, err = a.do(ctx, res.Action, q.data)
+			res.Message, res.Secret, err = a.do(ctx, res.Action, q.data)
 		}
 	}
 	res.OK = err == nil
@@ -102,30 +108,36 @@ func (a *Agent) handle(ctx context.Context, q queued) Result {
 	return res
 }
 
-func (a *Agent) do(ctx context.Context, act Action, data []byte) (string, error) {
+func (a *Agent) do(ctx context.Context, act Action, data []byte) (msg, secret string, err error) {
 	body, err := Decode(act, data)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	switch act {
 	case SetHostname:
 		h := body.(Hostname)
 		if _, err := a.Run(ctx, "", "hostnamectl", "hostname", h.Hostname); err != nil {
-			return "", err
+			return "", "", err
 		}
-		return "hostname set to " + h.Hostname, nil
+		msg = "hostname set to " + h.Hostname
 	case SetNetwork:
-		return a.setNetwork(ctx, body.(Network))
+		msg, err = a.setNetwork(ctx, body.(Network))
 	case ConfirmNetwork:
-		return a.confirmNetwork(ctx)
+		msg, err = a.confirmNetwork(ctx)
 	case SetUser:
-		return a.setUser(ctx, body.(User))
+		msg, err = a.setUser(ctx, body.(User))
 	case DeleteUser:
-		return a.deleteUser(ctx, body.(UserName).Name)
+		msg, err = a.deleteUser(ctx, body.(UserName).Name)
+	case CreatePool:
+		return a.createPool(ctx, body.(CreatePoolReq))
+	case DetachPool:
+		msg, err = a.detachPool(ctx, body.(PoolName).Name)
 	case Refresh:
-		return "state refreshed", nil
+		msg = "state refreshed"
+	default:
+		err = fmt.Errorf("unknown action %q", act)
 	}
-	return "", fmt.Errorf("unknown action %q", act)
+	return msg, "", err
 }
 
 // setNetwork changes one interface inside a NetworkManager checkpoint. If no
@@ -350,6 +362,17 @@ func (a *Agent) prepareOut() error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
+	if a.PoolsDir != "" {
+		if err := os.MkdirAll(a.PoolsDir, 0o755); err != nil {
+			return err
+		}
+		if a.Label != "" {
+			// The containers list this directory to find the pools.
+			if err := setLabel(a.PoolsDir, a.Label); err != nil {
+				return fmt.Errorf("label %s: %w", a.PoolsDir, err)
+			}
+		}
+	}
 	for _, d := range []string{a.Out, dir} {
 		if a.Group >= 0 {
 			if err := os.Lchown(d, -1, a.Group); err != nil {
@@ -385,6 +408,12 @@ func (a *Agent) WriteState(ctx context.Context) error {
 	st.Users = users
 	if p, ok := a.pending(); ok {
 		st.Pending = &p
+	}
+	st.Pools = a.poolState(ctx)
+	if out, err := a.Run(ctx, "", "lsblk", disks.LsblkArgs...); err != nil {
+		errs = append(errs, err)
+	} else if st.Disks, err = disks.Parse([]byte(out), nil, MinPoolDisk); err != nil {
+		errs = append(errs, err)
 	}
 	for _, e := range errs {
 		if e != nil {

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/ihavespoons/sibyl/internal/hf"
+	"github.com/ihavespoons/sibyl/internal/models"
 )
 
 // Status is a job state.
@@ -49,7 +50,8 @@ type Job struct {
 	Repo       string    `json:"repo"`
 	Revision   string    `json:"revision"`
 	Variant    string    `json:"variant"`
-	Dir        string    `json:"dir"` // final directory name under the models directory
+	Dir        string    `json:"dir"`            // final directory name under the models directory or pool
+	Pool       string    `json:"pool,omitempty"` // empty for the models directory
 	Files      []hf.File `json:"files"`
 	Status     Status    `json:"status"`
 	BytesDone  int64     `json:"bytes_done"`
@@ -62,6 +64,8 @@ type Job struct {
 // Manager runs download jobs.
 type Manager struct {
 	ModelsDir string
+	// PoolsDir holds one directory per model pool. A job can download into a pool.
+	PoolsDir  string
 	StateFile string
 	HF        *hf.Client
 	Log       *slog.Logger
@@ -155,11 +159,17 @@ func (m *Manager) Get(id string) (Job, bool) {
 	return *j, true
 }
 
-// Add queues a download of one variant. An empty revision means the
-// current commit of main, pinned now so every file comes from one commit.
-func (m *Manager) Add(ctx context.Context, repo, revision, variant string) (Job, error) {
+// Add queues a download of one variant into the models directory, or into
+// a pool. An empty revision means the current commit of main, pinned now so
+// every file comes from one commit.
+func (m *Manager) Add(ctx context.Context, repo, revision, variant, pool string) (Job, error) {
 	if !hf.ValidRepo(repo) {
 		return Job{}, fmt.Errorf("invalid repository %q", repo)
+	}
+	if pool != "" {
+		if fi, err := os.Stat(filepath.Join(m.PoolsDir, pool)); !models.PoolRE.MatchString(pool) || err != nil || !fi.IsDir() {
+			return Job{}, fmt.Errorf("no model pool %q", pool)
+		}
 	}
 	if revision == "" {
 		rev, err := m.HF.Revision(ctx, repo)
@@ -183,7 +193,7 @@ func (m *Manager) Add(ctx context.Context, repo, revision, variant string) (Job,
 	if dir == "" {
 		return Job{}, fmt.Errorf("variant %q has no usable name", v.Name)
 	}
-	if _, err := os.Stat(filepath.Join(m.ModelsDir, dir)); err == nil {
+	if _, err := os.Stat(filepath.Join(m.root(pool), dir)); err == nil {
 		return Job{}, fmt.Errorf("%s is already installed", dir)
 	}
 
@@ -197,7 +207,7 @@ func (m *Manager) Add(ctx context.Context, repo, revision, variant string) (Job,
 	now := time.Now().UTC()
 	j := &Job{
 		ID: newID(), Repo: repo, Revision: revision, Variant: v.Name, Dir: dir,
-		Files: v.Files, Status: Queued, BytesTotal: v.Size, Created: now, Updated: now,
+		Pool: pool, Files: v.Files, Status: Queued, BytesTotal: v.Size, Created: now, Updated: now,
 	}
 	m.jobs[j.ID] = j
 	m.mu.Unlock()
@@ -226,8 +236,9 @@ func (m *Manager) Cancel(id string) error {
 	if cancel := m.cancels[id]; cancel != nil {
 		cancel()
 	}
+	partial := m.partialDir(j)
 	m.mu.Unlock()
-	_ = os.RemoveAll(m.partialDir(id))
+	_ = os.RemoveAll(partial)
 	return m.save()
 }
 
@@ -254,8 +265,18 @@ func (m *Manager) Retry(id string) error {
 	return nil
 }
 
-func (m *Manager) partialDir(id string) string {
-	return filepath.Join(m.ModelsDir, ".partial-"+id)
+// root is the directory that a job downloads into.
+func (m *Manager) root(pool string) string {
+	if pool == "" {
+		return m.ModelsDir
+	}
+	return filepath.Join(m.PoolsDir, pool)
+}
+
+// partialDir is on the same file system as the final directory, so the
+// last step is a rename.
+func (m *Manager) partialDir(j *Job) string {
+	return filepath.Join(m.root(j.Pool), ".partial-"+j.ID)
 }
 
 func (m *Manager) worker(ctx context.Context) {
@@ -330,7 +351,7 @@ func (m *Manager) run(parent context.Context, j *Job) {
 }
 
 func (m *Manager) fetchAll(ctx context.Context, j *Job) error {
-	partial := m.partialDir(j.ID)
+	partial := m.partialDir(j)
 	if err := os.MkdirAll(partial, 0o750); err != nil {
 		return err
 	}
@@ -357,7 +378,7 @@ func (m *Manager) fetchAll(ctx context.Context, j *Job) error {
 	if err := os.WriteFile(filepath.Join(partial, ".sibyl-source.json"), source, 0o640); err != nil {
 		return err
 	}
-	final := filepath.Join(m.ModelsDir, j.Dir)
+	final := filepath.Join(m.root(j.Pool), j.Dir)
 	if _, err := os.Stat(final); err == nil {
 		return fmt.Errorf("%s appeared during the download; keeping the partial files in %s", final, partial)
 	}
@@ -373,7 +394,7 @@ func (m *Manager) checkSpace(j *Job, partial string) error {
 		}
 	}
 	var st syscall.Statfs_t
-	if err := syscall.Statfs(m.ModelsDir, &st); err != nil {
+	if err := syscall.Statfs(m.root(j.Pool), &st); err != nil {
 		return err
 	}
 	free := int64(st.Bavail) * int64(st.Bsize) // Bsize is int64 on Linux and uint32 on macOS
@@ -494,7 +515,7 @@ func (m *Manager) attempt(parent context.Context, j *Job, dest string, f hf.File
 func (m *Manager) progress(j *Job) {
 	var done int64
 	for _, f := range j.Files {
-		if st, err := os.Stat(filepath.Join(m.partialDir(j.ID), filepath.Base(f.Path))); err == nil {
+		if st, err := os.Stat(filepath.Join(m.partialDir(j), filepath.Base(f.Path))); err == nil {
 			done += st.Size()
 		}
 	}

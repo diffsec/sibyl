@@ -21,9 +21,72 @@ import (
 // Model is one installed GGUF model. A split model is listed once, by its first shard.
 type Model struct {
 	ID     string `json:"id"`
-	Path   string `json:"path"` // relative to the models directory
+	Path   string `json:"path"`           // relative to the models directory, or to its pool
+	Pool   string `json:"pool,omitempty"` // empty for the models directory
 	Size   int64  `json:"size_bytes"`
 	Shards int    `json:"shards"`
+}
+
+// PoolRE matches the name of a model pool directory.
+var PoolRE = regexp.MustCompile(`^pool-[0-9]{1,2}$`)
+
+// Pools returns the pool directories under poolsDir, in name order. A
+// missing poolsDir has no pools.
+func Pools(poolsDir string) ([]string, error) {
+	entries, err := os.ReadDir(poolsDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && PoolRE.MatchString(e.Name()) {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
+// ScanAll scans the models directory and every pool. When two places hold
+// a model with the same ID, the models directory wins, then the lower pool.
+func ScanAll(modelsDir, poolsDir string) ([]Model, error) {
+	all, err := Scan(modelsDir)
+	if err != nil {
+		return nil, err
+	}
+	pools, err := Pools(poolsDir)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for _, m := range all {
+		seen[m.ID] = true
+	}
+	for _, p := range pools {
+		found, err := Scan(filepath.Join(poolsDir, p))
+		if err != nil {
+			return nil, fmt.Errorf("pool %s: %w", p, err)
+		}
+		for _, m := range found {
+			if !seen[m.ID] {
+				m.Pool = p
+				seen[m.ID] = true
+				all = append(all, m)
+			}
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
+	return all, nil
+}
+
+// Root returns the directory that m.Path is relative to.
+func (m Model) Root(modelsDir, poolsDir string) string {
+	if m.Pool == "" {
+		return modelsDir
+	}
+	return filepath.Join(poolsDir, m.Pool)
 }
 
 var (

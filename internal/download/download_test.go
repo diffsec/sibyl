@@ -83,6 +83,7 @@ func newManager(t *testing.T, hub *fakeHub) (*Manager, chan struct{}) {
 	done := make(chan struct{}, 4)
 	m := &Manager{
 		ModelsDir:    filepath.Join(dir, "models"),
+		PoolsDir:     filepath.Join(dir, "pools"),
 		StateFile:    filepath.Join(dir, "downloads.json"),
 		HF:           hf.New(srv.URL, ""),
 		Log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -127,7 +128,7 @@ func TestDownloadSplitWithResume(t *testing.T) {
 	hub.cutOnce.Store("Big-Q4-00001-of-00002.gguf", true)
 	m, done := newManager(t, hub)
 
-	j, err := m.Add(context.Background(), "o/r", "", "Big-Q4")
+	j, err := m.Add(context.Background(), "o/r", "", "Big-Q4", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestDownloadSplitWithResume(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(m.ModelsDir, "Big-Q4", ".sibyl-source.json")); err != nil {
 		t.Errorf("provenance file missing: %v", err)
 	}
-	if _, err := os.Stat(m.partialDir(j.ID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(m.partialDir(&j)); !os.IsNotExist(err) {
 		t.Errorf("partial directory left behind: %v", err)
 	}
 	// The cut transfer must resume, not restart: 3 GETs for 2 files.
@@ -154,7 +155,7 @@ func TestDownloadSplitWithResume(t *testing.T) {
 		t.Errorf("GET count = %d, want 3", n)
 	}
 
-	if _, err := m.Add(context.Background(), "o/r", rev, "Big-Q4"); err == nil || !strings.Contains(err.Error(), "already installed") {
+	if _, err := m.Add(context.Background(), "o/r", rev, "Big-Q4", ""); err == nil || !strings.Contains(err.Error(), "already installed") {
 		t.Errorf("second add: err = %v, want already installed", err)
 	}
 }
@@ -165,7 +166,7 @@ func TestDownloadChecksumMismatch(t *testing.T) {
 		shaFor: map[string]string{"Bad.gguf": strings.Repeat("0", 64)},
 	}
 	m, _ := newManager(t, hub)
-	j, err := m.Add(context.Background(), "o/r", rev, "Bad")
+	j, err := m.Add(context.Background(), "o/r", rev, "Bad", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,6 +179,28 @@ func TestDownloadChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestDownloadIntoPool(t *testing.T) {
+	m, done := newManager(t, &fakeHub{files: map[string][]byte{"A.gguf": []byte("a")}})
+	if _, err := m.Add(context.Background(), "o/r", rev, "A", "pool-1"); err == nil {
+		t.Fatal("queued a download into a pool that does not exist")
+	}
+	if err := os.MkdirAll(filepath.Join(m.PoolsDir, "pool-1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(context.Background(), "o/r", rev, "A", "../models"); err == nil {
+		t.Fatal("queued a download outside the pools")
+	}
+	j, err := m.Add(context.Background(), "o/r", rev, "A", "pool-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, m, j.ID, Done)
+	<-done
+	if b, err := os.ReadFile(filepath.Join(m.PoolsDir, "pool-1", "A", "A.gguf")); err != nil || string(b) != "a" {
+		t.Fatalf("pool file: %q %v", b, err)
+	}
+}
+
 func TestAddRejects(t *testing.T) {
 	m, _ := newManager(t, &fakeHub{files: map[string][]byte{"A.gguf": []byte("a")}})
 	ctx := context.Background()
@@ -186,7 +209,7 @@ func TestAddRejects(t *testing.T) {
 		{"o/r", "main", "A"},
 		{"o/r", rev, "Missing"},
 	} {
-		if _, err := m.Add(ctx, c.repo, c.rev, c.variant); err == nil {
+		if _, err := m.Add(ctx, c.repo, c.rev, c.variant, ""); err == nil {
 			t.Errorf("Add(%q, %q, %q): want an error", c.repo, c.rev, c.variant)
 		}
 	}

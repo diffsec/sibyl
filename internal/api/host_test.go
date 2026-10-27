@@ -157,3 +157,23 @@ func TestHostUserFromGitHub(t *testing.T) {
 		t.Fatalf("unknown GitHub user = %d", code)
 	}
 }
+
+func TestPools(t *testing.T) {
+	f := newHostFixture(t, false)
+	write(t, filepath.Join(f.run, "host-out", "state.json"),
+		`{"pools":[{"name":"pool-1","disk":"/dev/sdb","luks_uuid":"u","mount":"/var/lib/sibyl-pools/pool-1","mounted":true,"free_bytes":5}],
+		  "disks":[{"path":"/dev/sdc","size":1,"reason":"in use"}]}`)
+	code, body := f.do(t, "GET", "/pools", "", true)
+	pools, _ := body["pools"].([]any)
+	if code != http.StatusOK || len(pools) != 1 {
+		t.Fatalf("GET /pools = %d %v", code, body)
+	}
+	for _, b := range []string{`{"disk":"/dev/sdb"}`, `{"disk":"/etc/passwd","confirm":"x"}`} {
+		if code, _ := f.do(t, "POST", "/pools", b, true); code != http.StatusUnprocessableEntity {
+			t.Errorf("POST /pools %s = %d", b, code)
+		}
+	}
+	if code, _ := f.do(t, "DELETE", "/pools/pool-x", "", true); code != http.StatusUnprocessableEntity {
+		t.Errorf("DELETE /pools/pool-x = %d", code)
+	}
+}
