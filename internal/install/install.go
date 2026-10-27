@@ -239,6 +239,9 @@ func (in *Installer) Install(ctx context.Context, o Options) (res Result, err er
 	}
 	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "podman", Args: []string{"run", "--rm", "--privileged", "--pid=host",
 		"--security-opt", "label=type:unconfined_t", "-e", "RUST_LOG=" + logLevel,
+		// The image that image-builder embeds in the live ISO has no /tmp, and
+		// bootc needs a tmpfs there.
+		"--tmpfs", "/tmp",
 		"-v", "/dev:/dev", "-v", "/var/lib/containers:/var/lib/containers", "-v", target + ":/target",
 		o.Payload,
 		"bootc", "install", "to-filesystem",

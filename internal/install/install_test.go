@@ -105,7 +105,7 @@ func TestInstall(t *testing.T) {
 		last = i
 	}
 	pod := f.calls[f.index("podman run")].String()
-	for _, want := range []string{"--source-imgref containers-storage:ghcr.io/ihavespoons/sibyl-os:sha-1-amd",
+	for _, want := range []string{"--tmpfs /tmp", "--source-imgref containers-storage:ghcr.io/ihavespoons/sibyl-os:sha-1-amd",
 		"--target-imgref ghcr.io/ihavespoons/sibyl-os:latest-amd", "--karg rd.luks.uuid=luks-1111-2222", "/target"} {
 		if !strings.Contains(pod, want) {
 			t.Errorf("podman command lacks %q: %s", want, pod)
