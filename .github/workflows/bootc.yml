@@ -22,6 +22,11 @@ on:
       - 'go.sum'
       - '.github/workflows/bootc.yml'
   workflow_dispatch:
+    inputs:
+      iso:
+        description: Build the live ISO and run the VM install test (about 45 runner minutes)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -280,7 +285,9 @@ jobs:
   # because it is larger than the 2 GiB limit for release assets.
   iso:
     needs: [tag, os-image]
-    if: needs.tag.outputs.push == 'true'
+    # The ISO build and VM test use about 45 runner minutes, so they run only
+    # when asked: gh workflow run bootc.yml -f iso=true
+    if: needs.tag.outputs.push == 'true' && inputs.iso
     runs-on: ubuntu-latest
     permissions:
       contents: read
