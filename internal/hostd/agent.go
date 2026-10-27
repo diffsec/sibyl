@@ -58,8 +58,9 @@ const (
 	checkpointDeleteNew = 2
 )
 
-// Process handles every queued request, oldest first, and then writes the
-// state file.
+// Process handles every queued request, oldest first. It writes the state
+// file before the results, so a client that sees a result also sees the
+// state after it.
 func (a *Agent) Process(ctx context.Context) error {
 	if err := a.prepareOut(); err != nil {
 		return err
@@ -68,14 +69,18 @@ func (a *Agent) Process(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	results := make([]Result, 0, len(reqs))
 	for _, r := range reqs {
-		res := a.handle(ctx, r)
+		results = append(results, a.handle(ctx, r))
+	}
+	stateErr := a.WriteState(ctx)
+	for _, res := range results {
 		if err := a.writeOut(filepath.Join("results", res.ID+".json"), res); err != nil {
 			a.Log.Error("write result", "id", res.ID, "err", err)
 		}
 	}
 	a.pruneResults()
-	return a.WriteState(ctx)
+	return stateErr
 }
 
 // queued is one request file that was read and removed from the queue.
