@@ -172,7 +172,7 @@ func (v *hostView) userForm(name string) tea.Cmd {
 func (v *hostView) deleteForm(name string) tea.Cmd {
 	v.mode, v.name, v.confirm = "delete", name, false
 	v.form = huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().Title("Delete operator "+name+"?").
+		huh.NewConfirm().Title("Delete operator " + name + "?").
 			Description("This deletes the account and its home directory.").
 			Affirmative("Delete").Negative("Keep").Value(&v.confirm),
 	)).WithShowHelp(false)

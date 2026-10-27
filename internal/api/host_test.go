@@ -42,7 +42,7 @@ func newHostFixture(t *testing.T, agent bool) *hostFixture {
 		return f
 	}
 	a := &hostd.Agent{
-		Queue: queue, Out: out, Data: t.TempDir(), Now: time.Now,
+		Queue: queue, Out: out, Data: t.TempDir(), Now: time.Now, Group: -1,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Run: func(_ context.Context, _, name string, args ...string) (string, error) {
 			f.mu.Lock()

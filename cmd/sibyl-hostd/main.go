@@ -14,6 +14,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/user"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,13 +28,23 @@ func main() {
 	out := flag.String("out", "/var/lib/sibyl-host/out", "state and results, read by the System API")
 	data := flag.String("data", "/var/lib/sibyl-host", "records that only root reads")
 	label := flag.String("label", "system_u:object_r:container_file_t:s0", "SELinux context for the output files")
+	group := flag.String("group", "sibyl", "group that can read the output files")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	a := &hostd.Agent{Queue: *queue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label}
+	g, err := user.LookupGroup(*group)
+	if err != nil {
+		log.Error("exit", "err", err)
+		os.Exit(1)
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		log.Error("exit", "err", err)
+		os.Exit(1)
+	}
+	a := &hostd.Agent{Queue: *queue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	var err error
 	if *stateOnly {
 		err = a.WriteState(ctx)
 	} else {

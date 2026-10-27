@@ -31,6 +31,9 @@ type Agent struct {
 	// Label is the SELinux context for files in Out, so the System API
 	// container can read them. Empty skips labelling.
 	Label string
+	// Group is the group that owns the files in Out, so the System API can
+	// read them. -1 keeps the group of the process.
+	Group int
 }
 
 // requestRE matches queue file names: <unix-nanoseconds>.<action>.json.
@@ -316,7 +319,7 @@ func (a *Agent) writeData(name string, v any) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(filepath.Join(a.Data, name), b, 0o600, "")
+	return writeAtomic(filepath.Join(a.Data, name), b, 0o600, "", -1)
 }
 
 func (a *Agent) writeOut(name string, v any) error {
@@ -324,7 +327,7 @@ func (a *Agent) writeOut(name string, v any) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(filepath.Join(a.Out, name), append(b, '\n'), 0o640, a.Label)
+	return writeAtomic(filepath.Join(a.Out, name), append(b, '\n'), 0o640, a.Label, a.Group)
 }
 
 func (a *Agent) pruneResults() {
@@ -347,12 +350,16 @@ func (a *Agent) prepareOut() error {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	if a.Label == "" {
-		return nil
-	}
 	for _, d := range []string{a.Out, dir} {
-		if err := setLabel(d, a.Label); err != nil {
-			return fmt.Errorf("label %s: %w", d, err)
+		if a.Group >= 0 {
+			if err := os.Lchown(d, -1, a.Group); err != nil {
+				return err
+			}
+		}
+		if a.Label != "" {
+			if err := setLabel(d, a.Label); err != nil {
+				return fmt.Errorf("label %s: %w", d, err)
+			}
 		}
 	}
 	return nil

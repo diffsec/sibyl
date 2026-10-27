@@ -10,7 +10,7 @@ import (
 
 // writeAtomic writes a file through a temporary file and a rename, in a
 // directory that only root can write.
-func writeAtomic(path string, data []byte, mode os.FileMode, label string) error {
+func writeAtomic(path string, data []byte, mode os.FileMode, label string, gid int) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return err
@@ -23,6 +23,12 @@ func writeAtomic(path string, data []byte, mode os.FileMode, label string) error
 	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return err
+	}
+	if gid >= 0 {
+		if err := tmp.Chown(-1, gid); err != nil {
+			_ = tmp.Close()
+			return err
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return err

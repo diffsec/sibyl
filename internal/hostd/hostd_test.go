@@ -179,6 +179,7 @@ func newAgent(t *testing.T) *testAgent {
 		Run:   ta.host.run,
 		Now:   func() time.Time { return ta.now },
 		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Group: -1,
 	}
 	if err := os.MkdirAll(ta.Queue, 0o750); err != nil {
 		t.Fatal(err)
