@@ -6,15 +6,16 @@
 ARG GO_IMAGE=cgr.dev/chainguard/go@sha256:85788137110936acab58b7a2901df787f71377ffac4809a9b04db7401f689580
 ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:44@sha256:101c835e34efb4bb94cf6731b5d79374f39b082656ccbb2370d24ea0d50b197d
 
-# sibyl-hostd runs the privileged host actions. It runs on the host, so it is
-# built here and not shipped in a container image.
+# sibyl-hostd runs the privileged host actions, and sibyl-install is the disk
+# installer. They run on the host, so they are built here.
 FROM ${GO_IMAGE} AS hostd
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/sibyl-hostd
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/sibyl-hostd \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install
 
 FROM ${BASE_IMAGE}
 
@@ -33,6 +34,7 @@ RUN grep -hEv '^\s*(#|$)' /tmp/packages/common.txt "/tmp/packages/${GPU_VARIANT}
 
 COPY os/rootfs/ /
 COPY --from=hostd /out/sibyl-hostd /usr/libexec/sibyl/hostd
+COPY --from=hostd /out/sibyl-install /usr/sbin/sibyl-install
 
 # render and video live in /usr/lib/group, where systemd-sysusers cannot add
 # members. Copy them to /etc/group so the "m" lines in sysusers.d apply.
@@ -43,7 +45,7 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
     && echo "${IMAGE_TAG}" > /usr/share/sibyl/image-tag \
     && echo "${GPU_VARIANT}" > /usr/share/sibyl/gpu-variant \
     && systemctl enable nftables.service sibyl-selinux.service sibyl-firstboot.service sibyl-operator-export.service \
-        sibyl-hostd.path sibyl-hostd-state.timer \
+        sibyl-hostd.path sibyl-hostd-state.timer sibyl-provision.service \
     && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
     && sed -i "s/@IMAGE_TAG@/${IMAGE_TAG}/g" /etc/containers/systemd/users/1001/*.container \

@@ -1,0 +1,6 @@
+# image-builder adds root=live:CDLABEL=<label>, rd.live.image and enforcing=0.
+# The squashfs has no SELinux labels, so the live system runs permissive.
+# The installed system runs enforcing.
+label: "SIBYL-LIVE"
+kernel_args:
+  - rd.live.overlay.overlayfs=1

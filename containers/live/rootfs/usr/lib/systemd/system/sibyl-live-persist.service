@@ -1,0 +1,13 @@
+[Unit]
+Description=Start the Sibyl services on the persistence partition
+ConditionPathIsMountPoint=/var/lib/sibyl
+After=var-lib-sibyl.mount systemd-tmpfiles-setup.service
+Before=systemd-logind.service
+
+[Service]
+Type=oneshot
+# logind starts the user manager of every lingering user.
+ExecStart=/usr/bin/touch /var/lib/systemd/linger/sibyl
+
+[Install]
+WantedBy=multi-user.target

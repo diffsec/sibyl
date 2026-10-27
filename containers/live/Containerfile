@@ -1,0 +1,38 @@
+# Sibyl live USB: the host image plus what a live system and an ISO need.
+# CI turns this image into an ISO with image-builder's generic-iso type, and
+# embeds the host image for an offline install (see docs/design.md, Storage).
+# Build context: containers/live.
+
+ARG OS_IMAGE=ghcr.io/ihavespoons/sibyl-os:latest-amd
+
+FROM ${OS_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# dracut-live boots from the squashfs. The others are the tools that
+# image-builder runs inside this image to make the ISO.
+RUN dnf -y install --setopt=install_weak_deps=False \
+        dracut-live grub2-efi-x64-cdboot grub2-pc-modules grub2-tools \
+        isomd5sum xorriso squashfs-tools python3 \
+    && dnf clean all \
+    && rm -rf /run/dnf /var/cache/* /var/lib/dnf /var/log/dnf* \
+    && mkdir -p /boot/efi \
+    && cp -ra /usr/lib/efi/*/*/EFI /boot/efi
+
+COPY rootfs/ /
+
+# The initramfs must find the squashfs on the USB. /root links to
+# /var/roothome, which dracut needs to exist.
+RUN mkdir -p "$(realpath /root)" \
+    && kver="$(ls /usr/lib/modules)" \
+    && DRACUT_NO_XATTR=1 dracut --force --no-hostonly "/usr/lib/modules/${kver}/initramfs.img" "${kver}"
+
+# The live system starts the Sibyl services only on a persistence partition,
+# because their images do not fit in RAM. sibyl-live-persist turns lingering on.
+RUN sed -i '/linger\/sibyl/d' /usr/lib/tmpfiles.d/sibyl.conf \
+    && systemctl enable var-lib-sibyl.mount sibyl-live-persist.service \
+    && systemctl mask bootloader-update.service sibyl-hostd-state.timer
+
+# The nonempty-boot warning is expected: the image-builder ISO contract needs
+# shim and GRUB in /boot/efi. The live image is never deployed with bootc.
+RUN bootc container lint

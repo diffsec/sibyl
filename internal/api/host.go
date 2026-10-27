@@ -1,14 +1,9 @@
 package api
 
 import (
-	"bufio"
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/ihavespoons/sibyl/internal/hostctl"
@@ -136,41 +131,10 @@ func (s *Server) hostAction(w http.ResponseWriter, r *http.Request, a hostd.Acti
 	}
 }
 
-var githubUserRE = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
-
-// githubKeys fetches the public SSH keys of a GitHub account. Keys of a type
-// that sibyl-hostd refuses, such as DSA, are skipped.
 func (s *Server) githubKeys(ctx context.Context, user string) ([]string, error) {
-	if !githubUserRE.MatchString(user) {
-		return nil, fmt.Errorf("github: %q is not a GitHub user name", user)
-	}
 	base := s.GitHubBase
 	if base == "" {
 		base = "https://github.com"
 	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/"+user+".keys", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("github: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("github: %s.keys returned %d", user, resp.StatusCode)
-	}
-	var keys []string
-	sc := bufio.NewScanner(io.LimitReader(resp.Body, hostd.MaxRequestSize))
-	for sc.Scan() {
-		if k, err := hostd.ParseKey(sc.Text()); err == nil {
-			keys = append(keys, strings.TrimSpace(k+" github:"+user))
-		}
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("github: %s has no usable SSH keys", user)
-	}
-	return keys, nil
+	return hostd.GitHubKeys(ctx, base, user)
 }

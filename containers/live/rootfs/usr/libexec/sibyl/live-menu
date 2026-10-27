@@ -1,0 +1,28 @@
+#!/bin/bash
+# The menu on the live console. Each choice runs a tool and comes back here.
+while true; do
+    clear
+    echo "Sibyl live USB $(cat /usr/share/sibyl/version)"
+    echo
+    if mountpoint -q /var/lib/sibyl; then
+        echo "Persistence: on. The Sibyl services run from the USB."
+    else
+        echo "Persistence: off. Changes are lost at shutdown, and the services do not run."
+    fi
+    ip -4 -br addr show scope global | awk '{print "Network: " $1 " " $3}'
+    echo
+    echo "  1  Install Sibyl to a disk"
+    echo "  2  Make a persistence partition on this USB"
+    echo "  3  Shell"
+    echo "  4  Reboot"
+    echo "  5  Power off"
+    echo
+    read -r -p "Choose: " choice
+    case "$choice" in
+        1) sibyl-install; read -r -p "Press Enter to go back to the menu." _ ;;
+        2) sibyl-install persist; read -r -p "Press Enter to go back to the menu." _ ;;
+        3) echo "Type exit to go back to the menu."; bash -l; ;;
+        4) systemctl reboot ;;
+        5) systemctl poweroff ;;
+    esac
+done

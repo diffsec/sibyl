@@ -1,0 +1,14 @@
+# The persistence partition on the live USB. Without it, /var/lib/sibyl stays
+# in RAM and the Sibyl services do not start. sibyl-install persist makes it.
+[Unit]
+Description=Sibyl persistence partition
+Before=systemd-tmpfiles-setup.service
+
+[Mount]
+What=/dev/disk/by-label/SIBYLPERSIST
+Where=/var/lib/sibyl
+Type=xfs
+Options=nofail,x-systemd.device-timeout=10s
+
+[Install]
+WantedBy=local-fs.target
