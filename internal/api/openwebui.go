@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -172,5 +173,65 @@ func (s *Server) deleteOpenWebUI(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.getOpenWebUI(w, r)
+}
+
+type connectRequest struct {
+	// CreateAdmin creates the first Open WebUI account, on a fresh install.
+	CreateAdmin bool   `json:"create_admin"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+}
+
+// connectOpenWebUI logs in to Open WebUI as an admin (or creates the first
+// admin), turns on API keys, gets the admin's API key, and stores only the
+// key. The password is used for this request only.
+func (s *Server) connectOpenWebUI(w http.ResponseWriter, r *http.Request) {
+	if s.OpenWebUI == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("the Open WebUI integration is not configured"))
+		return
+	}
+	var req connectRequest
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	if req.Email == "" || req.Password == "" || len(req.Password) > 256 {
+		writeError(w, http.StatusBadRequest, errors.New("give the admin email and password"))
+		return
+	}
+	if req.CreateAdmin && strings.TrimSpace(req.Name) == "" {
+		req.Name = "Admin"
+	}
+
+	c := owui.New(s.OpenWebUI.Base, "")
+	var token string
+	var err error
+	if req.CreateAdmin {
+		token, err = c.SignUp(r.Context(), req.Name, req.Email, req.Password)
+	} else {
+		token, err = c.SignIn(r.Context(), req.Email, req.Password)
+	}
+	req.Password = ""
+	if err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if _, err := c.EnableAPIKeys(r.Context(), token); err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("turn on API keys: %w", err))
+		return
+	}
+	key, err := c.APIKey(r.Context(), token)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("get API key: %w", err))
+		return
+	}
+	if err := hardware.WriteFileAtomic(s.owuiKeyFile(), []byte(key), 0o600); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.SyncOpenWebUI()
 	s.getOpenWebUI(w, r)
 }

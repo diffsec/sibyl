@@ -197,9 +197,10 @@ Open WebUI's document search uses an embedding model from llama-swap through its
 
 Open WebUI stores its embedding settings in its database (`rag.embedding_model` is persistent configuration in v0.12.4), so environment variables apply on the first start only. Sibyl sets them through Open WebUI's admin API instead:
 
-1. An admin turns on API keys in Open WebUI (Admin Panel, Settings, General) and creates a key. The image sets `ENABLE_API_KEYS=true`, so a fresh install has the switch on already.
-2. The admin enters the key in the TUI (Status screen, key `o`) or with `PUT /integrations/open-webui`. The System API checks the key against an admin-only endpoint before it stores it in `/config/open-webui.key` with mode 0600.
-3. After each configuration change, and at startup, the System API points Open WebUI at the first installed model marked as an embedding model, through `POST /api/v1/retrieval/embedding/update`. It changes nothing when Open WebUI already uses that model.
+1. In the TUI (Status screen, key `o`), the admin either signs in with an existing Open WebUI admin account, or creates the first admin on a fresh install, or pastes an API key. The API routes are `POST /integrations/open-webui/connect` and `PUT /integrations/open-webui`.
+2. With a login, the System API signs in (or signs up when no account exists, which Open WebUI makes the admin), turns on API keys in the admin config if they are off, and reads the admin's API key. It creates a key only when the account has none, because creating one replaces the old key. The password is used for that request only and is never stored.
+3. The System API checks the key against an admin-only endpoint, then stores it in `/config/open-webui.key` with mode 0600.
+4. After each configuration change, and at startup, the System API points Open WebUI at the first installed model marked as an embedding model, through `POST /api/v1/retrieval/embedding/update`. It changes nothing when Open WebUI already uses that model.
 
 ### Ollama-compatible API
 

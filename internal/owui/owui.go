@@ -6,12 +6,33 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// statusError is a non-200 response from Open WebUI.
+type statusError struct {
+	code int
+	body string
+}
+
+func (e *statusError) Error() string {
+	var detail struct {
+		Detail string `json:"detail"`
+	}
+	msg := e.body
+	if json.Unmarshal([]byte(e.body), &detail) == nil && detail.Detail != "" {
+		msg = detail.Detail
+	}
+	if e.code == http.StatusUnauthorized || e.code == http.StatusForbidden {
+		return fmt.Sprintf("open webui refused the request (%d): %s", e.code, msg)
+	}
+	return fmt.Sprintf("open webui %d: %s", e.code, msg)
+}
 
 // Embedding is Open WebUI's embedding configuration.
 type Embedding struct {
@@ -33,6 +54,12 @@ func New(base, key string) *Client {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
+	return c.call(ctx, c.Key, method, path, in, out)
+}
+
+// call sends one request with bearer as the credential: an API key or a
+// session token from sign-in.
+func (c *Client) call(ctx context.Context, bearer, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -45,7 +72,9 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Key)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -55,11 +84,8 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	switch {
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return fmt.Errorf("open webui refused the key (%d): it must be an admin's API key, and API keys must be enabled in Admin Panel, Settings, General", resp.StatusCode)
-	case resp.StatusCode != http.StatusOK:
-		return fmt.Errorf("open webui %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	if resp.StatusCode != http.StatusOK {
+		return &statusError{code: resp.StatusCode, body: strings.TrimSpace(string(raw))}
 	}
 	if out != nil {
 		return json.Unmarshal(raw, out)
@@ -104,4 +130,86 @@ func (c *Client) Sync(ctx context.Context, model, url string) (bool, error) {
 		return false, nil
 	}
 	return true, c.SetEmbedding(ctx, model, url)
+}
+
+// ErrAdminExists means sign-up was refused because Open WebUI already has users.
+var ErrAdminExists = errors.New("open webui already has an admin: sign in with that account instead")
+
+type session struct {
+	Token string `json:"token"`
+	Role  string `json:"role"`
+}
+
+// SignIn logs in with a password and returns a session token. The token must
+// belong to an admin.
+func (c *Client) SignIn(ctx context.Context, email, password string) (string, error) {
+	var s session
+	err := c.call(ctx, "", http.MethodPost, "/api/v1/auths/signin", map[string]string{"email": email, "password": password}, &s)
+	if err != nil {
+		return "", fmt.Errorf("sign in: %w", err)
+	}
+	return checkAdmin(s)
+}
+
+// SignUp creates the first account, which Open WebUI makes the admin.
+func (c *Client) SignUp(ctx context.Context, name, email, password string) (string, error) {
+	var s session
+	err := c.call(ctx, "", http.MethodPost, "/api/v1/auths/signup",
+		map[string]string{"name": name, "email": email, "password": password}, &s)
+	var se *statusError
+	if errors.As(err, &se) && se.code == http.StatusForbidden {
+		return "", ErrAdminExists
+	}
+	if err != nil {
+		return "", fmt.Errorf("sign up: %w", err)
+	}
+	return checkAdmin(s)
+}
+
+func checkAdmin(s session) (string, error) {
+	if s.Token == "" {
+		return "", errors.New("open webui returned no session token")
+	}
+	if s.Role != "admin" {
+		return "", fmt.Errorf("this account is a %q, not an admin", s.Role)
+	}
+	return s.Token, nil
+}
+
+// EnableAPIKeys turns on API keys in the admin config, if they are off. It
+// sends back every other admin setting unchanged.
+func (c *Client) EnableAPIKeys(ctx context.Context, token string) (bool, error) {
+	cfg := map[string]any{}
+	if err := c.call(ctx, token, http.MethodGet, "/api/v1/auths/admin/config", nil, &cfg); err != nil {
+		return false, err
+	}
+	if on, _ := cfg["ENABLE_API_KEYS"].(bool); on {
+		return false, nil
+	}
+	cfg["ENABLE_API_KEYS"] = true
+	return true, c.call(ctx, token, http.MethodPost, "/api/v1/auths/admin/config", cfg, nil)
+}
+
+// APIKey returns the account's API key, and creates one only if it has none.
+// Creating a key replaces the old one, so an existing key is reused.
+func (c *Client) APIKey(ctx context.Context, token string) (string, error) {
+	var k struct {
+		Key string `json:"api_key"`
+	}
+	err := c.call(ctx, token, http.MethodGet, "/api/v1/auths/api_key", nil, &k)
+	var se *statusError
+	switch {
+	case err == nil && k.Key != "":
+		return k.Key, nil
+	case err == nil || (errors.As(err, &se) && se.code == http.StatusNotFound):
+	default:
+		return "", err
+	}
+	if err := c.call(ctx, token, http.MethodPost, "/api/v1/auths/api_key", nil, &k); err != nil {
+		return "", err
+	}
+	if k.Key == "" {
+		return "", errors.New("open webui returned an empty API key")
+	}
+	return k.Key, nil
 }

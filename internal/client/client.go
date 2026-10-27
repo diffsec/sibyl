@@ -218,6 +218,14 @@ func (c *Client) SetOpenWebUIKey(ctx context.Context, key string) (OpenWebUI, er
 	return o, c.do(ctx, http.MethodPut, "/integrations/open-webui", map[string]string{"api_key": key}, &o)
 }
 
+// ConnectOpenWebUI logs in to Open WebUI as an admin, or creates the first
+// admin, and lets the System API store an API key. The password is not stored.
+func (c *Client) ConnectOpenWebUI(ctx context.Context, createAdmin bool, name, email, password string) (OpenWebUI, error) {
+	var o OpenWebUI
+	in := map[string]any{"create_admin": createAdmin, "name": name, "email": email, "password": password}
+	return o, c.do(ctx, http.MethodPost, "/integrations/open-webui/connect", in, &o)
+}
+
 func (c *Client) Restart(ctx context.Context, unit string) error {
 	return c.do(ctx, http.MethodPost, "/services/"+url.PathEscape(unit)+"/restart", nil, nil)
 }

@@ -35,7 +35,12 @@ type statusView struct {
 	cursor int
 	ticks  bool
 	form   *huh.Form
+	step   int // 0: choose a method, 1: credentials
+	mode   string
 	key    string
+	name   string
+	email  string
+	pass   string
 }
 
 func newStatusView(c *client.Client) *statusView { return &statusView{c: c} }
@@ -69,21 +74,44 @@ func (v *statusView) capturing() bool { return v.form != nil }
 
 func (v *statusView) help() string {
 	if v.form != nil {
-		return "enter save · esc discard"
+		return "enter next · esc discard"
 	}
 	return "↑/↓ select · r restart service · o Open WebUI key"
 }
 
 func (v *statusView) keyForm() tea.Cmd {
-	v.key = ""
+	v.step, v.mode, v.key, v.name, v.email, v.pass = 0, "signin", "", "", "", ""
 	v.form = huh.NewForm(huh.NewGroup(
 		huh.NewNote().Title("Connect Open WebUI").Description(
-			"Sibyl sets Open WebUI's document embedding model for you.\n"+
-				"1. In Open WebUI: Admin Panel, Settings, General: turn on API Keys.\n"+
-				"2. As an admin: Settings, Account, API Keys: create a key.\n"+
-				"3. Paste it here. Sibyl checks it before saving."),
-		huh.NewInput().Title("Open WebUI API key").EchoMode(huh.EchoModePassword).Value(&v.key),
+			"Sibyl sets Open WebUI's document embedding model for you. It needs an\n"+
+				"admin API key. It can get one with your admin login; the password is\n"+
+				"used once and never stored."),
+		huh.NewSelect[string]().Title("How").Options(
+			huh.NewOption("Sign in with an existing admin account", "signin"),
+			huh.NewOption("Create the first admin account (fresh install)", "create"),
+			huh.NewOption("Paste an API key", "key"),
+		).Value(&v.mode),
 	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *statusView) credentialsForm() tea.Cmd {
+	v.step = 1
+	var fields []huh.Field
+	switch v.mode {
+	case "key":
+		fields = append(fields, huh.NewInput().Title("Open WebUI API key").
+			Description("Admin Panel, Settings, General: API Keys must be on.").
+			EchoMode(huh.EchoModePassword).Value(&v.key))
+	default:
+		if v.mode == "create" {
+			fields = append(fields, huh.NewInput().Title("Name").Placeholder("Admin").Value(&v.name))
+		}
+		fields = append(fields,
+			huh.NewInput().Title("Admin email").Value(&v.email),
+			huh.NewInput().Title("Password").EchoMode(huh.EchoModePassword).Value(&v.pass))
+	}
+	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
 	return v.form.Init()
 }
 
@@ -153,14 +181,23 @@ func (v *statusView) formStep(msg tea.Msg) tea.Cmd {
 	if v.form.State != huh.StateCompleted {
 		return cmd
 	}
-	v.form = nil
-	key := strings.TrimSpace(v.key)
-	v.key = ""
-	if key == "" {
-		return cmd
+	if v.step == 0 {
+		return tea.Batch(cmd, v.credentialsForm())
 	}
-	return tea.Batch(cmd, call(func(ctx context.Context) (client.OpenWebUI, error) { return v.c.SetOpenWebUIKey(ctx, key) },
-		func(o client.OpenWebUI, err error) tea.Msg { return owuiSaved{o, err} }))
+	v.form = nil
+	mode, key, name, email, pass := v.mode, strings.TrimSpace(v.key), v.name, strings.TrimSpace(v.email), v.pass
+	v.key, v.pass = "", ""
+	save := func(ctx context.Context) (client.OpenWebUI, error) {
+		if mode == "key" {
+			return v.c.SetOpenWebUIKey(ctx, key)
+		}
+		return v.c.ConnectOpenWebUI(ctx, mode == "create", name, email, pass)
+	}
+	if (mode == "key" && key == "") || (mode != "key" && (email == "" || pass == "")) {
+		return tea.Batch(cmd, note(false, "nothing entered; Open WebUI not connected"))
+	}
+	return tea.Batch(cmd, note(true, "connecting to Open WebUI…"),
+		call(save, func(o client.OpenWebUI, err error) tea.Msg { return owuiSaved{o, err} }))
 }
 
 func (v *statusView) render(int) string {

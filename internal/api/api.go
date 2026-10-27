@@ -79,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /integrations/open-webui", s.getOpenWebUI)
 	auth.HandleFunc("PUT /integrations/open-webui", s.putOpenWebUI)
 	auth.HandleFunc("DELETE /integrations/open-webui", s.deleteOpenWebUI)
+	auth.HandleFunc("POST /integrations/open-webui/connect", s.connectOpenWebUI)
 	auth.HandleFunc("POST /services/{name}/restart", s.restartService)
 	auth.HandleFunc("GET /hf/search", s.hfSearch)
 	auth.HandleFunc("GET /hf/repos/{owner}/{name}", s.hfRepo)
