@@ -1,0 +1,8 @@
+# The host image builds from the repository root. It needs only these paths.
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!os/packages/
+!os/rootfs/

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ihavespoons/sibyl/internal/download"
 	"github.com/ihavespoons/sibyl/internal/gpu"
@@ -43,6 +44,8 @@ func (p Paths) dropInFile() string    { return filepath.Join(p.DropIn, "backend.
 type Server struct {
 	Paths     Paths
 	Host      *hostctl.Client
+	HostAgent *hostctl.HostClient // privileged host actions, nil if not configured
+	HostWait  time.Duration       // 0 means 45 seconds
 	Token     string
 	Registry  string
 	ImageTag  string
@@ -52,6 +55,8 @@ type Server struct {
 	Downloads *download.Manager
 	Ollama    *ollama.Shim
 	OpenWebUI *OpenWebUI
+	// GitHubBase is https://github.com, or a test server.
+	GitHubBase string
 
 	// mu serializes every change to the configuration files.
 	mu sync.Mutex
@@ -81,6 +86,13 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("DELETE /integrations/open-webui", s.deleteOpenWebUI)
 	auth.HandleFunc("POST /integrations/open-webui/connect", s.connectOpenWebUI)
 	auth.HandleFunc("POST /services/{name}/restart", s.restartService)
+	auth.HandleFunc("GET /host", s.getHost)
+	auth.HandleFunc("GET /host/requests/{id}", s.getHostRequest)
+	auth.HandleFunc("PUT /host/hostname", s.putHostname)
+	auth.HandleFunc("PUT /host/network/{iface}", s.putNetwork)
+	auth.HandleFunc("POST /host/network/confirm", s.confirmNetwork)
+	auth.HandleFunc("PUT /host/users/{name}", s.putUser)
+	auth.HandleFunc("DELETE /host/users/{name}", s.deleteUser)
 	auth.HandleFunc("GET /hf/search", s.hfSearch)
 	auth.HandleFunc("GET /hf/repos/{owner}/{name}", s.hfRepo)
 	auth.HandleFunc("GET /downloads", s.listDownloads)

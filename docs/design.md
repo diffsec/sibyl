@@ -89,8 +89,34 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `GET /hf/repos/{owner}/{name}` | Complete GGUF variants at a pinned commit, with size and fit (`gpu`, `split` or `no`) |
 | `GET, POST /downloads` | List download jobs, or queue one: `{"repo", "variant", "revision"}` |
 | `GET, DELETE /downloads/{id}`, `POST /downloads/{id}/retry` | One job: progress, cancel, or resume a failed job |
+| `GET /host` | Hostname, network interfaces, accounts, and a network change that waits for a confirm |
+| `PUT /host/hostname` | Set the static hostname |
+| `PUT /host/network/{iface}`, `POST /host/network/confirm` | DHCP or a static IPv4 address, with automatic rollback |
+| `PUT, DELETE /host/users/{name}` | Create an operator account or replace its SSH keys, or delete it |
+| `GET /host/requests/{id}` | The result of a host request that took longer than 45 seconds |
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
+
+### Privileged host actions
+
+The setup wizard changes the hostname, the network and the login accounts. These changes need root, and the System API runs as `sibyl`. A second agent, `sibyl-hostd` (`cmd/sibyl-hostd`, `internal/hostd`), runs as root and does them.
+
+1. The System API writes one JSON request per file into `/var/lib/sibyl/run/host`. It checks the request with the same rules as `sibyl-hostd` first, and returns 422 for a bad request.
+2. `sibyl-hostd.path` starts `sibyl-hostd.service`. The agent reads each request without following symlinks, deletes it, and checks it again. Only the agent's checks protect the host.
+3. The agent runs fixed commands with arguments, never a shell string: `hostnamectl`, `nmcli`, `busctl`, `useradd`, `usermod`, `userdel`, `runuser` and `restorecon`.
+4. It writes a result to `/var/lib/sibyl-host/out/results/<id>.json` and the host state to `/var/lib/sibyl-host/out/state.json`. The System API mounts that directory read-only, and waits up to 45 seconds for the result.
+
+The rules keep root out of reach of the System API. Any process that runs as `sibyl` can queue requests, and that includes Arcane and the containers it starts.
+
+- Accounts go into `sibyl-operators` only, never into `wheel`. An operator can run `sibyl`, but not `sudo`.
+- The agent changes and deletes only the accounts that it created. It records them in `/var/lib/sibyl-host/managed-users.json`, which only root can read. `root`, `admin`, `sibyl` and other system names are refused.
+- SSH keys must be `ssh-ed25519`, ECDSA, security-key types, or RSA of 2048 bits or more. Key options such as `command=` are refused. The account itself writes its `authorized_keys` through `runuser`, so a symlink in its home cannot redirect a write by root.
+- `PUT /host/users/{name}` can also take keys from `https://github.com/<user>.keys`.
+- Deleting an operator also deletes its home directory.
+
+A network change runs inside a NetworkManager checkpoint. If no confirm arrives in 120 seconds (30 to 600 can be set), NetworkManager restores the old configuration by itself. A wrong address therefore cannot lock out a remote user. The user reconnects at the new address and calls `POST /host/network/confirm`, or presses `c` in the TUI. Only IPv4 on ethernet interfaces is supported. The TLS certificate keeps the address it was created with, so a client that connects by IP address must use a name in the certificate after a change.
+
+`sibyl-hostd-state.timer` rewrites the state every 5 minutes, so accounts added by hand also show.
 
 ### Console interface
 
@@ -104,6 +130,7 @@ At each boot, `sibyl-operator-export.service` copies the API key and the certifi
 | Hardware | The GPU part of the setup wizard: GPUs for inference, backend, default layout |
 | Models | Installed models, the settings editor, and delete |
 | Download | Hugging Face search, variants with fit, confirmation, and download jobs |
+| Host | Hostname, network with rollback, and operator accounts with SSH keys |
 
 The network, account and SSH key steps of the setup wizard need host-level changes that the System API does not offer yet. Phase 3 adds them.
 

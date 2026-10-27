@@ -27,7 +27,7 @@ The images build for `linux/amd64`. CI builds, pushes and signs them on each pus
 Build the host image locally:
 
 ```bash
-podman build -f os/Containerfile --build-arg GPU_VARIANT=amd -t sibyl-os:amd os
+podman build -f os/Containerfile --ignorefile os/Containerfile.dockerignore --build-arg GPU_VARIANT=amd -t sibyl-os:amd .
 ```
 
 Build the inference images locally:

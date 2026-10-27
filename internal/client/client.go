@@ -20,6 +20,7 @@ import (
 	"github.com/ihavespoons/sibyl/internal/hardware"
 	"github.com/ihavespoons/sibyl/internal/hf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
+	"github.com/ihavespoons/sibyl/internal/hostd"
 	"github.com/ihavespoons/sibyl/internal/llamaswap"
 	"github.com/ihavespoons/sibyl/internal/models"
 )
@@ -261,4 +262,50 @@ func (c *Client) CancelDownload(ctx context.Context, id string) error {
 
 func (c *Client) RetryDownload(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/downloads/"+url.PathEscape(id)+"/retry", nil, nil)
+}
+
+// Host reads the hostname, network interfaces and accounts.
+func (c *Client) Host(ctx context.Context) (hostd.State, error) {
+	var s hostd.State
+	return s, c.do(ctx, http.MethodGet, "/host", nil, &s)
+}
+
+// A host action returns its result. A result with an empty Finished is still
+// queued: the host agent did not answer in time.
+func (c *Client) hostAction(ctx context.Context, method, path string, in any) (hostd.Result, error) {
+	var r hostd.Result
+	return r, c.do(ctx, method, path, in, &r)
+}
+
+func (c *Client) SetHostname(ctx context.Context, name string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPut, "/host/hostname", hostd.Hostname{Hostname: name})
+}
+
+// SetNetwork changes one interface. The change rolls back unless
+// ConfirmNetwork follows within n.RollbackSeconds.
+func (c *Client) SetNetwork(ctx context.Context, n hostd.Network) (hostd.Result, error) {
+	iface := n.Interface
+	n.Interface = ""
+	return c.hostAction(ctx, http.MethodPut, "/host/network/"+url.PathEscape(iface), n)
+}
+
+func (c *Client) ConfirmNetwork(ctx context.Context) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/network/confirm", nil)
+}
+
+// SetUser creates an operator account or replaces its keys. github, if set,
+// adds the keys that GitHub publishes for that account.
+func (c *Client) SetUser(ctx context.Context, name string, keys []string, github string) (hostd.Result, error) {
+	if keys == nil {
+		keys = []string{}
+	}
+	in := map[string]any{"keys": keys}
+	if github != "" {
+		in["github"] = github
+	}
+	return c.hostAction(ctx, http.MethodPut, "/host/users/"+url.PathEscape(name), in)
+}
+
+func (c *Client) DeleteUser(ctx context.Context, name string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodDelete, "/host/users/"+url.PathEscape(name), nil)
 }

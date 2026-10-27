@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh the Sibyl host state
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

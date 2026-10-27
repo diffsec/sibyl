@@ -1,0 +1,9 @@
+[Unit]
+Description=Sibyl privileged host request queue
+
+[Path]
+DirectoryNotEmpty=/var/lib/sibyl/run/host
+MakeDirectory=no
+
+[Install]
+WantedBy=multi-user.target

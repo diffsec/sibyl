@@ -10,6 +10,8 @@ UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:z
 Volume=/var/lib/sibyl/config:/config:z
 Volume=/var/lib/sibyl/run:/run/sibyl:z
+# Written by sibyl-hostd as root. It labels the files itself, so no :z here.
+Volume=/var/lib/sibyl-host/out:/run/sibyl-host:ro
 Volume=/var/lib/sibyl/home/.config/containers/systemd/llama-swap.container.d:/quadlet:z
 Secret=sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0400,uid=10001,gid=10001
 Environment=SIBYL_IMAGE_TAG=@IMAGE_TAG@

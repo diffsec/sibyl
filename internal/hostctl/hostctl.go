@@ -7,6 +7,7 @@
 package hostctl
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/ihavespoons/sibyl/internal/hostd"
 )
 
 // Units are the services that the API can restart. The host agent holds the
@@ -100,4 +103,100 @@ func (c *Client) Status() (Status, error) {
 		return Status{}, fmt.Errorf("parse status.json: %w", err)
 	}
 	return s, nil
+}
+
+// HostClient queues privileged requests for sibyl-hostd and reads its
+// results and state. See package hostd.
+type HostClient struct {
+	Queue string // the request queue, <run>/host
+	Out   string // sibyl-hostd's state.json and results/, mounted read-only
+	now   func() time.Time
+	// Poll is how often Wait checks for a result.
+	Poll time.Duration
+}
+
+// NewHost returns a HostClient.
+func NewHost(queue, out string) *HostClient {
+	return &HostClient{Queue: queue, Out: out, now: time.Now, Poll: 250 * time.Millisecond}
+}
+
+// Submit checks a request with the same rules as sibyl-hostd and queues it.
+// It returns the request ID.
+func (c *HostClient) Submit(a hostd.Action, body any) (string, error) {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+	if _, err := hostd.Decode(a, data); err != nil {
+		return "", &InvalidError{err}
+	}
+	id := strconv.FormatInt(c.now().UnixNano(), 10) + "." + string(a)
+	// Write next to the queue, then rename, so sibyl-hostd never reads a
+	// half-written request, and a failed write never starts it.
+	tmp := filepath.Join(filepath.Dir(c.Queue), ".host-"+id)
+	if err := os.WriteFile(tmp, data, 0o640); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, filepath.Join(c.Queue, id+".json")); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return id, nil
+}
+
+// InvalidError is a request that fails validation.
+type InvalidError struct{ Err error }
+
+func (e *InvalidError) Error() string { return e.Err.Error() }
+func (e *InvalidError) Unwrap() error { return e.Err }
+
+// ErrPending means sibyl-hostd has not finished the request yet.
+var ErrPending = errors.New("the request is still queued")
+
+// Result reads the result of one request.
+func (c *HostClient) Result(id string) (hostd.Result, error) {
+	if !hostID.MatchString(id) {
+		return hostd.Result{}, fmt.Errorf("invalid request ID %q", id)
+	}
+	var r hostd.Result
+	data, err := os.ReadFile(filepath.Join(c.Out, "results", id+".json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return r, ErrPending
+	}
+	if err != nil {
+		return r, err
+	}
+	return r, json.Unmarshal(data, &r)
+}
+
+var hostID = regexp.MustCompile(`^[0-9]{1,20}\.[a-z-]{1,32}$`)
+
+// Wait polls for a result until ctx ends. It returns ErrPending on timeout.
+func (c *HostClient) Wait(ctx context.Context, id string) (hostd.Result, error) {
+	t := time.NewTicker(c.Poll)
+	defer t.Stop()
+	for {
+		r, err := c.Result(id)
+		if !errors.Is(err, ErrPending) {
+			return r, err
+		}
+		select {
+		case <-ctx.Done():
+			return r, ErrPending
+		case <-t.C:
+		}
+	}
+}
+
+// State reads sibyl-hostd's state file.
+func (c *HostClient) State() (hostd.State, error) {
+	var st hostd.State
+	data, err := os.ReadFile(filepath.Join(c.Out, "state.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return st, errors.New("sibyl-hostd has not written its state yet")
+	}
+	if err != nil {
+		return st, err
+	}
+	return st, json.Unmarshal(data, &st)
 }

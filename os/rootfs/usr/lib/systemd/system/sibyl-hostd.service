@@ -1,0 +1,22 @@
+[Unit]
+Description=Sibyl privileged host actions
+After=NetworkManager.service systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/hostd
+# The actions run useradd, hostnamectl, nmcli and runuser, so this unit
+# cannot be fully sandboxed. These settings remove what none of them need.
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+TimeoutStartSec=3min

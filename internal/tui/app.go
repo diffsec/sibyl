@@ -53,8 +53,8 @@ type App struct {
 // New returns the app for one API client.
 func New(c *client.Client) *App {
 	a := &App{c: c}
-	a.views = []view{newStatusView(c), newHardwareView(c), newModelsView(c), newDownloadView(c)}
-	a.names = []string{"Status", "Hardware", "Models", "Download"}
+	a.views = []view{newStatusView(c), newHardwareView(c), newModelsView(c), newDownloadView(c), newHostView(c)}
+	a.names = []string{"Status", "Hardware", "Models", "Download", "Host"}
 	return a
 }
 
@@ -95,7 +95,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch k := msg.String(); k {
 			case "q":
 				return a, tea.Quit
-			case "tab", "shift+tab", "1", "2", "3", "4":
+			case "tab", "shift+tab", "1", "2", "3", "4", "5":
 				switch k {
 				case "tab":
 					a.active = (a.active + 1) % len(a.views)
@@ -145,7 +145,7 @@ func (a *App) View() tea.View {
 	}
 	keys := a.views[a.active].help()
 	if !a.views[a.active].capturing() {
-		keys += " · tab/1-4 switch · q quit"
+		keys += " · tab/1-5 switch · q quit"
 	}
 	b.WriteString(mutedSty.Render(keys))
 	v := tea.NewView(b.String())

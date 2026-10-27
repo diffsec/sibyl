@@ -8,11 +8,12 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 
 ## Layout
 
-- `os/` is the bootc host image. `os/Containerfile` takes `GPU_VARIANT` (`amd`, `nvidia`, `intel`) and `IMAGE_TAG`.
+- `os/` is the bootc host image. `os/Containerfile` takes `GPU_VARIANT` (`amd`, `nvidia`, `intel`) and `IMAGE_TAG`. It builds from the repo root, filtered by `os/Containerfile.dockerignore`.
 - `os/rootfs/` is copied to `/` of the host. Quadlet units are in `os/rootfs/etc/containers/systemd/users/1001/`, and they run rootless as the `sibyl` user (UID 1001).
 - `containers/` holds one directory per service image. `containers/system-api` builds from the repo root.
 - `cmd/` and `internal/` are the Go System API. The design is in the "System API and host agent" section of `docs/design.md`.
 - `os/rootfs/usr/libexec/sibyl/agent` is the host agent. It is the only path from a container to systemd. Keep its allowlist in step with `hostctl.Units`.
+- `cmd/sibyl-hostd` is the root agent for hostname, network and accounts. `os/Containerfile` builds it into the host image. Its checks in `internal/hostd` are the security boundary, so keep every new action in `hostd.Decode` and test the refusals.
 - `.github/workflows/bootc.yml` builds, pushes and signs all images.
 
 ## Rules
@@ -29,7 +30,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 
 ```bash
 go vet ./... && go test -race ./... && golangci-lint run ./...
-docker buildx build --platform linux/arm64 -f os/Containerfile -t sibyl-os:test --load os
+docker buildx build --platform linux/arm64 -f os/Containerfile -t sibyl-os:test --load .
 actionlint .github/workflows/bootc.yml
 ```
 
