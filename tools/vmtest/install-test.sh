@@ -3,7 +3,7 @@
 #
 # The VM has UEFI Secure Boot with Microsoft keys and a software TPM2, like
 # the target host. A systemd credential starts sibyl-install with no
-# questions. The test passes when the installed system boots without a
+# questions, through sibyl-autoinstall.service in the live image. The test passes when the installed system boots without a
 # passphrase, which proves the TPM2 unlock, and the admin account accepts SSH.
 #
 # Usage: tools/vmtest/install-test.sh <sibyl.iso> [work-dir]
@@ -48,25 +48,19 @@ trap 'kill "$(cat "$work/swtpm.pid")" 2>/dev/null || true' EXIT
 
 password="vmtest-$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9')"
 cat > "$work/install.json" <<EOF
-{"disk": "/dev/vda", "password": "$password",
+{"disk": "/dev/vda", "password": "$password", "then": "poweroff", "debug": true,
  "admin": {"name": "admin", "keys": ["$(cat "$work/id_ed25519.pub")"]}}
 EOF
-cat > "$work/unit" <<'EOF'
-[Unit]
-Description=Sibyl unattended install test
-After=multi-user.target
 
+# The test reads the serial console, and a failed install must end the VM
+# instead of waiting for the timeout.
+cat > "$work/dropin" <<'EOF'
 [Service]
-Type=oneshot
-ImportCredential=sibyl.install.json
-Environment=SIBYL_INSTALL_DEBUG=1
 StandardOutput=tty
 StandardError=tty
 TTYPath=/dev/ttyS0
-ExecStart=/bin/sh -c 'if /usr/sbin/sibyl-install -config "$CREDENTIALS_DIRECTORY/sibyl.install.json"; then echo SIBYL-INSTALL-OK; else echo SIBYL-INSTALL-FAILED; findmnt; df -h; podman images; podman info --format "driver={{.Store.GraphDriverName}} root={{.Store.GraphRoot}}"; img=$(podman images --format "{{.Repository}}:{{.Tag}}" | head -1); podman run --rm --privileged "$img" sh -c "ls -ld /tmp /var/tmp /run; stat -f -c %%T /tmp"; fi'
-ExecStartPost=/usr/bin/systemctl poweroff
+ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || { echo SIBYL-INSTALL-FAILED > /dev/ttyS0; systemctl poweroff; }'
 EOF
-printf '[Unit]\nWants=sibyl-vmtest.service\n' > "$work/dropin"
 
 cred() { echo "type=11,value=io.systemd.credential.binary:$1=$(base64 -w0 "$2")"; }
 
@@ -98,8 +92,7 @@ log "installing from $iso (log: $work/install.log)"
 qemu "$work/install.log" \
     -drive "media=cdrom,readonly=on,file=$iso" -boot order=d \
     -smbios "$(cred sibyl.install.json "$work/install.json")" \
-    -smbios "$(cred systemd.extra-unit.sibyl-vmtest.service "$work/unit")" \
-    -smbios "$(cred systemd.unit-dropin.multi-user.target~vmtest "$work/dropin")" &
+    -smbios "$(cred systemd.unit-dropin.sibyl-autoinstall.service~vmtest "$work/dropin")" &
 wait_vm $! "$install_timeout" || log "the install VM timed out"
 if ! grep -q SIBYL-INSTALL-OK "$work/install.log"; then
     tail -n 60 "$work/install.log" >&2

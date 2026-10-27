@@ -151,6 +151,10 @@ type unattended struct {
 	Passphrase string        `json:"passphrase,omitempty"`
 	Admin      install.Admin `json:"admin"`
 	Password   string        `json:"password,omitempty"` // hashed if admin.password_hash is empty
+	// Then is what happens after a good install: reboot, poweroff or none.
+	Then string `json:"then,omitempty"`
+	// Debug passes RUST_LOG=trace to bootc.
+	Debug bool `json:"debug,omitempty"`
 }
 
 func installCmd(ctx context.Context, config string) error {
@@ -166,13 +170,13 @@ func installCmd(ctx context.Context, config string) error {
 		return err
 	}
 	o := install.Options{Payload: payload, Target: target, TPM: hasTPM()}
+	var u unattended
 
 	if config != "" {
 		b, err := os.ReadFile(config)
 		if err != nil {
 			return err
 		}
-		var u unattended
 		if err := json.Unmarshal(b, &u); err != nil {
 			return fmt.Errorf("%s: %w", config, err)
 		}
@@ -200,7 +204,7 @@ func installCmd(ctx context.Context, config string) error {
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 	in := &install.Installer{Run: run, Work: work, Step: func(s string) { fmt.Printf("\n==> %s\n", s) },
-		Debug: os.Getenv("SIBYL_INSTALL_DEBUG") == "1"}
+		Debug: u.Debug || os.Getenv("SIBYL_INSTALL_DEBUG") == "1"}
 	start := time.Now()
 	res, err := in.Install(ctx, o)
 	if err != nil {
@@ -212,13 +216,21 @@ func installCmd(ctx context.Context, config string) error {
 	fmt.Println("update or a change to Secure Boot.")
 	fmt.Printf("\n    %s\n\n", res.RecoveryKey)
 	fmt.Printf("After the reboot, log in as %s and run: sibyl setup\n\n", o.Admin.Name)
-	if config == "" {
-		var ok bool
-		_ = huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("I wrote down the recovery key").
-			Affirmative("Reboot now").Negative("Stay in the live system").Value(&ok))).Run()
-		if ok {
-			return exec.CommandContext(ctx, "systemctl", "reboot").Run()
+	if config != "" {
+		switch u.Then {
+		case "reboot", "poweroff":
+			fmt.Println("SIBYL-INSTALL-OK, then " + u.Then)
+			return exec.CommandContext(ctx, "systemctl", u.Then).Run()
+		default:
+			fmt.Println("SIBYL-INSTALL-OK")
+			return nil
 		}
+	}
+	var ok bool
+	_ = huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("I wrote down the recovery key").
+		Affirmative("Reboot now").Negative("Stay in the live system").Value(&ok))).Run()
+	if ok {
+		return exec.CommandContext(ctx, "systemctl", "reboot").Run()
 	}
 	return nil
 }

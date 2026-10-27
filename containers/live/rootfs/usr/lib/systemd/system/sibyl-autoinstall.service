@@ -1,0 +1,19 @@
+# Unattended install. It runs only when the system credential
+# sibyl.install.json exists, for example from the kernel command line of a
+# network boot (systemd.set_credential_binary=sibyl.install.json:<base64>) or
+# from SMBIOS in a VM. The JSON is the sibyl-install -config format.
+[Unit]
+Description=Sibyl unattended install
+ConditionCredential=sibyl.install.json
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ImportCredential=sibyl.install.json
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/sbin/sibyl-install -config ${CREDENTIALS_DIRECTORY}/sibyl.install.json
+
+[Install]
+WantedBy=multi-user.target

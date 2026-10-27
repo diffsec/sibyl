@@ -9,10 +9,11 @@ FROM ${OS_IMAGE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# dracut-live boots from the squashfs. The others are the tools that
-# image-builder runs inside this image to make the ISO.
+# dracut-live boots from the squashfs, from the USB or over HTTP for a
+# network boot (dracut-network). The others are the tools that image-builder
+# runs inside this image to make the ISO.
 RUN dnf -y install --setopt=install_weak_deps=False \
-        dracut-live grub2-efi-x64-cdboot grub2-pc-modules grub2-tools \
+        dracut-live dracut-network grub2-efi-x64-cdboot grub2-pc-modules grub2-tools \
         isomd5sum xorriso squashfs-tools python3 \
     && dnf clean all \
     && rm -rf /run/dnf /var/cache/* /var/lib/dnf /var/log/dnf* \
@@ -30,7 +31,7 @@ RUN mkdir -p "$(realpath /root)" \
 # The live system starts the Sibyl services only on a persistence partition,
 # because their images do not fit in RAM. sibyl-live-persist turns lingering on.
 RUN sed -i '/linger\/sibyl/d' /usr/lib/tmpfiles.d/sibyl.conf \
-    && systemctl enable var-lib-sibyl.mount sibyl-live-persist.service \
+    && systemctl enable var-lib-sibyl.mount sibyl-live-persist.service sibyl-autoinstall.service \
     && systemctl mask bootloader-update.service sibyl-hostd-state.timer
 
 # The nonempty-boot warning is expected: the image-builder ISO contract needs

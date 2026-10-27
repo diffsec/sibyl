@@ -20,6 +20,20 @@ case "$GRUB_KERNEL_VIA" in
     *) echo "GRUB_KERNEL_VIA must be http or tftp" >&2; exit 1 ;;
 esac
 
+# PXE_MODE=live serves only shim, GRUB and the menu that live-netboot.sh
+# wrote. A native HTTP server on the host serves the live files.
+if [ "${PXE_MODE:-}" = live ]; then
+    [ -f /www/live/grub.cfg ] || { echo "run tools/pxe/live-netboot.sh first" >&2; exit 1; }
+    TFTP=/data/srv/tftp
+    mkdir -p "$TFTP/uefi"
+    cp /opt/pxe/uefi/shimx64.efi /opt/pxe/uefi/grubx64.efi /www/live/grub.cfg "$TFTP/uefi/"
+    cp "$TFTP/uefi/grubx64.efi" "$TFTP/uefi/grub.cfg" "$TFTP/"
+    chmod 0644 "$TFTP/uefi/"* "$TFTP/grubx64.efi" "$TFTP/grub.cfg"
+    echo "PXE live mode ready on $PXE_SERVER_IP"
+    exec dnsmasq --no-daemon --port=0 --enable-tftp --tftp-root="$TFTP" \
+        --tftp-single-port --log-facility=-
+fi
+
 TREE="$FEDORA_MIRROR/$FEDORA_RELEASE/Everything/x86_64/os"
 # The root filesystem is read-only. Rendered files and downloads both go to
 # the /data volume.
