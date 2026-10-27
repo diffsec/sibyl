@@ -63,7 +63,7 @@ Environment=SIBYL_INSTALL_DEBUG=1
 StandardOutput=tty
 StandardError=tty
 TTYPath=/dev/ttyS0
-ExecStart=/bin/sh -c 'if /usr/sbin/sibyl-install -config "$CREDENTIALS_DIRECTORY/sibyl.install.json"; then echo SIBYL-INSTALL-OK; else echo SIBYL-INSTALL-FAILED; findmnt; df -h; podman images; fi'
+ExecStart=/bin/sh -c 'if /usr/sbin/sibyl-install -config "$CREDENTIALS_DIRECTORY/sibyl.install.json"; then echo SIBYL-INSTALL-OK; else echo SIBYL-INSTALL-FAILED; findmnt; df -h; podman images; podman info --format "driver={{.Store.GraphDriverName}} root={{.Store.GraphRoot}}"; img=$(podman images --format "{{.Repository}}:{{.Tag}}" | head -1); podman run --rm --privileged "$img" sh -c "ls -ld /tmp /var/tmp /run; stat -f -c %%T /tmp"; fi'
 ExecStartPost=/usr/bin/systemctl poweroff
 EOF
 printf '[Unit]\nWants=sibyl-vmtest.service\n' > "$work/dropin"

@@ -107,7 +107,7 @@ type Installer struct {
 	Work string
 	// Step reports progress.
 	Step func(string)
-	// Debug makes bootc log every step.
+	// Debug makes bootc log at trace level.
 	Debug bool
 }
 
@@ -235,7 +235,7 @@ func (in *Installer) Install(ctx context.Context, o Options) (res Result, err er
 
 	logLevel := "info"
 	if in.Debug {
-		logLevel = "debug"
+		logLevel = "trace"
 	}
 	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "podman", Args: []string{"run", "--rm", "--privileged", "--pid=host",
 		"--security-opt", "label=type:unconfined_t", "-e", "RUST_LOG=" + logLevel,
