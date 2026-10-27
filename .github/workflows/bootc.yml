@@ -308,7 +308,10 @@ jobs:
 
       - name: Build the live image
         run: |
-          sudo podman pull "$OS_IMAGE"
+          # podman on the runner dials GHCR's blob host over IPv6 only, and
+          # the runner has no IPv6. Docker pulls work, so copy from Docker.
+          docker pull -q "$OS_IMAGE"
+          sudo podman pull "docker-daemon:$OS_IMAGE"
           sudo podman build --build-arg "OS_IMAGE=$OS_IMAGE" -t localhost/sibyl-live containers/live
 
       - name: Build the ISO
@@ -326,6 +329,26 @@ jobs:
           sudo mv "$iso" "sibyl-${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}.iso"
           sha256sum sibyl-*.iso | tee SHA256SUMS
           ls -l sibyl-*.iso
+
+      # Install the ISO into a VM with Secure Boot and a TPM2, then boot the
+      # installed disk. Only an ISO that passes is pushed.
+      - name: Install test in a VM
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils ovmf swtpm swtpm-tools
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chown "$USER" sibyl-*.iso
+          tools/vmtest/install-test.sh sibyl-*.iso "$RUNNER_TEMP/vmtest"
+
+      - name: Keep the VM logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vmtest-logs-${{ matrix.variant }}
+          path: ${{ runner.temp }}/vmtest/*.log
+          if-no-files-found: ignore
 
       - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2.0.2
 
