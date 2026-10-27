@@ -107,6 +107,8 @@ type Installer struct {
 	Work string
 	// Step reports progress.
 	Step func(string)
+	// Debug makes bootc log every step.
+	Debug bool
 }
 
 // Partition layout. The ESP and /boot match a Fedora bootc install, and root
@@ -231,8 +233,12 @@ func (in *Installer) Install(ctx context.Context, o Options) (res Result, err er
 		cleanup = append(cleanup, Cmd{Name: "umount", Args: []string{m.dir}})
 	}
 
+	logLevel := "info"
+	if in.Debug {
+		logLevel = "debug"
+	}
 	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "podman", Args: []string{"run", "--rm", "--privileged", "--pid=host",
-		"--security-opt", "label=type:unconfined_t",
+		"--security-opt", "label=type:unconfined_t", "-e", "RUST_LOG=" + logLevel,
 		"-v", "/dev:/dev", "-v", "/var/lib/containers:/var/lib/containers", "-v", target + ":/target",
 		o.Payload,
 		"bootc", "install", "to-filesystem",

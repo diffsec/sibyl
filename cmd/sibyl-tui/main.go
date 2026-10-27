@@ -6,9 +6,12 @@
 //	SIBYL_API_KEY_FILE  default /run/secrets/api-key
 //	SIBYL_CA_FILE       optional PEM file to trust, for the host's self-signed certificate
 //	SIBYL_TLS_SERVER_NAME  optional name to verify, such as sibyl.local when connecting to 127.0.0.1
+//	SIBYL_WIZARD        1 to walk through the setup steps (sibyl setup)
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"strings"
@@ -42,6 +45,26 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(tui.New(c)).Run()
+	opts := tui.Options{Wizard: os.Getenv("SIBYL_WIZARD") == "1", Fingerprint: fingerprint(os.Getenv("SIBYL_CA_FILE"))}
+	_, err = tea.NewProgram(tui.New(c, opts)).Run()
 	return err
+}
+
+// fingerprint returns the SHA-256 fingerprint of the first certificate in a
+// PEM file, as colon-separated hex, or "unknown".
+func fingerprint(file string) string {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return "unknown"
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return "unknown"
+	}
+	sum := sha256.Sum256(block.Bytes)
+	parts := make([]string, len(sum))
+	for i, b := range sum {
+		parts[i] = fmt.Sprintf("%02X", b)
+	}
+	return strings.Join(parts, ":")
 }

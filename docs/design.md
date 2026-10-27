@@ -94,6 +94,7 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `PUT /host/network/{iface}`, `POST /host/network/confirm` | DHCP or a static IPv4 address, with automatic rollback |
 | `PUT, DELETE /host/users/{name}` | Create an operator account or replace its SSH keys, or delete it |
 | `GET /host/requests/{id}` | The result of a host request that took longer than 45 seconds |
+| `GET, POST /pools`, `DELETE /pools/{name}` | Model pools and candidate disks, make a pool, or detach one |
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
 
@@ -130,7 +131,7 @@ At each boot, `sibyl-operator-export.service` copies the API key and the certifi
 | Hardware | The GPU part of the setup wizard: GPUs for inference, backend, default layout |
 | Models | Installed models, the settings editor, and delete |
 | Download | Hugging Face search, variants with fit, confirmation, and download jobs |
-| Host | Hostname, network with rollback, and operator accounts with SSH keys |
+| Host | Hostname, network with rollback, model pools, and operator accounts with SSH keys |
 
 The network, account and SSH key steps of the setup wizard need host-level changes that the System API does not offer yet. Phase 3 adds them.
 
@@ -260,20 +261,43 @@ The `sibyl` user is in the `render` and `video` groups. Quadlet passes `/dev/kfd
 
 | Mode | Root | Models and data | Unlock |
 |---|---|---|---|
-| Live USB | Read-only image from the USB | Persistence partition on the USB, label `SIBYL_PERSIST`, mounted at `/var/lib/sibyl` | Passphrase at boot, optional |
-| Installed | bootc on internal disk, A/B deployments | `/var` on the root disk, plus pools under `/var/mnt/models-N` | TPM2 through `systemd-cryptenroll`, passphrase as recovery |
+| Live USB | Read-only squashfs on the USB, with a RAM overlay | Persistence partition on the USB, XFS label `SIBYLPERSIST`, mounted at `/var/lib/sibyl` | None |
+| Installed | bootc on internal disk, A/B deployments | `/var` on the root disk, plus pools under `/var/lib/sibyl-pools/pool-N` | TPM2 with PCR 7, and a recovery key |
 
-The guided installer runs from the live USB. It wraps `bootc install to-disk` with these steps:
+### Live USB
 
-1. Pick a target disk. The installer lists disks with `lsblk -J` and excludes the boot USB.
-2. Confirm the wipe. The installer prints the disk model, size and serial number first.
-3. Create the LUKS2 root and install the image.
-4. Enroll TPM2 with PCR 7 (Secure Boot state), and print a recovery key.
-5. Copy models from the USB persistence partition, if the user asks.
+`containers/live/Containerfile` adds a live boot to the host image: `dmsquash-live` in the initramfs, shim and GRUB for an ISO, and `iso.yaml`. CI turns that image into an ISO with image-builder's `generic-iso` type. The ISO also holds the host image in its container storage (`--bootc-installer-payload-ref`), so the installer works offline. CI pushes the ISO to `ghcr.io/ihavespoons/sibyl-iso:<tag>-<variant>` as a signed OCI artifact, because it is larger than the 2 GiB limit for release assets.
 
-Model storage pools are extra disks that the System API formats as LUKS2 plus XFS, with TPM2 unlock. Each pool mounts at `/var/mnt/models-N`. llama-swap sees all pools through one bind mount per pool. The TUI and System API show free space per pool.
+- Download the ISO with `oras pull ghcr.io/ihavespoons/sibyl-iso:latest-amd`.
+- image-builder boots the live system with `enforcing=0`, because the squashfs has no SELinux labels. The installed system runs enforcing.
+- The first console logs in as root and shows a menu: install, make a persistence partition, shell, reboot.
+- Without persistence, the Sibyl services do not start, because their images do not fit in RAM. `sibyl-install persist` adds an XFS partition in the free space after the ISO on the USB. At the next boot it mounts at `/var/lib/sibyl`, and the services start from it.
 
-The live USB is built with `bootc-image-builder --type iso`, plus a persistence partition that the first boot creates in the free space on the stick.
+### Guided installer
+
+`sibyl-install` (`cmd/sibyl-install`, `internal/install`) runs as root from the live menu. bootc's own `--block-setup tpm2-luks` keeps no recovery key, so the installer sets up LUKS itself and then runs `bootc install to-filesystem`, as the bootc documentation recommends.
+
+1. The user picks a disk. The installer lists disks with `lsblk -J`, and refuses the boot USB, disks under 64 GiB, read-only disks, and disks with a mount or an open LUKS or LVM device.
+2. The user names the administrator, with a password and optional SSH keys or a GitHub user. Without a TPM2, a disk passphrase is required.
+3. The user types the disk's serial number to confirm the wipe.
+4. The installer makes three partitions: a 600 MiB ESP, a 2 GiB `/boot`, and LUKS2 for the rest. A random key file starts the LUKS header. The installer enrolls the TPM2 with PCR 7, a systemd recovery key, and the optional passphrase, and then removes the key file's slot.
+5. `bootc install to-filesystem` runs in the embedded host image, with `--karg rd.luks.uuid=...` and `--target-imgref ghcr.io/ihavespoons/sibyl-os:latest-<variant>`, so `bootc upgrade` follows the registry afterwards.
+6. The installer writes the administrator to `/var/lib/sibyl-install/admin.json` on the new disk. At the first boot `sibyl-provision.service` creates the account in `wheel` and `sibyl-operators`, and deletes the file.
+7. The installer prints the recovery key.
+
+`tools/vmtest/install-test.sh` tests all of this in a VM with UEFI Secure Boot and a software TPM2. A systemd credential starts the installer with no questions. The test passes when the installed disk boots without a passphrase, the root has a TPM2 and a recovery slot and no other, SELinux is enforcing, and the administrator logs in over SSH. The CI ISO job runs it with KVM and pushes the ISO only when it passes. The target host cannot run it, because SVM is off in its firmware.
+
+### Model pools
+
+A model pool is an extra whole disk for models. `POST /pools` (key `p` on the Host screen) asks `sibyl-hostd` to make one:
+
+1. The request must carry the disk's serial number. The agent refuses a disk under 16 GiB, the root disk, and a disk with a mount or an open LUKS or LVM device.
+2. The disk gets one partition with LUKS2. The key file is `/etc/sibyl/pools/pool-N.key`, mode 0400, on the TPM2-unlocked root disk. A systemd recovery key is the second way in, for a move to another host. The API returns it once, and the agent never logs it.
+3. XFS is mounted at `/var/lib/sibyl-pools/pool-N` through `/etc/crypttab` and `/etc/fstab`, with `nofail` and the `container_file_t` SELinux context. Root owns `/var/lib/sibyl-pools`, so the `sibyl` user cannot swap a mount point for a symlink.
+
+The key file avoids TPM2 retries at boot. The root disk already gives the TPM2 protection, and the root holds the key.
+
+llama-swap and the System API mount `/var/lib/sibyl-pools` at `/pools` with `rslave`. A pool that is mounted or detached later shows in the containers without a restart. The model scanner, the llama-swap generator, downloads (`"pool"` in `POST /downloads`) and the benchmark know about pools. A model ID that is in two places resolves to the models folder first, then to the lowest pool. `DELETE /pools/{name}` unloads llama-swap's models, unmounts the pool and removes it from `crypttab` and `fstab`. The data and the key file stay.
 
 ## Setup wizard
 
@@ -287,6 +311,8 @@ The setup wizard configures the hardware and the services. It runs in the TUI in
 6. Set the Open WebUI admin account and import SSH public keys.
 7. Show the API key and the TLS certificate fingerprint.
 8. Optionally download a first model from the curated list, sized to the VRAM of the selected GPUs.
+
+`sibyl setup` starts the TUI in wizard mode (`internal/tui/wizard.go`). Each step opens the normal screen for it and says which key to press, and `]` and `[` move between steps. The last step shows the client URLs, where the API key is, and the SHA-256 fingerprint of the TLS certificate. The installer's last message and the live menu both point to `sibyl setup`. The benchmark choice in step 4 is the `b` key on the Models screen, and it needs an installed model.
 
 The wizard writes `/var/lib/sibyl/config/hardware.yaml`. The System API reads that file and generates three outputs:
 

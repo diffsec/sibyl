@@ -48,13 +48,18 @@ type App struct {
 	width  int
 	note   string
 	noteOK bool
+	opts   Options
+	step   int // wizard step
 }
 
 // New returns the app for one API client.
-func New(c *client.Client) *App {
-	a := &App{c: c}
+func New(c *client.Client, opts Options) *App {
+	a := &App{c: c, opts: opts}
 	a.views = []view{newStatusView(c), newHardwareView(c), newModelsView(c), newDownloadView(c), newHostView(c)}
 	a.names = []string{"Status", "Hardware", "Models", "Download", "Host"}
+	if opts.Wizard {
+		a.active = wizardSteps[0].view
+	}
 	return a
 }
 
@@ -95,6 +100,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch k := msg.String(); k {
 			case "q":
 				return a, tea.Quit
+			case "]", "[":
+				if a.opts.Wizard {
+					delta := 1
+					if k == "[" {
+						delta = -1
+					}
+					if a.wizardMove(delta) {
+						return a, a.views[a.active].activate()
+					}
+					return a, nil
+				}
 			case "tab", "shift+tab", "1", "2", "3", "4", "5":
 				switch k {
 				case "tab":
@@ -133,6 +149,9 @@ func (a *App) View() tea.View {
 		b.WriteString("  ")
 	}
 	b.WriteString("\n\n")
+	if a.opts.Wizard {
+		b.WriteString(a.wizardHeader())
+	}
 	b.WriteString(a.views[a.active].render(a.width))
 	b.WriteString("\n")
 	if a.note != "" {

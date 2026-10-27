@@ -199,7 +199,8 @@ func installCmd(ctx context.Context, config string) error {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
-	in := &install.Installer{Run: run, Work: work, Step: func(s string) { fmt.Printf("\n==> %s\n", s) }}
+	in := &install.Installer{Run: run, Work: work, Step: func(s string) { fmt.Printf("\n==> %s\n", s) },
+		Debug: os.Getenv("SIBYL_INSTALL_DEBUG") == "1"}
 	start := time.Now()
 	res, err := in.Install(ctx, o)
 	if err != nil {
@@ -210,6 +211,7 @@ func installCmd(ctx context.Context, config string) error {
 	fmt.Println("You need it if the TPM2 refuses to unlock the disk, for example after a firmware")
 	fmt.Println("update or a change to Secure Boot.")
 	fmt.Printf("\n    %s\n\n", res.RecoveryKey)
+	fmt.Printf("After the reboot, log in as %s and run: sibyl setup\n\n", o.Admin.Name)
 	if config == "" {
 		var ok bool
 		_ = huh.NewForm(huh.NewGroup(huh.NewConfirm().Title("I wrote down the recovery key").

@@ -13,16 +13,18 @@ while true; do
     echo
     echo "  1  Install Sibyl to a disk"
     echo "  2  Make a persistence partition on this USB"
-    echo "  3  Shell"
-    echo "  4  Reboot"
-    echo "  5  Power off"
+    echo "  3  Setup wizard (needs persistence)"
+    echo "  4  Shell"
+    echo "  5  Reboot"
+    echo "  6  Power off"
     echo
     read -r -p "Choose: " choice
     case "$choice" in
         1) sibyl-install; read -r -p "Press Enter to go back to the menu." _ ;;
         2) sibyl-install persist; read -r -p "Press Enter to go back to the menu." _ ;;
-        3) echo "Type exit to go back to the menu."; bash -l; ;;
-        4) systemctl reboot ;;
-        5) systemctl poweroff ;;
+        3) sibyl setup || read -r -p "Press Enter to go back to the menu." _ ;;
+        4) echo "Type exit to go back to the menu."; bash -l; ;;
+        5) systemctl reboot ;;
+        6) systemctl poweroff ;;
     esac
 done

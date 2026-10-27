@@ -14,6 +14,7 @@ import (
 	"github.com/ihavespoons/sibyl/internal/client"
 	"github.com/ihavespoons/sibyl/internal/download"
 	"github.com/ihavespoons/sibyl/internal/hf"
+	"github.com/ihavespoons/sibyl/internal/hostd"
 )
 
 type searchResult struct {
@@ -60,8 +61,15 @@ type downloadView struct {
 	bar     progress.Model
 	form    *huh.Form
 	confirm bool
+	pool    string
+	pools   []hostd.Pool
 	loading string
 	ticking bool
+}
+
+type poolsResult struct {
+	pools client.Pools
+	err   error
 }
 
 func newDownloadView(c *client.Client) *downloadView {
@@ -75,12 +83,16 @@ func (v *downloadView) fetchJobs() tea.Cmd {
 	return call(v.c.Downloads, func(j []download.Job, err error) tea.Msg { return jobsResult{j, err} })
 }
 
+func (v *downloadView) fetchPools() tea.Cmd {
+	return call(v.c.Pools, func(p client.Pools, err error) tea.Msg { return poolsResult{p, err} })
+}
+
 func (v *downloadView) activate() tea.Cmd {
 	if v.ticking {
-		return v.fetchJobs()
+		return tea.Batch(v.fetchJobs(), v.fetchPools())
 	}
 	v.ticking = true
-	return tea.Batch(v.fetchJobs(), tea.Tick(2*time.Second, func(time.Time) tea.Msg { return downloadTick{} }))
+	return tea.Batch(v.fetchJobs(), v.fetchPools(), tea.Tick(2*time.Second, func(time.Time) tea.Msg { return downloadTick{} }))
 }
 
 func (v *downloadView) capturing() bool { return v.stage == stageSearch || v.form != nil }
@@ -116,6 +128,11 @@ func (v *downloadView) update(msg tea.Msg) tea.Cmd {
 	case jobsResult:
 		if msg.err == nil {
 			v.jobs = msg.jobs
+		}
+		return nil
+	case poolsResult:
+		if msg.err == nil {
+			v.pools = msg.pools.Pools
 		}
 		return nil
 	case searchResult:
@@ -162,9 +179,9 @@ func (v *downloadView) formStep(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		variant := v.repo.Variants[v.cursor]
-		repo, rev := v.repo.Repo, v.repo.Revision
+		repo, rev, pool := v.repo.Repo, v.repo.Revision, v.pool
 		return tea.Batch(cmd, call(func(ctx context.Context) (download.Job, error) {
-			return v.c.Download(ctx, repo, rev, variant.Name)
+			return v.c.Download(ctx, repo, rev, variant.Name, pool)
 		}, func(j download.Job, err error) tea.Msg { return jobStarted{j, err} }))
 	case huh.StateAborted:
 		v.form, v.stage = nil, stageVariants
@@ -264,10 +281,20 @@ func (v *downloadView) confirmForm(variant client.Variant) tea.Cmd {
 	v.confirm = true
 	desc := fmt.Sprintf("%s in %d file(s). Fit: %s. Usable VRAM %s, RAM %s.\nCommit %s.",
 		gib(variant.Size), variant.Shards, fitText(variant.Fit), gib(v.repo.VRAM), gib(v.repo.RAM), v.repo.Revision[:12])
-	v.form = huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().Title("Download " + variant.Name + "?").Description(desc).
-			Affirmative("Download").Negative("Back").Value(&v.confirm),
-	)).WithShowHelp(false)
+	fields := []huh.Field{}
+	v.pool = ""
+	where := []huh.Option[string]{huh.NewOption("Models folder", "")}
+	for _, p := range v.pools {
+		if p.Mounted {
+			where = append(where, huh.NewOption(fmt.Sprintf("%s  %s free", p.Name, gib(p.Free)), p.Name))
+		}
+	}
+	if len(where) > 1 {
+		fields = append(fields, huh.NewSelect[string]().Title("Where").Options(where...).Value(&v.pool))
+	}
+	fields = append(fields, huh.NewConfirm().Title("Download "+variant.Name+"?").Description(desc).
+		Affirmative("Download").Negative("Back").Value(&v.confirm))
+	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
 	return v.form.Init()
 }
 

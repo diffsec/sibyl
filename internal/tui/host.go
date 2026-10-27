@@ -47,6 +47,10 @@ type hostView struct {
 	keys    string
 	github  string
 	confirm bool
+	disk    string
+	serial  string
+	// secret is a recovery key from the last pool, shown until the next action.
+	secret string
 }
 
 func newHostView(c *client.Client) *hostView { return &hostView{c: c} }
@@ -70,7 +74,7 @@ func (v *hostView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	h := "h hostname · n network · a add operator"
+	h := "h hostname · n network · a add operator · p new pool · x detach pool"
 	if u, ok := v.selected(); ok && u.Managed {
 		h += " · ↑/↓ select · k keys · d delete"
 	} else {
@@ -179,6 +183,55 @@ func (v *hostView) deleteForm(name string) tea.Cmd {
 	return v.form.Init()
 }
 
+func (v *hostView) poolForm() tea.Cmd {
+	var opts []huh.Option[string]
+	for _, d := range v.st.Disks {
+		if d.Reason == "" {
+			opts = append(opts, huh.NewOption(d.Label(), d.Path))
+		}
+	}
+	if len(opts) == 0 {
+		return note(false, "no free disk: a pool needs a whole disk of 16 GiB or more that nothing uses")
+	}
+	v.mode, v.disk, v.serial = "pool", opts[0].Value, ""
+	v.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Title("Disk for the new model pool").
+				Description("The disk is erased and encrypted. It unlocks with a key on the system disk.").
+				Options(opts...).Value(&v.disk),
+		),
+		huh.NewGroup(
+			huh.NewInput().Title("Confirm").DescriptionFunc(func() string {
+				for _, d := range v.st.Disks {
+					if d.Path == v.disk && d.Serial != "" {
+						return "Everything on " + d.Path + " is deleted. Type its serial number: " + d.Serial
+					}
+				}
+				return "Everything on " + v.disk + " is deleted. Type erase."
+			}, &v.disk).Value(&v.serial),
+		),
+	).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *hostView) detachForm() tea.Cmd {
+	var opts []huh.Option[string]
+	for _, p := range v.st.Pools {
+		opts = append(opts, huh.NewOption(p.Name+"  "+p.Disk, p.Name))
+	}
+	if len(opts) == 0 {
+		return note(false, "there are no pools")
+	}
+	v.mode, v.name, v.confirm = "detach", opts[0].Value, false
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().Title("Pool to detach").Options(opts...).Value(&v.name),
+		huh.NewConfirm().Title("Detach it?").
+			Description("llama-swap unloads its models first. The data and the key file stay on the host.").
+			Affirmative("Detach").Negative("Keep").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
 func (v *hostView) submit() tea.Cmd {
 	run := func(what string, fn func(context.Context) (hostd.Result, error)) tea.Cmd {
 		return tea.Batch(note(true, "%s…", what),
@@ -209,6 +262,17 @@ func (v *hostView) submit() tea.Cmd {
 			return note(false, "no keys entered; %s not changed", name)
 		}
 		return run("set operator "+name, func(ctx context.Context) (hostd.Result, error) { return v.c.SetUser(ctx, name, keys, gh) })
+	case "pool":
+		disk, serial := v.disk, strings.TrimSpace(v.serial)
+		return run("create pool on "+disk+" (this takes a minute)", func(ctx context.Context) (hostd.Result, error) {
+			return v.c.CreatePool(ctx, disk, serial)
+		})
+	case "detach":
+		if !v.confirm {
+			return note(false, "%s kept", v.name)
+		}
+		name := v.name
+		return run("detach "+name, func(ctx context.Context) (hostd.Result, error) { return v.c.DetachPool(ctx, name) })
 	case "delete":
 		if !v.confirm {
 			return note(false, "%s kept", v.name)
@@ -236,6 +300,7 @@ func (v *hostView) update(msg tea.Msg) tea.Cmd {
 		case msg.res.Finished == "":
 			return note(true, "%s: queued; the host agent has not answered yet", msg.what)
 		}
+		v.secret = msg.res.Secret
 		return tea.Batch(note(true, "%s", msg.res.Message), v.fetch())
 	case tea.KeyPressMsg:
 		if v.form == nil {
@@ -278,6 +343,10 @@ func (v *hostView) key(k string) tea.Cmd {
 		return v.networkForm()
 	case "a":
 		return v.userForm("")
+	case "p":
+		return v.poolForm()
+	case "x":
+		return v.detachForm()
 	case "k":
 		if ok && u.Managed {
 			return v.userForm(u.Name)
@@ -329,6 +398,22 @@ func (v *hostView) render(int) string {
 			left = strconv.Itoa(max(int(time.Until(exp).Seconds()), 0)) + "s"
 		}
 		b.WriteString(badSty.Render(fmt.Sprintf("  The change to %s rolls back in %s. Press c to keep it.", p.Interface, left)) + "\n")
+	}
+
+	b.WriteString("\n" + titleSty.Render("Model pools") + "\n")
+	if len(v.st.Pools) == 0 {
+		b.WriteString(mutedSty.Render("  none · press p to make one from an extra disk") + "\n")
+	}
+	for _, p := range v.st.Pools {
+		state := badSty.Render("not mounted")
+		if p.Mounted {
+			state = goodSty.Render(fmt.Sprintf("%s free of %s", gib(p.Free), gib(p.Size)))
+		}
+		fmt.Fprintf(&b, "  %-8s %-14s %s\n", p.Name, p.Disk, state)
+	}
+	if v.secret != "" {
+		b.WriteString(badSty.Render("  Recovery key for the new pool. Write it down now, it is not shown again:") + "\n")
+		b.WriteString("    " + selSty.Render(v.secret) + "\n")
 	}
 
 	b.WriteString("\n" + titleSty.Render("Accounts") + "\n")

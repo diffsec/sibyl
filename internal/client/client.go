@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ihavespoons/sibyl/internal/disks"
 	"github.com/ihavespoons/sibyl/internal/download"
 	"github.com/ihavespoons/sibyl/internal/gpu"
 	"github.com/ihavespoons/sibyl/internal/hardware"
@@ -245,9 +246,10 @@ func (c *Client) Repo(ctx context.Context, id string) (Repo, error) {
 	return r, c.do(ctx, http.MethodGet, "/hf/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(name), nil, &r)
 }
 
-func (c *Client) Download(ctx context.Context, repo, revision, variant string) (download.Job, error) {
+// Download queues a download. pool is empty for the models folder.
+func (c *Client) Download(ctx context.Context, repo, revision, variant, pool string) (download.Job, error) {
 	var j download.Job
-	in := map[string]string{"repo": repo, "revision": revision, "variant": variant}
+	in := map[string]string{"repo": repo, "revision": revision, "variant": variant, "pool": pool}
 	return j, c.do(ctx, http.MethodPost, "/downloads", in, &j)
 }
 
@@ -308,4 +310,26 @@ func (c *Client) SetUser(ctx context.Context, name string, keys []string, github
 
 func (c *Client) DeleteUser(ctx context.Context, name string) (hostd.Result, error) {
 	return c.hostAction(ctx, http.MethodDelete, "/host/users/"+url.PathEscape(name), nil)
+}
+
+// Pools is the GET /pools response.
+type Pools struct {
+	Pools []hostd.Pool `json:"pools"`
+	Disks []disks.Disk `json:"disks"`
+}
+
+func (c *Client) Pools(ctx context.Context) (Pools, error) {
+	var p Pools
+	return p, c.do(ctx, http.MethodGet, "/pools", nil, &p)
+}
+
+// CreatePool erases a disk and makes it a model pool. confirm is the disk's
+// serial number, or "erase" when it has none. The result's Secret is the
+// pool's recovery key.
+func (c *Client) CreatePool(ctx context.Context, disk, confirm string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/pools", hostd.CreatePoolReq{Disk: disk, Confirm: confirm})
+}
+
+func (c *Client) DetachPool(ctx context.Context, name string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodDelete, "/pools/"+url.PathEscape(name), nil)
 }

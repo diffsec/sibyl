@@ -59,10 +59,11 @@ After=multi-user.target
 [Service]
 Type=oneshot
 ImportCredential=sibyl.install.json
+Environment=SIBYL_INSTALL_DEBUG=1
 StandardOutput=tty
 StandardError=tty
 TTYPath=/dev/ttyS0
-ExecStart=/bin/sh -c 'if /usr/sbin/sibyl-install -config "$CREDENTIALS_DIRECTORY/sibyl.install.json"; then echo SIBYL-INSTALL-OK; else echo SIBYL-INSTALL-FAILED; fi'
+ExecStart=/bin/sh -c 'if /usr/sbin/sibyl-install -config "$CREDENTIALS_DIRECTORY/sibyl.install.json"; then echo SIBYL-INSTALL-OK; else echo SIBYL-INSTALL-FAILED; findmnt; df -h; podman images; fi'
 ExecStartPost=/usr/bin/systemctl poweroff
 EOF
 printf '[Unit]\nWants=sibyl-vmtest.service\n' > "$work/dropin"
