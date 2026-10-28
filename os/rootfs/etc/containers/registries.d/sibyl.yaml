@@ -1,5 +1,8 @@
-# CI signs every ghcr.io/ihavespoons image with the project key, as a
-# sigstore ".sig" attachment. /etc/containers/policy.json requires it.
+# CI signs every Sibyl image with the project key, as a sigstore ".sig"
+# attachment. /etc/containers/policy.json requires it. The project moved from
+# ghcr.io/ihavespoons to ghcr.io/diffsec, and the same key signs both.
 docker:
   ghcr.io/ihavespoons:
+    use-sigstore-attachments: true
+  ghcr.io/diffsec:
     use-sigstore-attachments: true

@@ -74,6 +74,15 @@
                         "type": "matchRepository"
                     }
                 }
+            ],
+            "ghcr.io/diffsec": [
+                {
+                    "type": "sigstoreSigned",
+                    "keyPath": "/etc/pki/containers/sibyl-cosign.pub",
+                    "signedIdentity": {
+                        "type": "matchRepository"
+                    }
+                }
             ]
         },
         "containers-storage": {
