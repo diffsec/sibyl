@@ -165,17 +165,21 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Retag the existing image
+        id: retag
         if: steps.src.outputs.hit == 'true' && needs.tag.outputs.push == 'true'
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           SRC: ${{ steps.src.outputs.tag }}
         run: |
-          # The digest does not change, so its cosign signature still applies.
+          # The digest does not change, so its keyless signature still applies.
+          # An image from before key signing gets its key signature below.
           args=()
           while IFS= read -r t; do
             [ -n "$t" ] && args+=(--tag "$t")
           done <<< "$TAGS"
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${SRC}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${SRC}" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       # The ROCm build image is ~25 GB unpacked.
       - name: Free disk space
@@ -210,14 +214,19 @@ jobs:
           cache-from: type=registry,ref=${{ env.CACHE }}
           cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true', env.CACHE) || '' }}
 
-      - if: steps.src.outputs.hit != 'true' && needs.tag.outputs.push == 'true'
+      - if: needs.tag.outputs.push == 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # The host's signature policy requires the key signature. See
+      # scripts/ci/sign.sh.
       - name: Sign image
-        if: steps.src.outputs.hit != 'true' && needs.tag.outputs.push == 'true'
+        if: needs.tag.outputs.push == 'true'
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          DIGEST: ${{ steps.build.outputs.digest || steps.retag.outputs.digest }}
+          SKIP_KEYLESS: ${{ steps.src.outputs.hit == 'true' && '1' || '' }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: scripts/ci/sign.sh "$IMAGE" "$DIGEST"
 
   os-image:
     needs: [tag, service-images]
@@ -277,7 +286,9 @@ jobs:
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.OWNER }}/sibyl-os
           DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: scripts/ci/sign.sh "$IMAGE" "$DIGEST"
 
   # The live USB image: the host image plus a live boot, made into an ISO by
   # image-builder's generic-iso type. The host image is embedded, so the
