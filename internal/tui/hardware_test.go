@@ -41,7 +41,7 @@ func TestHardwareShowsEveryGPU(t *testing.T) {
 func TestBackendOptionsFollowTheVariant(t *testing.T) {
 	v := newHardwareView(nil)
 	gpus := []gpu.GPU{{Index: 0, PCIAddr: "0000:01:00.0", Vendor: "nvidia"}}
-	v.update(hardwareEdit{hardwareLoaded{hw: hardware.Default(hardware.VariantNVIDIA), gpus: gpus,
+	v.update(hardwareEdit{hardwareLoaded{hw: hardware.Default(hardware.VariantNVIDIA, nil), gpus: gpus,
 		backends: hardware.Backends(hardware.VariantNVIDIA)}})
 	form := ansi.ReplaceAllString(v.render(120), "")
 	if !strings.Contains(form, "CUDA") || strings.Contains(form, "HIP") {

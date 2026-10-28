@@ -2,6 +2,7 @@
 package gpu
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,6 +31,9 @@ type GPU struct {
 	VRAMUsed  uint64 `json:"vram_used_bytes,omitempty"`
 	LinkWidth string `json:"pcie_link_width,omitempty"`
 	LinkSpeed string `json:"pcie_link_speed,omitempty"`
+	// Arch is the ROCm target of an AMD GPU, such as gfx1100. It is empty
+	// when the amdkfd driver does not report one.
+	Arch string `json:"arch,omitempty"`
 }
 
 var cardName = regexp.MustCompile(`^card[0-9]+$`)
@@ -77,10 +81,61 @@ func Detect(sysRoot string) ([]GPU, error) {
 		gpus = append(gpus, g)
 	}
 	sort.Slice(gpus, func(i, j int) bool { return gpus[i].PCIAddr < gpus[j].PCIAddr })
+	archs := kfdArchs(sysRoot)
 	for i := range gpus {
 		gpus[i].Index = i
+		gpus[i].Arch = archs[gpus[i].PCIAddr]
 	}
 	return gpus, nil
+}
+
+// kfdArchs maps PCI addresses to ROCm targets. amdkfd lists one topology
+// node per GPU, with its target version and its render node. A missing
+// topology, as on NVIDIA and Intel hosts, gives an empty map.
+func kfdArchs(sysRoot string) map[string]string {
+	out := map[string]string{}
+	nodes, err := filepath.Glob(filepath.Join(sysRoot, "class", "kfd", "kfd", "topology", "nodes", "*", "properties"))
+	if err != nil {
+		return out
+	}
+	for _, p := range nodes {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		props := map[string]uint64{}
+		for _, line := range strings.Split(string(b), "\n") {
+			if f := strings.Fields(line); len(f) == 2 {
+				if v, err := strconv.ParseUint(f[1], 10, 64); err == nil {
+					props[f[0]] = v
+				}
+			}
+		}
+		arch := Arch(props["gfx_target_version"])
+		minor, ok := props["drm_render_minor"]
+		if arch == "" || !ok {
+			continue // a CPU node has version 0
+		}
+		dev := filepath.Join(sysRoot, "class", "drm", "renderD"+strconv.FormatUint(minor, 10), "device")
+		if real, err := filepath.EvalSymlinks(dev); err == nil {
+			out[filepath.Base(real)] = arch
+		}
+	}
+	return out
+}
+
+// Arch turns amdkfd's gfx_target_version into a ROCm target name. The
+// version is major*10000 + minor*100 + stepping, and the name writes minor
+// and stepping as one hex digit each: 110000 is gfx1100, 90010 is gfx90a.
+func Arch(version uint64) string {
+	if version == 0 {
+		return ""
+	}
+	major, minor, step := version/10000, version/100%100, version%100
+	if minor > 15 || step > 15 {
+		return ""
+	}
+	return fmt.Sprintf("gfx%d%x%x", major, minor, step)
 }
 
 func vendorName(id string) string {

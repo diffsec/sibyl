@@ -183,7 +183,9 @@ The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.
 
 ### Images
 
-`containers/llama-swap/Containerfile.hip` builds llama.cpp for `gfx1100` only, on `rocm/dev-ubuntu-24.04:<ROCm>-complete`. A single-target build compiles faster and the kernels match the card. The runtime stage keeps only the HIP runtime libraries that `llama-server` links against.
+`containers/llama-swap/Containerfile.hip` builds llama.cpp on `rocm/dev-ubuntu-24.04:<ROCm>-complete` for the Radeon and Ryzen targets that llama.cpp's own ROCm image builds, without the Instinct cards. The runtime stage keeps only the HIP runtime libraries that `llama-server` links against, and the rocBLAS and hipBLASLt kernel files for those targets. The build fails if ROCm has no rocBLAS kernels for a target, because rocBLAS would otherwise fail at run time on that card. One target took about 15 minutes to compile on a GitHub runner.
+
+`hardware.HIPTargets` holds the same list, and a test keeps it in step with `GPU_TARGETS`. `gpu.Detect` reads each AMD card's target from the amdkfd topology in sysfs (`gfx_target_version`, matched to the card by its render node). `PUT /hardware` refuses HIP for a card outside the list, and with no `hardware.yaml` the default backend is Vulkan when GPU 0 is outside it. The benchmark runs only the backends that every selected card supports. A card whose target is unknown counts as supported.
 
 `containers/llama-swap/Containerfile.vulkan` builds llama.cpp with `GGML_VULKAN=ON` on Ubuntu 26.04. Mesa is the Vulkan driver for AMD (RADV) and Intel (ANV). The image has no ROCm userspace. It uses Ubuntu, not Wolfi, to match the upstream llama.cpp Vulkan build.
 
@@ -198,7 +200,7 @@ Build arguments:
 | `LLAMA_CPP_REF` | pinned `bNNNNN` tag | llama.cpp release |
 | `LLAMA_SWAP_VERSION` | pinned release | llama-swap release |
 | `ROCM_VERSION` | `7.2.4` | ROCm base. Upstream llama.cpp tests 7.2.x. ROCm 7.14 is a benchmark candidate. |
-| `GPU_TARGETS` | `gfx1100` | RDNA3 Navi 31 |
+| `GPU_TARGETS` | `gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx1200;gfx1201` | RDNA2 (RX 6800 and 6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5 (Ryzen AI 300, Strix Halo), RDNA4 (RX 9000, AI PRO R9700) |
 | `GGML_HIP_RCCL` | `OFF` | RCCL helps only `--split-mode tensor`. Upstream disables it by default. |
 
 ### Multi-GPU

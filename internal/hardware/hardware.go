@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/ihavespoons/sibyl/internal/gpu"
 )
 
 // Backend is the llama.cpp GPU backend.
@@ -42,6 +45,17 @@ func Backends(v Variant) []Backend {
 	}
 }
 
+// HIPTargets are the ROCm targets that the HIP image is built for. They
+// must match GPU_TARGETS in containers/llama-swap/Containerfile.hip.
+var HIPTargets = []string{"gfx1030", "gfx1100", "gfx1101", "gfx1102", "gfx1150", "gfx1151", "gfx1200", "gfx1201"}
+
+// HIPSupported reports whether the HIP image runs on a GPU with this ROCm
+// target. An empty target is unknown and counts as supported, because the
+// kernel did not say.
+func HIPSupported(arch string) bool {
+	return arch == "" || slices.Contains(HIPTargets, arch)
+}
+
 // Layout is the default placement of a model on the selected GPUs.
 type Layout string
 
@@ -61,14 +75,19 @@ type Config struct {
 }
 
 // Default is used before the setup wizard runs: the variant's first
-// backend, on GPU 0 only.
-func Default(v Variant) Config {
-	return Config{Backend: Backends(v)[0], GPUs: []int{0}, Layout: LayoutSpan}
+// backend, on GPU 0 only. On an AMD GPU that the HIP image does not support,
+// it is Vulkan instead. gpus are the detected GPUs, and may be nil.
+func Default(v Variant, gpus []gpu.GPU) Config {
+	c := Config{Backend: Backends(v)[0], GPUs: []int{0}, Layout: LayoutSpan}
+	if c.Backend == BackendHIP && len(gpus) > 0 && !HIPSupported(gpus[0].Arch) {
+		c.Backend = BackendVulkan
+	}
+	return c
 }
 
-// Validate checks the configuration against the variant and the number of
-// detected GPUs.
-func (c Config) Validate(v Variant, detected int) error {
+// Validate checks the configuration against the variant and the detected GPUs.
+func (c Config) Validate(v Variant, gpus []gpu.GPU) error {
+	detected := len(gpus)
 	if !slices.Contains(Backends(v), c.Backend) {
 		return fmt.Errorf("backend %q: the %s variant ships %v", c.Backend, v, Backends(v))
 	}
@@ -89,15 +108,19 @@ func (c Config) Validate(v Variant, detected int) error {
 			return fmt.Errorf("gpus: index %d is listed twice", g)
 		}
 		seen[g] = true
+		if c.Backend == BackendHIP && !HIPSupported(gpus[g].Arch) {
+			return fmt.Errorf("gpus: GPU %d is %s, which the HIP image does not support: use Vulkan, or HIP on %s",
+				g, gpus[g].Arch, strings.Join(HIPTargets, ", "))
+		}
 	}
 	return nil
 }
 
-// Load reads path. A missing file returns the variant's Default.
-func Load(path string, v Variant) (Config, error) {
+// Load reads path. A missing file returns the variant's Default for gpus.
+func Load(path string, v Variant, gpus []gpu.GPU) (Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Default(v), nil
+		return Default(v, gpus), nil
 	}
 	if err != nil {
 		return Config{}, err

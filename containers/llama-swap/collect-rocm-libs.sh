@@ -34,6 +34,14 @@ for lib in "$rocm"/lib/libamd_comgr.so* "$rocm"/lib/libhsa-runtime64.so* "$rocm"
 done
 
 IFS=';' read -ra archs <<< "$targets"
+# llama.cpp calls rocBLAS for large matrix products, and rocBLAS fails at
+# run time on a GPU with no kernel files. Stop the build here instead.
+for arch in "${archs[@]}"; do
+    if ! compgen -G "$rocm/lib/rocblas/library/*${arch}*" > /dev/null; then
+        echo "collect-rocm-libs: ROCm $(hipconfig --version) has no rocBLAS kernels for ${arch}" >&2
+        exit 1
+    fi
+done
 for kdir in rocblas/library hipblaslt/library; do
     [ -d "$rocm/lib/$kdir" ] || continue
     mkdir -p "$out/opt/rocm/lib/$kdir"

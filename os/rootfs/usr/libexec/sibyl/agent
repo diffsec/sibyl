@@ -40,9 +40,11 @@ write_status() {
 # bench runs llama-bench for one model with each backend image. The API wrote
 # the model's relative path and the selected GPUs into $RUN/bench/<model>.*.
 bench() {
-    local id="$1" dir="$RUN/bench" rel gpus pool root mount model tag backend image visible split
+    local id="$1" dir="$RUN/bench" rel want gpus pool root mount model tag backend image visible split
     local -a devices
     rel="$(cat "$dir/$id.path" 2>/dev/null || true)"
+    # The API leaves HIP out when the HIP image does not support a selected GPU.
+    want="$(cat "$dir/$id.backends" 2>/dev/null || true)"
     gpus="$(cat "$dir/$id.gpus" 2>/dev/null || true)"
     pool="$(cat "$dir/$id.pool" 2>/dev/null || true)"
     # A model in a pool lives on a file system that is already labelled for
@@ -79,6 +81,10 @@ bench() {
         *) backends="hip vulkan" ;;
     esac
     for backend in $backends; do
+        if [[ -n "$want" && " $want " != *" $backend "* ]]; then
+            echo "sibyl-agent: skipping $backend for $id"
+            continue
+        fi
         image="ghcr.io/ihavespoons/sibyl-llama-swap:${tag}-${backend}"
         case "$backend" in
             hip) visible=HIP_VISIBLE_DEVICES ;;

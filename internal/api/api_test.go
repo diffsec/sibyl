@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -350,5 +351,61 @@ func TestOpenWebUIIntegration(t *testing.T) {
 	}
 	if st, err := os.Stat(filepath.Join(f.paths.Config, "open-webui.key")); err != nil || st.Mode().Perm() != 0o600 {
 		t.Errorf("key file: %v %v", st, err)
+	}
+}
+
+// setArch makes amdkfd report a ROCm target for one fixture GPU.
+func (f *fixture) setArch(t *testing.T, card int, version string) {
+	t.Helper()
+	sys := f.paths.SysfsRoot
+	addr := []string{"0000:03:00.0", "0000:83:00.0"}[card]
+	minor := strconv.Itoa(128 + card)
+	render := filepath.Join(sys, "class", "drm", "renderD"+minor)
+	mkdir(t, render)
+	if err := os.Symlink(filepath.Join(sys, "devices", addr), filepath.Join(render, "device")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(sys, "class", "kfd", "kfd", "topology", "nodes", strconv.Itoa(card+1), "properties"),
+		"gfx_target_version "+version+"\ndrm_render_minor "+minor+"\n")
+}
+
+func TestHIPRefusedOnUnsupportedGPU(t *testing.T) {
+	f := newFixture(t)
+	f.setArch(t, 0, "110000") // gfx1100
+	f.setArch(t, 1, "100302") // gfx1032, an RX 6600: Vulkan only
+	if code, b := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[0,1],"layout":"span"}`, true); code != http.StatusUnprocessableEntity {
+		t.Fatalf("hip on gfx1032 = %d %v, want 422", code, b)
+	}
+	if code, b := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[0],"layout":"span"}`, true); code != 200 {
+		t.Fatalf("hip on gfx1100 = %d %v", code, b)
+	}
+	if code, b := f.do(t, "GET", "/status", "", true); code != 200 {
+		t.Fatalf("status = %d %v", code, b)
+	}
+
+	// A benchmark across both GPUs runs Vulkan only, and says why HIP did not run.
+	f.do(t, "PUT", "/hardware", `{"backend":"vulkan","gpus":[0,1],"layout":"span"}`, true)
+	if code, b := f.do(t, "POST", "/models/big/benchmark", "", true); code != http.StatusAccepted {
+		t.Fatalf("start = %d %v", code, b)
+	}
+	dir := filepath.Join(f.run, "bench")
+	if got, _ := os.ReadFile(filepath.Join(dir, "big.backends")); string(got) != "vulkan" {
+		t.Errorf("backends = %q, want vulkan", got)
+	}
+	write(t, filepath.Join(dir, "big.status"), "done 2026-10-28T00:00:00Z")
+	write(t, filepath.Join(dir, "big.vulkan.json"), `[{"n_prompt":0,"n_gen":128,"avg_ts":30}]`)
+	_, b := f.do(t, "GET", "/models/big/benchmark", "", true)
+	res := b["results"].(map[string]any)
+	if b["recommended"] != "vulkan" || !strings.Contains(res["hip"].(map[string]any)["error"].(string), "not run") {
+		t.Errorf("benchmark = %v", b)
+	}
+}
+
+func TestDefaultBackendOnUnsupportedGPU(t *testing.T) {
+	f := newFixture(t)
+	f.setArch(t, 0, "100302")
+	code, b := f.do(t, "GET", "/hardware", "", true)
+	if code != 200 || b["backend"] != "vulkan" {
+		t.Errorf("default hardware = %d %v, want vulkan", code, b)
 	}
 }

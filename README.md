@@ -20,11 +20,11 @@ Each GPU vendor has its own host image, because the drivers differ.
 
 | Variant | GPUs | Inference backends | Status |
 |---|---|---|---|
-| `amd` | Radeon. HIP needs an RX 7900 series card (`gfx1100`); every other Radeon uses Vulkan | HIP (ROCm) and Vulkan | Tested on two Radeon RX 7900 XTX cards |
+| `amd` | Radeon and Ryzen AI. HIP runs on RX 6800 and 6900, RX 7000, RX 9000, Radeon PRO W6800, W7000 and AI PRO R9700, and Ryzen AI 300 and Strix Halo APUs. Every other Radeon uses Vulkan | HIP (ROCm) and Vulkan | Tested on two Radeon RX 7900 XTX cards |
 | `nvidia` | GeForce and data-center GPUs from Turing (RTX 20 series) on | CUDA and Vulkan | Builds; not tested on hardware |
 | `intel` | Arc and recent integrated graphics | Vulkan | Builds; not tested on hardware |
 
-The HIP image is built for `gfx1100` only, because each extra ROCm target adds build time. Other targets can be added to `GPU_TARGETS` in `containers/llama-swap/Containerfile.hip`.
+The HIP image is built for the ROCm targets `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1150`, `gfx1151`, `gfx1200` and `gfx1201`. Sibyl reads each card's target from the kernel. It refuses HIP for a card outside that list and uses Vulkan for it by default. Only `gfx1100` is tested on hardware.
 
 The NVIDIA and Intel variants build in CI and pass the same checks as the AMD one, but no one has run them on real hardware yet. If you can lend or donate an NVIDIA or Intel GPU, or give access to a machine with one, open an issue. We will test that variant and fix what breaks.
 

@@ -1,5 +1,5 @@
-# llama.cpp (HIP/ROCm) + llama-swap, built for one GPU target.
-# A single-target build keeps the image small and the kernels tuned to the card.
+# llama.cpp (HIP/ROCm) + llama-swap, for the Radeon and Ryzen GPUs that ROCm
+# supports. GPU_TARGETS must match hardware.HIPTargets, which a test checks.
 
 ARG ROCM_VERSION=7.2.4
 ARG ROCM_BUILD_IMAGE=docker.io/rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete
@@ -8,7 +8,10 @@ ARG RUNTIME_IMAGE=docker.io/ubuntu:24.04
 FROM ${ROCM_BUILD_IMAGE} AS build
 
 ARG LLAMA_CPP_REF=b11889
-ARG GPU_TARGETS=gfx1100
+# RDNA2 (RX 6800/6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5
+# (Ryzen AI 300 and Strix Halo APUs), RDNA4 (RX 9000, AI PRO R9700). The same
+# list as llama.cpp's own ROCm image, without the Instinct cards.
+ARG GPU_TARGETS="gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx1200;gfx1201"
 ARG GGML_HIP_RCCL=OFF
 
 RUN apt-get update \

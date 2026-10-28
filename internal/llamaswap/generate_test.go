@@ -94,7 +94,7 @@ func TestGenerateSingleGPUNeverSplits(t *testing.T) {
 }
 
 func TestGenerateNoModels(t *testing.T) {
-	cfg, _ := Generate(hardware.Default(hardware.VariantAMD), nil, nil)
+	cfg, _ := Generate(hardware.Default(hardware.VariantAMD, nil), nil, nil)
 	if cfg.Routing != nil || len(cfg.Models) != 0 {
 		t.Errorf("want an empty config, got %+v", cfg)
 	}
@@ -128,7 +128,7 @@ func TestImageDefaultDropIn(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := strings.ReplaceAll(string(raw), "@IMAGE_TAG@", "tag")
-		want := DropIn(v, hardware.Default(v), "ghcr.io/ihavespoons", "tag")
+		want := DropIn(v, hardware.Default(v, nil), "ghcr.io/ihavespoons", "tag")
 		if got != want {
 			t.Errorf("%s: image default drop-in differs from DropIn(Default()):\n--- image\n%s--- generated\n%s", v, got, want)
 		}

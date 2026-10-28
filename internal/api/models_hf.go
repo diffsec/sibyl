@@ -109,7 +109,7 @@ func fit(size, vram, ram int64) Fit {
 // RAM. known is false when a selected GPU does not report its VRAM.
 func (s *Server) memory() (vram, ram int64, known bool) {
 	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
-	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant, gpus)
 	known = err == nil
 	if err == nil {
 		for _, i := range hw.GPUs {

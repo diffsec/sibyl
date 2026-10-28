@@ -130,7 +130,7 @@ func (s *Server) requireToken(next http.Handler) http.Handler {
 func (s *Server) getStatus(w http.ResponseWriter, _ *http.Request) {
 	gpus, gerr := gpu.Detect(s.Paths.SysfsRoot)
 	st, serr := s.Host.Status()
-	hw, herr := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	hw, herr := hardware.Load(s.Paths.hardwareFile(), s.Variant, gpus)
 	resp := map[string]any{
 		"version":   s.Version,
 		"image_tag": s.ImageTag,
@@ -162,7 +162,7 @@ func (s *Server) getGPUs(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) getHardware(w http.ResponseWriter, _ *http.Request) {
-	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	hw, err := s.hardware()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -181,7 +181,7 @@ func (s *Server) putHardware(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := hw.Validate(s.Variant, len(gpus)); err != nil {
+	if err := hw.Validate(s.Variant, gpus); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
@@ -246,7 +246,7 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	hw, err := s.hardware()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -329,7 +329,7 @@ type ApplyResult struct {
 // reloads its config on its own. A changed drop-in needs a daemon-reload and a
 // restart, which the host agent does. The caller must hold s.mu.
 func (s *Server) Apply() (ApplyResult, error) {
-	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	hw, err := s.hardware()
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -361,10 +361,12 @@ func (s *Server) Apply() (ApplyResult, error) {
 	old, err := os.ReadFile(s.Paths.dropInFile())
 	if errors.Is(err, os.ErrNotExist) {
 		// No override yet, so the image default is in effect. It matches the
-		// drop-in for the default hardware (see TestImageDefaultDropIn), so a
-		// first boot with no hardware.yaml does not restart llama-swap
-		// in the middle of its first image pull.
-		old, err = []byte(llamaswap.DropIn(s.Variant, hardware.Default(s.Variant), s.Registry, s.ImageTag)), nil
+		// drop-in for the default hardware with no GPU known (see
+		// TestImageDefaultDropIn), so a first boot with no hardware.yaml does
+		// not restart llama-swap in the middle of its first image pull. On a
+		// GPU that the HIP image does not support, the default is Vulkan, and
+		// the drop-in changes once.
+		old, err = []byte(llamaswap.DropIn(s.Variant, hardware.Default(s.Variant, nil), s.Registry, s.ImageTag)), nil
 	}
 	if err != nil {
 		return res, err
@@ -395,6 +397,13 @@ func (s *Server) respondApply(w http.ResponseWriter) {
 	}
 	go s.SyncOpenWebUI()
 	writeJSON(w, http.StatusOK, res)
+}
+
+// hardware loads hardware.yaml. With no file, the default depends on the
+// detected GPUs, so an AMD GPU that the HIP image does not support gets Vulkan.
+func (s *Server) hardware() (hardware.Config, error) {
+	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
+	return hardware.Load(s.Paths.hardwareFile(), s.Variant, gpus)
 }
 
 func (s *Server) findModel(id string) (models.Model, error) {

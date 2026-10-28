@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ihavespoons/sibyl/internal/gpu"
 	"github.com/ihavespoons/sibyl/internal/hardware"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 )
@@ -41,6 +43,22 @@ func (s *Server) benchBackends() []string {
 	return out
 }
 
+// runnableBackends are the variant's backends that can run on the
+// selected GPUs: HIP only when the image supports every selected GPU.
+func (s *Server) runnableBackends(hw hardware.Config) []string {
+	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
+	var out []string
+	for _, b := range s.benchBackends() {
+		if b == string(hardware.BackendHIP) && slices.ContainsFunc(hw.GPUs, func(i int) bool {
+			return i >= 0 && i < len(gpus) && !hardware.HIPSupported(gpus[i].Arch)
+		}) {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
 func (s *Server) benchDir() string { return filepath.Join(s.Host.Dir, "bench") }
 
 func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
@@ -50,11 +68,12 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	hw, err := s.hardware()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	run := s.runnableBackends(hw)
 	gpus := append([]int(nil), hw.GPUs...)
 	sort.Ints(gpus)
 	list := make([]string, len(gpus))
@@ -74,6 +93,9 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 		".path":   filepath.ToSlash(m.Path),
 		".pool":   m.Pool,
 		".gpus":   strings.Join(list, ","),
+		// The agent runs only these backends. HIP is left out when a
+		// selected GPU has a ROCm target that the HIP image lacks.
+		".backends": strings.Join(run, " "),
 		".status": "queued " + time.Now().UTC().Format(time.RFC3339),
 	}
 	for ext, body := range files {
@@ -115,7 +137,15 @@ func (s *Server) readBenchmark(id string) (Benchmark, bool) {
 		return b, true
 	}
 	b.Results = map[string]BackendResult{}
+	ran := s.benchBackends()
+	if raw, err := os.ReadFile(filepath.Join(dir, id+".backends")); err == nil {
+		ran = strings.Fields(string(raw))
+	}
 	for _, backend := range s.benchBackends() {
+		if !slices.Contains(ran, backend) {
+			b.Results[backend] = BackendResult{Error: "not run: the HIP image does not support a selected GPU"}
+			continue
+		}
 		b.Results[backend] = parseBench(filepath.Join(dir, id+"."+backend+".json"), filepath.Join(dir, id+"."+backend+".log"))
 	}
 	// Token generation speed decides: it is what a user waits for.

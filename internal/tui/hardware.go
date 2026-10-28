@@ -77,7 +77,7 @@ func (v *hardwareView) build(msg hardwareLoaded) tea.Cmd {
 	v.setFields(msg.hw)
 	var opts []huh.Option[string]
 	for _, g := range msg.gpus {
-		label := fmt.Sprintf("GPU %d  %s  %s  %s", g.Index, g.PCIAddr, g.Vendor, gib(int64(g.VRAMTotal)))
+		label := fmt.Sprintf("GPU %d  %s  %s  %s", g.Index, g.PCIAddr, gpuModel(g), gib(int64(g.VRAMTotal)))
 		opts = append(opts, huh.NewOption(label, strconv.Itoa(g.Index)))
 	}
 	v.form = huh.NewForm(huh.NewGroup(
@@ -103,6 +103,18 @@ func (v *hardwareView) build(msg hardwareLoaded) tea.Cmd {
 			Value(&v.layout),
 	)).WithShowHelp(false)
 	return v.form.Init()
+}
+
+// gpuModel is the vendor, and for an AMD GPU its ROCm target and whether
+// the HIP image supports it.
+func gpuModel(g gpu.GPU) string {
+	if g.Arch == "" {
+		return g.Vendor
+	}
+	if !hardware.HIPSupported(g.Arch) {
+		return g.Vendor + " " + g.Arch + " (Vulkan only)"
+	}
+	return g.Vendor + " " + g.Arch
 }
 
 // backendNames are the labels for the backends that a host image ships.
@@ -225,7 +237,7 @@ func (v *hardwareView) render(int) string {
 		if slices.Contains(v.gpus, strconv.Itoa(g.Index)) {
 			used = goodSty.Render("used for inference")
 		}
-		fmt.Fprintf(&b, "    GPU %d  %s  %s  %s  %s\n", g.Index, g.PCIAddr, g.Vendor, gib(int64(g.VRAMTotal)), used)
+		fmt.Fprintf(&b, "    GPU %d  %s  %s  %s  %s\n", g.Index, g.PCIAddr, gpuModel(g), gib(int64(g.VRAMTotal)), used)
 	}
 	b.WriteString("\n")
 	b.WriteString(mutedSty.Render("  Press e to change them. Saving rewrites the llama-swap configuration.") + "\n")
