@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,7 @@ type hardwareView struct {
 	backend string
 	layout  string
 	gpus    []string
+	found   []gpu.GPU // detected GPUs, for the summary
 	loadErr error
 }
 
@@ -81,6 +83,9 @@ func (v *hardwareView) build(msg hardwareLoaded) tea.Cmd {
 		huh.NewMultiSelect[string]().Title("GPUs for inference").
 			Description("Leave out a card that drives a display.").
 			Options(opts...).Value(&v.gpus).
+			// Without a height, huh subtracts the title and description from
+			// the height of the options, and two GPUs then get no lines.
+			Height(len(opts)+3).
 			Validate(func(s []string) error {
 				if len(s) == 0 {
 					return fmt.Errorf("select at least one GPU")
@@ -118,6 +123,7 @@ func (v *hardwareView) update(msg tea.Msg) tea.Cmd {
 		v.loadErr = msg.err
 		if msg.err == nil {
 			v.setFields(msg.hw)
+			v.found = msg.gpus
 		}
 		return nil
 	case hardwareEdit:
@@ -186,8 +192,19 @@ func (v *hardwareView) render(int) string {
 		b.WriteString(badSty.Render("API error: "+v.loadErr.Error()) + "\n")
 	}
 	b.WriteString(titleSty.Render("GPU setup") + "\n\n")
-	fmt.Fprintf(&b, "  Backend         %s\n  GPUs            %s\n  Default layout  %s\n\n",
-		v.backend, strings.Join(v.gpus, ", "), v.layout)
+	fmt.Fprintf(&b, "  Backend         %s\n  Default layout  %s\n\n", v.backend, v.layout)
+	b.WriteString("  Detected GPUs\n")
+	if len(v.found) == 0 {
+		b.WriteString(badSty.Render("    none: check that the GPU driver is loaded (lspci -k)") + "\n")
+	}
+	for _, g := range v.found {
+		used := mutedSty.Render("not used")
+		if slices.Contains(v.gpus, strconv.Itoa(g.Index)) {
+			used = goodSty.Render("used for inference")
+		}
+		fmt.Fprintf(&b, "    GPU %d  %s  %s  %s  %s\n", g.Index, g.PCIAddr, g.Vendor, gib(int64(g.VRAMTotal)), used)
+	}
+	b.WriteString("\n")
 	b.WriteString(mutedSty.Render("  Press e to change them. Saving rewrites the llama-swap configuration.") + "\n")
 	return b.String()
 }

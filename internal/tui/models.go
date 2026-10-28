@@ -132,7 +132,9 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().Title("Speculative decoding types").
 				Description("Tried in order. draft-* types except draft-mtp need a draft model.").
-				Options(specOpts...).Value(&f.SpecTypes),
+				Options(specOpts...).Value(&f.SpecTypes).
+				// See the GPU list in hardware.go: huh needs an explicit height.
+				Height(len(specOpts)+3),
 			huh.NewSelect[string]().Title("Draft model").Inline(true).Options(drafts...).Value(&f.DraftModel),
 			optionalNumber("Draft tokens, max", "1 to 64", true, &f.DraftMax),
 			optionalNumber("Draft tokens, min", "0 to 64", true, &f.DraftMin),

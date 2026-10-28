@@ -181,7 +181,17 @@ func TestProvision(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls []Cmd
-	run := func(_ context.Context, c Cmd) (string, error) { calls = append(calls, c); return "", nil }
+	created := false
+	run := func(_ context.Context, c Cmd) (string, error) {
+		calls = append(calls, c)
+		switch {
+		case c.Name == "useradd":
+			created = true
+		case c.String() == "getent passwd admin" && created:
+			return "admin:x:1002:1002::/var/home/admin:/bin/bash\n", nil
+		}
+		return "", nil
+	}
 	msg, err := Provision(context.Background(), run, stateVar)
 	if err != nil || msg == "" {
 		t.Fatalf("%q %v", msg, err)
@@ -189,8 +199,11 @@ func TestProvision(t *testing.T) {
 	if calls[1].String() != "useradd --create-home --user-group --groups wheel,sibyl-operators --password "+testHash+" --comment Sibyl administrator admin" {
 		t.Fatalf("useradd: %s", calls[1])
 	}
-	if calls[2].Stdin != testKey+"\n" {
-		t.Fatalf("keys %q", calls[2].Stdin)
+	if calls[3].String() != "runuser -u admin -- /bin/sh -c "+calls[3].Args[5]+" sh /var/home/admin" || calls[3].Stdin != testKey+"\n" {
+		t.Fatalf("key write: %s, stdin %q", calls[3], calls[3].Stdin)
+	}
+	if calls[4].String() != "restorecon -R /var/home/admin/.ssh" {
+		t.Fatalf("restorecon: %s", calls[4])
 	}
 	if _, err := os.Stat(filepath.Join(stateVar, ProvisionFile)); !os.IsNotExist(err) {
 		t.Fatal("record not removed")
