@@ -349,6 +349,14 @@ jobs:
           sudo docker image prune -af
           df -h /
 
+      # The new packages are private until someone makes them public, so the
+      # pull of the host image logs in.
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build the live image
         run: |
           # podman on the runner dials GHCR's blob host over IPv6 only, and
