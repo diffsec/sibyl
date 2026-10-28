@@ -20,7 +20,7 @@ Limits:
 
 - The router routes whole requests. It does not split one request across models, and it does not cascade a request through several models to compare answers.
 - It does not change the content of a request, except where a provider's API needs another shape.
-- The first release supports the OpenAI chat completions and embeddings formats on the client side. The OpenAI Responses API and the Anthropic Messages format on the client side come later, if clients need them.
+- The first release accepts three formats from clients: OpenAI chat completions, OpenAI embeddings, and Anthropic Messages. The OpenAI Responses API comes later, if clients need it.
 
 ## Where it runs
 
@@ -49,7 +49,7 @@ The router owns the inference keys. Each client has a name, a key, a policy and 
 clients:
   - name: open-webui
     key_sha256: 9f2c...        # the router stores only the hash
-    policy: hybrid
+    policy: local-only
   - name: laptop-agents
     key_sha256: 41ab...
     policy: hybrid
@@ -63,6 +63,7 @@ clients:
 - `hybrid` clients follow the rules.
 - The System API creates and revokes keys (`POST /router/clients`, `DELETE /router/clients/{name}`) and shows a new key once. The TUI gets a Router screen for this.
 - The key that Sibyl creates at the first boot becomes the first client, `default`, with the `local-only` policy, so an upgrade changes nothing for existing clients.
+- Open WebUI starts as the client `open-webui` with the `local-only` policy. The admin changes it to `hybrid` to let Open WebUI use providers.
 
 ## Model names
 
@@ -181,11 +182,19 @@ The adapter also sets these, because they cost nothing in quality:
 - Automatic prompt caching (`cache_control` at the top level), so a long system prompt or conversation is billed at the cache read price on the next turn.
 - The server-side refusal fallback on the models that support it, so a request that a safety classifier declines is answered by the fallback model in the same call.
 
+### Anthropic Messages from clients
+
+The router also serves `POST /v1/messages`, so a tool that speaks only the Anthropic API can use Sibyl. The router reads the request into the same form as an OpenAI chat request, with the table above in reverse, and the rules see one form. The response goes back as Messages API events.
+
+- An `anthropic` route gets the client's request body unchanged, apart from the model name and the key. No field is lost in translation.
+- A local route or an OpenAI-compatible route gets the translated request.
+- The client's `x-api-key` header carries the Sibyl client key. The router never passes it to a provider.
+
 ### Prices and budgets
 
 The router computes the cost of each provider request from the usage that the provider returns and a price table in `providers.yaml`. Sibyl ships a dated table for the Anthropic models, and the owner keeps it current. For example, on 2026-10-06 Anthropic listed Claude Sonnet 5.5 at $2 per million input tokens and $10 per million output tokens.
 
-A client with a budget is checked before each provider request. When the budget is spent, the router uses the profile's local route, or returns 429 if the request cannot run locally. Usage totals per client and per day are kept in `/var/lib/sibyl/config/router/usage.json`.
+A new client has no budget, so its provider spend has no limit until the admin sets one. The Router screen shows each client's spend, and a `hybrid` client with no budget is marked there. A client with a budget is checked before each provider request. When the budget is spent, the router uses the profile's local route, or returns 429 if the request cannot run locally. Usage totals per client and per day are kept in `/var/lib/sibyl/config/router/usage.json`.
 
 ## Failures
 
@@ -215,15 +224,15 @@ The System API reads the log for `GET /router/stats`, and the TUI's Router scree
 
 | Step | Scope | Exit check |
 |---|---|---|
-| 6.1 | Router service with client keys and policies, model names, the OpenAI-compatible adapter, typed rules, `explain`, the decision log. Caddy, Open WebUI and the Ollama shim move to the router. | With no provider, every existing client works unchanged. A `local-only` client's request never leaves the host: a packet capture on the host shows no connection to a provider. |
+| 6.1 | Router service with client keys and policies, model names, the OpenAI-compatible adapter for OpenAI and OpenRouter, the Anthropic Messages endpoint for clients, typed rules, `explain`, the decision log. Caddy, Open WebUI and the Ollama shim move to the router. | With no provider, every existing client works unchanged. A `local-only` client's request never leaves the host: a packet capture on the host shows no connection to a provider. |
 | 6.2 | Anthropic adapter, price tables, budgets, fallbacks, the TUI Router screen. | A request longer than the local context goes to the configured provider with tool calls and streaming intact. A spent budget sends the next request to the local model. |
 | 6.3 | Classifier, starter example set, and an evaluation script that replays a labelled request set and reports route, cost and quality per profile. | On the labelled set, the `auto` profile sends fewer requests to providers than an all-provider profile, at a quality that the owner accepts. |
 
-## Open questions
+## Decisions
 
-These need the owner's decision before step 6.1 starts:
+The owner answered the design questions on 2026-10-29:
 
-1. Which providers come first: Anthropic and OpenRouter, or OpenAI as well?
-2. Does Open WebUI start as `local-only` or `hybrid`? `local-only` keeps today's behaviour.
-3. Should the router also accept the Anthropic Messages format from clients, for tools that speak only that API?
-4. What default budget does a new `hybrid` client get: none, or a small daily cap?
+1. The first providers are Anthropic, OpenAI and OpenRouter.
+2. Open WebUI starts as `local-only`, which keeps today's behaviour.
+3. The router accepts the Anthropic Messages format from clients in step 6.1.
+4. A new `hybrid` client has no default budget.
