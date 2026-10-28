@@ -51,11 +51,7 @@ env:
 
 jobs:
   tag:
-    # ubuntu-latest moved to 26.04 on 2026-10-28, and there image-builder
-    # fails to mount the runner's container storage ("mount:
-    # /run/osbuild/containers/storage: permission denied"). The ISO built on
-    # 24.04.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.tag.outputs.image_tag }}
       push: ${{ steps.tag.outputs.push }}
@@ -328,7 +324,11 @@ jobs:
     # The ISO build and VM test use about 45 runner minutes, so they run only
     # when asked: gh workflow run bootc.yml -f iso=true
     if: needs.tag.outputs.push == 'true' && inputs.iso
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04 on 2026-10-28, and there image-builder
+    # fails to mount the runner's container storage ("mount:
+    # /run/osbuild/containers/storage: permission denied"). The ISO built on
+    # 24.04.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
