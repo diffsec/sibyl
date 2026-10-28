@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "tag": "sha-test",
+  "variant": "amd",
+  "created": "2026-10-28T00:00:00Z",
+  "images": [
+    {
+      "ref": "ghcr.io/ihavespoons/sibyl-os:sha-test-amd",
+      "file": "os.oci.tar",
+      "sha256": "6adc3cbcc7923c4ff9cbe6a1dd13e7f4cf99dd072363ce88feca9fdbf55c9f24",
+      "size": 3,
+      "store": "os"
+    },
+    {
+      "ref": "ghcr.io/ihavespoons/sibyl-tui:sha-test",
+      "file": "tui.oci.tar",
+      "sha256": "4c1a13f42504fba4fb2320061fb18a9082be6d99d1d4d94f41227102d9a6e1e5",
+      "size": 4,
+      "store": "tui"
+    }
+  ]
+}

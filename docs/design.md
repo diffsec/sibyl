@@ -324,6 +324,34 @@ The wizard writes `/var/lib/sibyl/config/hardware.yaml`. The System API reads th
 
 When the GPU set changes, for example after a card is added, the System API detects the difference at boot and asks the user to run the GPU steps again.
 
+## Offline updates
+
+A host with no internet updates from a bundle. CI builds one only for release tags or on request (`gh workflow run bootc.yml -f bundle=true`), because a bundle is about 4 GB (3.8 GB for the amd variant at sha-93a977a). It pushes the bundle to `ghcr.io/ihavespoons/sibyl-bundle:<tag>-<variant>`.
+
+A bundle is a directory:
+
+| File | Content |
+|---|---|
+| `manifest.json` | The tag, the variant, and each image with its reference, archive name, size and SHA-256 |
+| `manifest.json.sig` | `cosign sign-blob` signature of `manifest.json` with the project key |
+| `*.oci.tar` | One OCI archive per image |
+
+`scripts/bundle/make.sh` writes the archives with `skopeo copy --preserve-digests`. The images are the host image, every Sibyl service image for the same tag (both llama-swap backends, so the backend can change offline), and the third-party images that the Quadlet units pin by digest. An OCI archive cannot hold sigstore signatures, so the signed manifest carries the trust: it lists the SHA-256 of every archive.
+
+To update a host:
+
+1. On a machine with internet, run `oras pull ghcr.io/ihavespoons/sibyl-bundle:<tag>-<variant>` into a directory on a USB drive.
+2. Mount the drive on the host, and run `sudo sibyl-update apply <directory>`.
+3. Reboot with `sudo systemctl reboot`.
+
+`sibyl-update` (`cmd/sibyl-update`, `internal/bundle`) checks the manifest's signature against `/etc/pki/containers/sibyl-cosign.pub` and the SHA-256 of every archive before it changes anything. It refuses a bundle for another GPU variant. Then:
+
+- It loads each service image into the `sibyl` user's storage with `skopeo copy --preserve-digests`, so the digests that the Quadlet units pin still match. Each archive is first copied to `/var/lib/sibyl-update`, because the `sibyl` user cannot read the USB drive, and skopeo cannot read an archive from a pipe.
+- It keeps the TUI archive in `/var/lib/sibyl-update`. The `sibyl` command loads it into the caller's own storage when the image is missing.
+- It runs `bootc switch --enforce-container-sigpolicy --transport oci-archive` on the host image archive. After that, bootc follows the archive, so the host returns to online updates with `sudo bootc switch --enforce-container-sigpolicy ghcr.io/ihavespoons/sibyl-os:latest-<variant>`.
+
+`sibyl-update verify <directory>` only checks a bundle.
+
 ## Security
 
 - SELinux stays enforcing. Only Arcane runs with `SecurityLabelDisable=true`.

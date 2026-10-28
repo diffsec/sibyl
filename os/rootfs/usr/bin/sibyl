@@ -23,6 +23,15 @@ cd /
 podman secret create --replace sibyl-api-key "$dir/api.key" >/dev/null
 podman secret create --replace sibyl-ca "$dir/ca.crt" >/dev/null
 
+image="ghcr.io/ihavespoons/sibyl-tui:$(cat /usr/share/sibyl/image-tag)"
+# An offline update (sibyl-update) leaves the TUI here, for hosts that cannot
+# pull it. Load it once into the caller's own storage.
+offline=/var/lib/sibyl-update
+if ! podman image exists "$image" && [[ -r "$offline/sibyl-tui.oci.tar" ]] \
+    && [[ "$(cat "$offline/sibyl-tui.ref" 2>/dev/null)" == "$image" ]]; then
+    skopeo copy --quiet --preserve-digests "oci-archive:$offline/sibyl-tui.oci.tar" "containers-storage:$image"
+fi
+
 exec podman run --rm -it --network host \
     --read-only --cap-drop all --security-opt no-new-privileges \
     -e TERM="${TERM:-xterm-256color}" \
@@ -32,4 +41,4 @@ exec podman run --rm -it --network host \
     -e SIBYL_WIZARD="$wizard" \
     --secret sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0444 \
     --secret sibyl-ca,type=mount,target=/run/secrets/sibyl-ca,mode=0444 \
-    "ghcr.io/ihavespoons/sibyl-tui:$(cat /usr/share/sibyl/image-tag)"
+    "$image"

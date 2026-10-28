@@ -6,8 +6,9 @@
 ARG GO_IMAGE=cgr.dev/chainguard/go@sha256:85788137110936acab58b7a2901df787f71377ffac4809a9b04db7401f689580
 ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:44@sha256:fa1bdfabdc0d920f230a70ce40d3cf6d116975e2dd487e1c116a560a9b78771c
 
-# sibyl-hostd runs the privileged host actions, and sibyl-install is the disk
-# installer. They run on the host, so they are built here.
+# sibyl-hostd runs the privileged host actions, sibyl-install is the disk
+# installer, and sibyl-update applies offline bundles. They run on the host,
+# so they are built here.
 FROM ${GO_IMAGE} AS hostd
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,7 +16,8 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/sibyl-hostd \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update
 
 FROM ${BASE_IMAGE}
 
@@ -35,6 +37,7 @@ RUN grep -hEv '^\s*(#|$)' /tmp/packages/common.txt "/tmp/packages/${GPU_VARIANT}
 COPY os/rootfs/ /
 COPY --from=hostd /out/sibyl-hostd /usr/libexec/sibyl/hostd
 COPY --from=hostd /out/sibyl-install /usr/sbin/sibyl-install
+COPY --from=hostd /out/sibyl-update /usr/sbin/sibyl-update
 
 # render and video live in /usr/lib/group, where systemd-sysusers cannot add
 # members. Copy them to /etc/group so the "m" lines in sysusers.d apply.
