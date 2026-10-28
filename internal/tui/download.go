@@ -63,13 +63,24 @@ type downloadView struct {
 	confirm bool
 	pool    string
 	pools   []hostd.Pool
-	loading string
-	ticking bool
+	hf      client.HuggingFace
+	// tokenForm sets or removes the Hugging Face token.
+	tokenForm *huh.Form
+	hfAction  string
+	hfToken   string
+	loading   string
+	ticking   bool
 }
 
 type poolsResult struct {
 	pools client.Pools
 	err   error
+}
+
+type hfResult struct {
+	hf     client.HuggingFace
+	err    error
+	change bool // the result of setting or removing the token
 }
 
 func newDownloadView(c *client.Client) *downloadView {
@@ -87,15 +98,65 @@ func (v *downloadView) fetchPools() tea.Cmd {
 	return call(v.c.Pools, func(p client.Pools, err error) tea.Msg { return poolsResult{p, err} })
 }
 
-func (v *downloadView) activate() tea.Cmd {
-	if v.ticking {
-		return tea.Batch(v.fetchJobs(), v.fetchPools())
-	}
-	v.ticking = true
-	return tea.Batch(v.fetchJobs(), v.fetchPools(), tea.Tick(2*time.Second, func(time.Time) tea.Msg { return downloadTick{} }))
+func (v *downloadView) fetchHF() tea.Cmd {
+	return call(v.c.HuggingFace, func(h client.HuggingFace, err error) tea.Msg { return hfResult{hf: h, err: err} })
 }
 
-func (v *downloadView) capturing() bool { return v.stage == stageSearch || v.form != nil }
+func (v *downloadView) activate() tea.Cmd {
+	if v.ticking {
+		return tea.Batch(v.fetchJobs(), v.fetchPools(), v.fetchHF())
+	}
+	v.ticking = true
+	return tea.Batch(v.fetchJobs(), v.fetchPools(), v.fetchHF(), tea.Tick(2*time.Second, func(time.Time) tea.Msg { return downloadTick{} }))
+}
+
+// hfForm asks for a Hugging Face access token, or offers to remove the
+// stored one.
+func (v *downloadView) hfForm() tea.Cmd {
+	v.hfAction, v.hfToken = "set", ""
+	input := huh.NewInput().Title("Hugging Face access token").
+		Description("Create one at huggingface.co/settings/tokens. Read access is enough. " +
+			"For a gated model, also accept its terms on the model page with the same account.").
+		EchoMode(huh.EchoModePassword).Value(&v.hfToken)
+	groups := []*huh.Group{huh.NewGroup(input).WithHideFunc(func() bool { return v.hfAction != "set" })}
+	if v.hf.Configured {
+		groups = append([]*huh.Group{huh.NewGroup(huh.NewSelect[string]().
+			Title("Hugging Face: signed in as "+v.hf.User).
+			Options(huh.NewOption("Replace the token", "set"), huh.NewOption("Sign out", "clear")).
+			Value(&v.hfAction))}, groups...)
+	}
+	v.tokenForm = huh.NewForm(groups...).WithShowHelp(false)
+	return v.tokenForm.Init()
+}
+
+func (v *downloadView) tokenStep(msg tea.Msg) tea.Cmd {
+	if k, ok := msg.(tea.KeyPressMsg); ok && k.String() == "esc" {
+		v.tokenForm = nil
+		return nil
+	}
+	m, cmd := v.tokenForm.Update(msg)
+	v.tokenForm = m.(*huh.Form)
+	if v.tokenForm.State != huh.StateCompleted {
+		return cmd
+	}
+	v.tokenForm = nil
+	action, token := v.hfAction, strings.TrimSpace(v.hfToken)
+	v.hfToken = ""
+	wrap := func(h client.HuggingFace, err error) tea.Msg { return hfResult{hf: h, err: err, change: true} }
+	switch {
+	case action == "clear":
+		return tea.Batch(cmd, call(v.c.ClearHuggingFaceToken, wrap))
+	case token == "":
+		return tea.Batch(cmd, note(false, "no token entered"))
+	default:
+		return tea.Batch(cmd, note(true, "checking the token with Hugging Face…"),
+			call(func(ctx context.Context) (client.HuggingFace, error) { return v.c.SetHuggingFaceToken(ctx, token) }, wrap))
+	}
+}
+
+func (v *downloadView) capturing() bool {
+	return v.stage == stageSearch || v.form != nil || v.tokenForm != nil
+}
 
 func (v *downloadView) help() string {
 	switch v.stage {
@@ -106,7 +167,7 @@ func (v *downloadView) help() string {
 	case stageConfirm:
 		return "←/→ choose · enter confirm · esc back"
 	default:
-		return "/ search · ↑/↓ select · c cancel · R retry"
+		return "/ search · t Hugging Face token · ↑/↓ select · c cancel · R retry"
 	}
 }
 
@@ -135,6 +196,21 @@ func (v *downloadView) update(msg tea.Msg) tea.Cmd {
 			v.pools = msg.pools.Pools
 		}
 		return nil
+	case hfResult:
+		if msg.err != nil {
+			if msg.change {
+				return note(false, "hugging face: %v", msg.err)
+			}
+			return nil
+		}
+		v.hf = msg.hf
+		if !msg.change {
+			return nil
+		}
+		if v.hf.Configured {
+			return note(true, "Hugging Face: signed in as %s", v.hf.User)
+		}
+		return note(true, "Hugging Face: signed out")
 	case searchResult:
 		v.loading = ""
 		if msg.err != nil {
@@ -163,12 +239,18 @@ func (v *downloadView) update(msg tea.Msg) tea.Cmd {
 	case tea.KeyPressMsg:
 		return v.key(msg)
 	case tea.PasteMsg:
+		if v.tokenForm != nil {
+			return v.tokenStep(msg)
+		}
 		// A paste arrives as its own message, not as key presses.
 		if v.stage == stageSearch && v.form == nil {
 			var cmd tea.Cmd
 			v.input, cmd = v.input.Update(msg)
 			return cmd
 		}
+	}
+	if v.tokenForm != nil {
+		return v.tokenStep(msg)
 	}
 	if v.form != nil {
 		return v.formStep(msg)
@@ -200,6 +282,9 @@ func (v *downloadView) formStep(msg tea.Msg) tea.Cmd {
 }
 
 func (v *downloadView) key(msg tea.KeyPressMsg) tea.Cmd {
+	if v.tokenForm != nil {
+		return v.tokenStep(msg)
+	}
 	k := msg.String()
 	if v.form != nil {
 		if k == "esc" {
@@ -239,6 +324,10 @@ func (v *downloadView) key(msg tea.KeyPressMsg) tea.Cmd {
 	case "/":
 		v.stage = stageSearch
 		return v.input.Focus()
+	case "t":
+		if v.stage == stageJobs {
+			return v.hfForm()
+		}
 	case "esc":
 		switch v.stage {
 		case stageVariants:
@@ -342,6 +431,9 @@ func fitStyled(f string) string {
 }
 
 func (v *downloadView) render(int) string {
+	if v.tokenForm != nil {
+		return v.tokenForm.View()
+	}
 	var b strings.Builder
 	switch v.stage {
 	case stageSearch:
@@ -369,7 +461,12 @@ func (v *downloadView) render(int) string {
 		}
 		b.WriteString(more(start, end, len(v.repo.Variants)))
 	default:
-		b.WriteString(titleSty.Render("Downloads") + "  " + mutedSty.Render("press / to search Hugging Face") + "\n\n")
+		b.WriteString(titleSty.Render("Downloads") + "  " + mutedSty.Render("press / to search Hugging Face") + "\n")
+		if v.hf.Configured {
+			b.WriteString("  Hugging Face: " + goodSty.Render("signed in as "+v.hf.User) + "\n\n")
+		} else {
+			b.WriteString("  Hugging Face: " + mutedSty.Render("no token · press t to add one for gated or private models") + "\n\n")
+		}
 		if len(v.jobs) == 0 {
 			b.WriteString(mutedSty.Render("  No downloads yet.") + "\n")
 		}

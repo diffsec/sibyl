@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ihavespoons/sibyl/internal/hf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 	"github.com/ihavespoons/sibyl/internal/hostd"
 )
@@ -175,5 +176,52 @@ func TestPools(t *testing.T) {
 	}
 	if code, _ := f.do(t, "DELETE", "/pools/pool-x", "", true); code != http.StatusUnprocessableEntity {
 		t.Errorf("DELETE /pools/pool-x = %d", code)
+	}
+}
+
+func TestHuggingFaceToken(t *testing.T) {
+	f := newFixture(t)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/whoami-v2" && r.Header.Get("Authorization") == "Bearer hf_good":
+			_, _ = io.WriteString(w, `{"name":"ihavespoons"}`)
+		case r.URL.Path == "/api/whoami-v2":
+			w.WriteHeader(http.StatusUnauthorized)
+		case r.Header.Get("Authorization") == "Bearer hf_good":
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	t.Cleanup(hub.Close)
+	f.server.HF = hf.New(hub.URL, "")
+
+	if code, body := f.do(t, "GET", "/hf/search?q=x", "", true); code == http.StatusOK || !strings.Contains(body["error"].(string), "gated or private") {
+		t.Fatalf("search without a token = %d %v", code, body)
+	}
+	if code, _ := f.do(t, "PUT", "/integrations/huggingface", `{"token":"hf_bad"}`, true); code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad token = %d", code)
+	}
+	code, body := f.do(t, "PUT", "/integrations/huggingface", `{"token":"hf_good"}`, true)
+	if code != http.StatusOK || body["user"] != "ihavespoons" {
+		t.Fatalf("good token = %d %v", code, body)
+	}
+	if b, err := os.ReadFile(filepath.Join(f.paths.Config, "hf-token")); err != nil || string(b) != "hf_good\n" {
+		t.Fatalf("stored token %q %v", b, err)
+	}
+	if fi, _ := os.Stat(filepath.Join(f.paths.Config, "hf-token")); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("token file mode %v", fi.Mode().Perm())
+	}
+	if code, _ := f.do(t, "GET", "/hf/search?q=x", "", true); code != http.StatusOK {
+		t.Fatalf("search with the token = %d", code)
+	}
+	if code, body := f.do(t, "GET", "/integrations/huggingface", "", true); code != http.StatusOK || body["user"] != "ihavespoons" || body["configured"] != true {
+		t.Fatalf("GET = %d %v", code, body)
+	}
+	if code, _ := f.do(t, "DELETE", "/integrations/huggingface", "", true); code != http.StatusOK {
+		t.Fatalf("DELETE = %d", code)
+	}
+	if code, body := f.do(t, "GET", "/integrations/huggingface", "", true); body["configured"] != false {
+		t.Fatalf("after DELETE = %d %v", code, body)
 	}
 }

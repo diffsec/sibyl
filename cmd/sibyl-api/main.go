@@ -63,9 +63,10 @@ func run(log *slog.Logger) error {
 		return errors.New("the API key file is empty")
 	}
 
-	// An optional Hugging Face token, for gated repositories.
-	hfToken := ""
-	if b, err := os.ReadFile(env("SIBYL_HF_TOKEN_FILE", "/run/secrets/hf-token")); err == nil {
+	// An optional Hugging Face token, for gated and private repositories. The
+	// TUI and PUT /integrations/huggingface store it in the config directory.
+	hfToken := api.LoadHFToken(s.Paths.Config)
+	if b, err := os.ReadFile(env("SIBYL_HF_TOKEN_FILE", "/run/secrets/hf-token")); hfToken == "" && err == nil {
 		hfToken = strings.TrimSpace(string(b))
 	}
 	s.HF = hf.New(env("SIBYL_HF_BASE", hf.DefaultBase), hfToken)

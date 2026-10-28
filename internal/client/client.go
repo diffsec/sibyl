@@ -335,3 +335,27 @@ func (c *Client) CreatePool(ctx context.Context, disk, confirm string) (hostd.Re
 func (c *Client) DetachPool(ctx context.Context, name string) (hostd.Result, error) {
 	return c.hostAction(ctx, http.MethodDelete, "/pools/"+url.PathEscape(name), nil)
 }
+
+// HuggingFace is the GET /integrations/huggingface response.
+type HuggingFace struct {
+	Configured bool   `json:"configured"`
+	User       string `json:"user,omitempty"`
+	SetAt      string `json:"set_at,omitempty"`
+}
+
+func (c *Client) HuggingFace(ctx context.Context) (HuggingFace, error) {
+	var h HuggingFace
+	return h, c.do(ctx, http.MethodGet, "/integrations/huggingface", nil, &h)
+}
+
+// SetHuggingFaceToken stores an access token after the System API checks it
+// with Hugging Face.
+func (c *Client) SetHuggingFaceToken(ctx context.Context, token string) (HuggingFace, error) {
+	var h HuggingFace
+	return h, c.do(ctx, http.MethodPut, "/integrations/huggingface", map[string]string{"token": token}, &h)
+}
+
+func (c *Client) ClearHuggingFaceToken(ctx context.Context) (HuggingFace, error) {
+	var h HuggingFace
+	return h, c.do(ctx, http.MethodDelete, "/integrations/huggingface", nil, &h)
+}

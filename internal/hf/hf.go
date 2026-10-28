@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -36,14 +37,75 @@ func ValidRevision(rev string) bool { return revisionRe.MatchString(rev) }
 
 // Client talks to the Hub.
 type Client struct {
-	Base  string
-	HTTP  *http.Client
-	Token string // optional, for gated repositories
+	Base string
+	HTTP *http.Client
+
+	mu    sync.RWMutex
+	token string // optional, for gated and private repositories
 }
 
 // New returns a Client for base with request timeouts suited to API calls.
 func New(base, token string) *Client {
-	return &Client{Base: strings.TrimSuffix(base, "/"), HTTP: &http.Client{Timeout: 30 * time.Second}, Token: token}
+	return &Client{Base: strings.TrimSuffix(base, "/"), HTTP: &http.Client{Timeout: 30 * time.Second}, token: token}
+}
+
+// SetToken changes the access token for later requests. An empty token
+// signs out.
+func (c *Client) SetToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.token = token
+}
+
+// HasToken reports whether requests carry a token.
+func (c *Client) HasToken() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token != ""
+}
+
+// Authorize adds the token, if any, to a request to the Hub.
+func (c *Client) Authorize(req *http.Request) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+}
+
+// ErrAccess means the Hub refused a request: the repository is gated or
+// private, and the token is missing or has no access.
+var ErrAccess = errors.New("hugging face refused access: the repository is gated or private. " +
+	"Accept its terms on huggingface.co with your account, and set an access token in Sibyl")
+
+// WhoAmI returns the account name for a token, which it checks with the Hub.
+func (c *Client) WhoAmI(ctx context.Context, token string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/whoami-v2", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusUnauthorized {
+		return "", errors.New("hugging face rejected the token: check that it is a valid access token")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("hugging face: %s", resp.Status)
+	}
+	var who struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&who); err != nil {
+		return "", err
+	}
+	if who.Name == "" {
+		return "", errors.New("hugging face returned no account name for the token")
+	}
+	return who.Name, nil
 }
 
 // Summary is one search result.
@@ -75,14 +137,15 @@ func (c *Client) get(ctx context.Context, rawURL string, v any) error {
 	if err != nil {
 		return err
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
+	c.Authorize(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return ErrAccess
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return fmt.Errorf("hugging face: %s: %s", resp.Status, strings.TrimSpace(string(body)))

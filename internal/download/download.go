@@ -426,6 +426,11 @@ func (m *Manager) fetchFile(ctx context.Context, j *Job, dir string, f hf.File) 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		// A refusal does not change on retry: the user must set a token
+		// or accept the repository's terms first.
+		if errors.Is(err, hf.ErrAccess) {
+			return err
+		}
 		lastErr = err
 		m.Log.Warn("download attempt failed", "job", j.ID, "file", f.Path, "attempt", attempt+1, "err", err)
 	}
@@ -458,9 +463,7 @@ func (m *Manager) attempt(parent context.Context, j *Job, dest string, f hf.File
 	if err != nil {
 		return false, err
 	}
-	if m.HF.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+m.HF.Token)
-	}
+	m.HF.Authorize(req)
 	if have > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
 	}
@@ -481,6 +484,8 @@ func (m *Manager) attempt(parent context.Context, j *Job, dest string, f hf.File
 			}
 			have = 0
 		}
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return false, hf.ErrAccess
 	default:
 		return false, fmt.Errorf("unexpected HTTP status %s", resp.Status)
 	}

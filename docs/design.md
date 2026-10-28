@@ -85,6 +85,7 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `DELETE /models/{id}` | Deletes the model and all of its shards. Applies. |
 | `POST /apply` | Regenerates the configuration |
 | `GET /services`, `POST /services/{name}/restart` | Unit states and restarts through the host agent |
+| `GET, PUT, DELETE /integrations/huggingface` | Hugging Face sign-in: the account, set a token, or sign out |
 | `GET /hf/search?q=` | Search Hugging Face for GGUF repositories, most downloaded first |
 | `GET /hf/repos/{owner}/{name}` | Complete GGUF variants at a pinned commit, with size and fit (`gpu`, `split` or `no`) |
 | `GET, POST /downloads` | List download jobs, or queue one: `{"repo", "variant", "revision"}` |
@@ -145,7 +146,9 @@ The download manager (`internal/download`) runs one job at a time. Each job pins
 4. Each file must match the SHA-256 that Hugging Face records for it. A file that fails is deleted.
 5. The folder is renamed to `/models/<variant>/`, with a `.sibyl-source.json` that records the repository, commit and digests. The API then regenerates the llama-swap configuration.
 
-Jobs are saved in `/config/downloads.json` and resume after a restart. A Podman secret `hf-token`, if it exists, is sent to Hugging Face for gated repositories.
+Jobs are saved in `/config/downloads.json` and resume after a restart.
+
+Gated and private repositories need a Hugging Face access token. In the TUI, press `t` on the Download screen. The route is `PUT /integrations/huggingface` with `{"token": "hf_..."}`. The System API checks the token with Hugging Face's `/api/whoami-v2` and stores it in `/config/hf-token` with mode 0600, and the account name in `/config/huggingface.json`. Searches, repository listings and downloads use it at once, with no restart. `DELETE /integrations/huggingface` signs out. A gated model also needs its terms accepted on huggingface.co with the same account. When Hugging Face refuses a request, the error says so, and a download fails at once instead of retrying, so Retry (`R`) resumes it after the fix.
 
 The fit estimate compares the file size with the VRAM of the selected GPUs, less 2 GiB per GPU for the KV cache. `split` means the model needs system RAM as well. Some models still run fully on GPU, because llama.cpp keeps a large token embedding table in system RAM; the model card says so.
 
