@@ -12,12 +12,14 @@ import (
 
 	"github.com/ihavespoons/sibyl/internal/client"
 	"github.com/ihavespoons/sibyl/internal/gpu"
+	"github.com/ihavespoons/sibyl/internal/hostd"
 )
 
 type statusMsg struct {
 	status client.Status
 	gpus   []gpu.GPU
 	owui   client.OpenWebUI
+	host   hostd.State
 	err    error
 }
 
@@ -57,8 +59,10 @@ func (v *statusView) fetch() tea.Cmd {
 		if err != nil {
 			return statusMsg{status: s, err: err}
 		}
+		// The addresses are extra: a missing host state does not hide the rest.
+		h, _ := v.c.Host(ctx)
 		o, err := v.c.OpenWebUI(ctx)
-		return statusMsg{status: s, gpus: g, owui: o, err: err}
+		return statusMsg{status: s, gpus: g, owui: o, host: h, err: err}
 	}
 }
 
@@ -212,6 +216,8 @@ func (v *statusView) render(int) string {
 	fmt.Fprintf(&b, "Version %s · backend %s · layout %s · GPUs in use %v\n\n",
 		s.Version, s.Hardware.Backend, s.Hardware.Layout, s.Hardware.GPUs)
 
+	b.WriteString(titleSty.Render("Addresses") + "\n")
+	b.WriteString(renderLinks(v.data.host) + "\n")
 	b.WriteString(titleSty.Render("GPUs") + "\n")
 	for _, g := range v.data.gpus {
 		used := ""

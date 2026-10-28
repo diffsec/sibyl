@@ -26,7 +26,7 @@ var wizardSteps = []wizardStep{
 	{"Operator accounts and SSH keys", 4, "press a to add an operator who can run sibyl over SSH"},
 	{"Open WebUI administrator", 0, "press o to create the first Open WebUI admin"},
 	{"First model", 3, "press / to search Hugging Face; fit shows what suits your GPUs"},
-	{"Done", 0, ""},
+	{"Done", 0, ""}, // the Status screen, with the addresses
 }
 
 func (a *App) wizardHeader() string {
@@ -34,8 +34,8 @@ func (a *App) wizardHeader() string {
 	head := fmt.Sprintf("Setup %d/%d: %s", a.step+1, len(wizardSteps), s.title)
 	if a.step == len(wizardSteps)-1 {
 		return titleSty.Render(head) + "\n" +
-			"  Clients connect to https://<host>:8443/v1 with the API key in /var/lib/sibyl-operator/api.key.\n" +
-			"  Open WebUI is https://<host>/ and Arcane is https://<host>:9443/.\n" +
+			"  The Status screen (1) lists the addresses of Open WebUI, Arcane and the APIs as links.\n" +
+			"  API clients need the key in /var/lib/sibyl-operator/api.key.\n" +
 			"  TLS certificate SHA-256: " + a.opts.Fingerprint + "\n" +
 			mutedSty.Render("  [ back · q quit · run sibyl setup again at any time") + "\n\n"
 	}
