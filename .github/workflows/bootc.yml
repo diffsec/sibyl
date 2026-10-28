@@ -51,7 +51,11 @@ env:
 
 jobs:
   tag:
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04 on 2026-10-28, and there image-builder
+    # fails to mount the runner's container storage ("mount:
+    # /run/osbuild/containers/storage: permission denied"). The ISO built on
+    # 24.04.
+    runs-on: ubuntu-24.04
     outputs:
       image_tag: ${{ steps.tag.outputs.image_tag }}
       push: ${{ steps.tag.outputs.push }}
