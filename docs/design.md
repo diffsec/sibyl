@@ -21,7 +21,7 @@ This document records the design decisions from October 2026 and the delivery ph
 | Disks | Guided installer, LUKS with TPM2 unlock, model storage pools, USB persistence | See "Storage". |
 | Hardening | SELinux enforcing, Secure Boot, signed images, CIS-style lockdown | See "Security". |
 | Updates | GHCR registry, plus offline bundles | `bootc upgrade` online. `bootc switch` to an OCI archive offline. |
-| CI | GitHub Actions, SHA-pinned actions, cosign keyless signing | Images and ISOs build in CI. |
+| CI | GitHub Actions, SHA-pinned actions, cosign keyless and key signing | Images and ISOs build in CI. The host verifies the key signature. |
 | Model download | Hugging Face GGUF picker in the System API and TUI, plus an Ollama-compatible API shim | Clients written for Ollama work unchanged. |
 
 ## Repository layout
@@ -328,7 +328,12 @@ When the GPU set changes, for example after a card is added, the System API dete
 
 - SELinux stays enforcing. Only Arcane runs with `SecurityLabelDisable=true`.
 - Secure Boot uses the Fedora shim and kernel. The NVIDIA variant adds the project MOK key.
-- CI signs every image with cosign keyless signing. `/etc/containers/policy.json` requires a signature from this repo's workflow for `ghcr.io/ihavespoons/sibyl-*`. Third-party images are pinned by digest in the Quadlet files.
+- CI signs every image twice (`scripts/ci/sign.sh`). The keyless signature carries the workflow identity, for anyone who checks with `cosign verify`. The key signature is what the host checks.
+- The host's `/etc/containers/policy.json` requires a signature from the project key (`/etc/pki/containers/sibyl-cosign.pub`) for every image under `ghcr.io/ihavespoons`. podman, the Quadlet units and bootc refuse an image without it. Other registries keep the default policy, so Arcane can still run any image. Third-party images in the Quadlet files are pinned by digest.
+- podman and bootc verify only key-based sigstore signatures, and only in the older `.sig` attachment format. Keyless policies need a `subjectEmail`, which a GitHub workflow certificate does not have. So CI signs with `--new-bundle-format=false`, and with `--recursive`, because podman checks the platform image that it picks, not only the index.
+- The private key is in the `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` repository secrets, with an offline backup held by the maintainer. A new key needs a new public key in the image, and a host must have that image before images signed with the new key reach it.
+- `/usr/lib/bootc/install/50-sibyl.toml` sets `enforce-container-sigpolicy`, so every install records a verified image reference and `bootc upgrade` checks the policy. A host installed before this change needs `bootc switch --enforce-container-sigpolicy <image>` once.
+- If signing ever breaks, running containers keep running. To pull an unsigned image on purpose, an administrator changes the `ghcr.io/ihavespoons` entry in `/etc/containers/policy.json` on that host.
 - Every Quadlet container drops all capabilities, sets `NoNewPrivileges=true` and `ReadOnly=true`, and gets a tmpfs for `/tmp`. Writable state goes to named volumes only.
 - nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open.
 - SSH accepts keys only. Root login is off.

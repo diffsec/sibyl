@@ -1,0 +1,5 @@
+# CI signs every ghcr.io/ihavespoons image with the project key, as a
+# sigstore ".sig" attachment. /etc/containers/policy.json requires it.
+docker:
+  ghcr.io/ihavespoons:
+    use-sigstore-attachments: true

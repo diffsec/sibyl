@@ -1,0 +1,4 @@
+# Installed systems verify each bootc upgrade against
+# /etc/containers/policy.json, which requires the project key's signature.
+[install]
+enforce-container-sigpolicy = true
