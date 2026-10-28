@@ -147,6 +147,9 @@ func (v *downloadView) update(msg tea.Msg) tea.Cmd {
 		v.loading = ""
 		if msg.err != nil {
 			v.stage = stageResults
+			if len(v.repos) == 0 {
+				v.stage = stageSearch // opened by name: let the user fix the name
+			}
 			return note(false, "repository: %v", msg.err)
 		}
 		v.repo, v.cursor, v.stage = msg.repo, 0, stageVariants
@@ -159,6 +162,13 @@ func (v *downloadView) update(msg tea.Msg) tea.Cmd {
 		return tea.Batch(note(true, "downloading %s (job %s)", msg.job.Variant, msg.job.ID), v.fetchJobs())
 	case tea.KeyPressMsg:
 		return v.key(msg)
+	case tea.PasteMsg:
+		// A paste arrives as its own message, not as key presses.
+		if v.stage == stageSearch && v.form == nil {
+			var cmd tea.Cmd
+			v.input, cmd = v.input.Update(msg)
+			return cmd
+		}
 	}
 	if v.form != nil {
 		return v.formStep(msg)
@@ -210,6 +220,13 @@ func (v *downloadView) key(msg tea.KeyPressMsg) tea.Cmd {
 				return nil
 			}
 			v.input.Blur()
+			// An exact owner/name opens that repository, without a search.
+			if hf.ValidRepo(q) {
+				v.repos = nil
+				v.loading = "reading " + q + "…"
+				return call(func(ctx context.Context) (client.Repo, error) { return v.c.Repo(ctx, q) },
+					func(r client.Repo, err error) tea.Msg { return repoResult{r, err} })
+			}
 			v.loading = "searching…"
 			return call(func(ctx context.Context) ([]hf.Summary, error) { return v.c.Search(ctx, q) },
 				func(r []hf.Summary, err error) tea.Msg { return searchResult{r, err} })
