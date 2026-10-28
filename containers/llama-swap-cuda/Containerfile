@@ -1,0 +1,52 @@
+# llama.cpp (CUDA) + llama-swap, for the NVIDIA variant.
+# Build context: containers/ (it reuses files from containers/llama-swap).
+# llama.cpp's own CUDA image supplies the binaries, so CI compiles no CUDA.
+# The NVIDIA driver and libcuda come from the host through CDI
+# (nvidia-container-toolkit), not from this image.
+
+ARG LLAMA_CUDA_IMAGE=ghcr.io/ggml-org/llama.cpp:full-cuda-b11889@sha256:1aeae166af7207ae57f0cc8529e8df76f98ef72ecd7d714cc381f4bd4ee2fedf
+ARG UBUNTU_IMAGE=docker.io/ubuntu:26.04
+
+FROM ${UBUNTU_IMAGE} AS llama-swap-dl
+
+ARG LLAMA_SWAP_VERSION=266
+ARG LLAMA_SWAP_SHA256=
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY llama-swap/fetch-llama-swap.sh /usr/local/bin/fetch-llama-swap.sh
+RUN /usr/local/bin/fetch-llama-swap.sh "${LLAMA_SWAP_VERSION}" "${LLAMA_SWAP_SHA256}" /out
+
+FROM ${LLAMA_CUDA_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# The upstream image keeps llama.cpp in /app, where llama-swap lives in the
+# other Sibyl images. Move it to /opt/llama, so every image has one layout.
+RUN mkdir -p /opt/llama/bin /opt/llama/lib \
+    && mv /app/llama-server /app/llama-bench /opt/llama/bin/ \
+    && mv /app/*.so* /opt/llama/lib/ \
+    && rm -rf /app \
+    && mkdir -p /app/config \
+    && groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --home /app --no-create-home app
+
+COPY --from=llama-swap-dl /out/llama-swap /app/llama-swap
+COPY llama-swap/config.yaml /app/config/config.yaml
+# Fail the build if any binary or library has an unresolved dependency,
+# except libcuda.so.1, which the host's driver supplies at runtime through CDI.
+# containers/llama-swap/check-libs.sh does the same for the other images.
+RUN missing="$(find /opt/llama/bin /opt/llama/lib -type f \( -perm -u+x -o -name '*.so*' \) \
+        -exec env LD_LIBRARY_PATH=/opt/llama/lib ldd {} \; 2>/dev/null \
+        | grep 'not found' | grep -v 'libcuda.so.1 => not found' | sort -u || true)" \
+    && if [ -n "$missing" ]; then echo "unresolved shared libraries:" >&2; echo "$missing" >&2; exit 1; fi
+
+ENV PATH=/app:/opt/llama/bin:${PATH} \
+    LD_LIBRARY_PATH=/opt/llama/lib \
+    SIBYL_GPU_BACKEND=CUDA
+
+USER 10001:10001
+WORKDIR /app
+EXPOSE 8080
+HEALTHCHECK CMD ["curl", "-fsS", "http://127.0.0.1:8080/health"]
+ENTRYPOINT ["/app/llama-swap", "-listen", ":8080", "-config", "/app/config/config.yaml", "-watch-config"]

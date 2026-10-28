@@ -31,7 +31,15 @@ type Benchmark struct {
 	Recommended string                   `json:"recommended,omitempty"`
 }
 
-var benchBackends = []string{"hip", "vulkan"}
+// benchBackends are the backend images that the host agent benchmarks: every
+// backend that this variant ships.
+func (s *Server) benchBackends() []string {
+	var out []string
+	for _, b := range hardware.Backends(s.Variant) {
+		out = append(out, string(b))
+	}
+	return out
+}
 
 func (s *Server) benchDir() string { return filepath.Join(s.Host.Dir, "bench") }
 
@@ -42,7 +50,7 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	hw, err := hardware.Load(s.Paths.hardwareFile())
+	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -58,7 +66,7 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	for _, b := range benchBackends {
+	for _, b := range s.benchBackends() {
 		_ = os.Remove(filepath.Join(dir, id+"."+b+".json"))
 		_ = os.Remove(filepath.Join(dir, id+"."+b+".log"))
 	}
@@ -107,11 +115,11 @@ func (s *Server) readBenchmark(id string) (Benchmark, bool) {
 		return b, true
 	}
 	b.Results = map[string]BackendResult{}
-	for _, backend := range benchBackends {
+	for _, backend := range s.benchBackends() {
 		b.Results[backend] = parseBench(filepath.Join(dir, id+"."+backend+".json"), filepath.Join(dir, id+"."+backend+".log"))
 	}
 	// Token generation speed decides: it is what a user waits for.
-	for _, backend := range benchBackends {
+	for _, backend := range s.benchBackends() {
 		if r := b.Results[backend]; r.Error == "" && r.GenTPS > b.Results[b.Recommended].GenTPS {
 			b.Recommended = backend
 		}

@@ -321,6 +321,8 @@ func fitText(f string) string {
 		return "fits in VRAM"
 	case "split":
 		return "needs system RAM too (some models still run fully on GPU; see the model card)"
+	case "unknown":
+		return "unknown: this GPU does not report its VRAM"
 	default:
 		return "too large for this host"
 	}
@@ -332,6 +334,8 @@ func fitStyled(f string) string {
 		return goodSty.Render("gpu  ")
 	case "split":
 		return selSty.Render("split")
+	case "unknown":
+		return mutedSty.Render("?    ")
 	default:
 		return badSty.Render("no   ")
 	}

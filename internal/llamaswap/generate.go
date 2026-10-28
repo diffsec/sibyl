@@ -264,10 +264,40 @@ func matrix(perGPU [][]string, spanning, embedding []string) *Routing {
 
 // DevicePrefix is the llama.cpp device name prefix for a backend.
 func DevicePrefix(b hardware.Backend) string {
-	if b == hardware.BackendVulkan {
+	switch b {
+	case hardware.BackendVulkan:
 		return "Vulkan"
+	case hardware.BackendCUDA:
+		return "CUDA"
+	default:
+		return "ROCm"
 	}
-	return "ROCm"
+}
+
+// visibleEnv is the variable that limits a backend to the selected GPUs.
+func visibleEnv(b hardware.Backend) string {
+	switch b {
+	case hardware.BackendVulkan:
+		return "GGML_VK_VISIBLE_DEVICES"
+	case hardware.BackendCUDA:
+		return "CUDA_VISIBLE_DEVICES"
+	default:
+		return "HIP_VISIBLE_DEVICES"
+	}
+}
+
+// devices returns the Quadlet AddDevice values for a backend. NVIDIA GPUs
+// come through CDI (nvidia-container-toolkit), which also brings the driver
+// libraries. AMD and Intel GPUs are device nodes.
+func devices(v hardware.Variant, b hardware.Backend) []string {
+	switch {
+	case v == hardware.VariantNVIDIA:
+		return []string{"nvidia.com/gpu=all"}
+	case b == hardware.BackendHIP:
+		return []string{"/dev/kfd", "/dev/dri"}
+	default:
+		return []string{"/dev/dri"}
+	}
 }
 
 // Marshal renders the configuration as YAML with a header comment.
@@ -282,24 +312,26 @@ func Marshal(cfg Config) ([]byte, error) {
 }
 
 // DropIn renders the Quadlet drop-in for llama-swap.container. It selects the
-// image for the backend and limits the container to the selected GPUs.
+// image and the GPU devices for the backend, and limits the container to the
+// selected GPUs.
 //
-// The GPU indexes follow PCI order (see gpu.Detect). ROCm and Vulkan
+// The GPU indexes follow PCI order (see gpu.Detect). ROCm, CUDA and Vulkan
 // renumber the visible devices from 0, which is why command() uses positions.
-func DropIn(hw hardware.Config, registry, imageTag string) string {
+func DropIn(v hardware.Variant, hw hardware.Config, registry, imageTag string) string {
 	idx := make([]string, len(hw.GPUs))
 	sorted := append([]int(nil), hw.GPUs...)
 	sort.Ints(sorted)
 	for i, g := range sorted {
 		idx[i] = strconv.Itoa(g)
 	}
-	visible := "HIP_VISIBLE_DEVICES"
-	if hw.Backend == hardware.BackendVulkan {
-		visible = "GGML_VK_VISIBLE_DEVICES"
-	}
-	return fmt.Sprintf(`# llama-swap backend: image and visible GPUs. sibyl-api writes this from hardware.yaml.
+	var b strings.Builder
+	fmt.Fprintf(&b, `# llama-swap backend: image, devices and visible GPUs. sibyl-api writes this from hardware.yaml.
 [Container]
 Image=%s/sibyl-llama-swap:%s-%s
-Environment=%s=%s
-`, registry, imageTag, hw.Backend, visible, strings.Join(idx, ","))
+`, registry, imageTag, hw.Backend)
+	for _, d := range devices(v, hw.Backend) {
+		fmt.Fprintf(&b, "AddDevice=%s\n", d)
+	}
+	fmt.Fprintf(&b, "Environment=%s=%s\n", visibleEnv(hw.Backend), strings.Join(idx, ","))
+	return b.String()
 }

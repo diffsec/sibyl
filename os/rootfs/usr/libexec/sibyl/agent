@@ -9,7 +9,7 @@
 #
 #   restart.<unit>   restart one Sibyl unit
 #   reload.all       systemctl --user daemon-reload
-#   bench.<model>    run llama-bench with the HIP and the Vulkan image
+#   bench.<model>    run llama-bench with each backend image of this variant
 set -euo pipefail
 
 RUN=/var/lib/sibyl/run
@@ -41,6 +41,7 @@ write_status() {
 # the model's relative path and the selected GPUs into $RUN/bench/<model>.*.
 bench() {
     local id="$1" dir="$RUN/bench" rel gpus pool root mount model tag backend image visible split
+    local -a devices
     rel="$(cat "$dir/$id.path" 2>/dev/null || true)"
     gpus="$(cat "$dir/$id.gpus" 2>/dev/null || true)"
     pool="$(cat "$dir/$id.pool" 2>/dev/null || true)"
@@ -68,13 +69,32 @@ bench() {
     # Free the GPUs: llama-swap starts the model again on the next request.
     podman exec llama-swap curl -fsS http://127.0.0.1:8080/unload >/dev/null 2>&1 || true
 
-    for backend in hip vulkan; do
+    # The backends and GPU devices depend on the image's GPU variant, as in
+    # the System API's drop-in (internal/llamaswap DropIn).
+    local variant backends
+    variant="$(cat /usr/share/sibyl/gpu-variant)"
+    case "$variant" in
+        nvidia) backends="cuda vulkan" ;;
+        intel) backends="vulkan" ;;
+        *) backends="hip vulkan" ;;
+    esac
+    for backend in $backends; do
         image="ghcr.io/ihavespoons/sibyl-llama-swap:${tag}-${backend}"
-        visible=HIP_VISIBLE_DEVICES
-        [[ "$backend" == vulkan ]] && visible=GGML_VK_VISIBLE_DEVICES
+        case "$backend" in
+            hip) visible=HIP_VISIBLE_DEVICES ;;
+            cuda) visible=CUDA_VISIBLE_DEVICES ;;
+            *) visible=GGML_VK_VISIBLE_DEVICES ;;
+        esac
+        if [[ "$variant" == nvidia ]]; then
+            devices=(--device nvidia.com/gpu=all)
+        elif [[ "$backend" == hip ]]; then
+            devices=(--device /dev/kfd --device /dev/dri)
+        else
+            devices=(--device /dev/dri)
+        fi
         echo "sibyl-agent: benchmarking $id with $backend"
         if ! podman run --rm --network none \
-            --device /dev/kfd --device /dev/dri --group-add keep-groups \
+            "${devices[@]}" --group-add keep-groups \
             --userns keep-id:uid=10001,gid=10001 --cap-drop all --security-opt no-new-privileges \
             -v "$root:/models:$mount" -v llama-swap-cache:/app/.cache:U \
             -e "$visible=$gpus" --entrypoint /opt/llama/bin/llama-bench "$image" \

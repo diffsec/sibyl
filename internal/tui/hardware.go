@@ -17,9 +17,10 @@ import (
 )
 
 type hardwareLoaded struct {
-	hw   hardware.Config
-	gpus []gpu.GPU
-	err  error
+	hw       hardware.Config
+	gpus     []gpu.GPU
+	backends []hardware.Backend
+	err      error
 }
 
 type hardwareSaved struct {
@@ -93,7 +94,7 @@ func (v *hardwareView) build(msg hardwareLoaded) tea.Cmd {
 				return nil
 			}),
 		huh.NewSelect[string]().Title("Backend").Inline(true).
-			Options(huh.NewOption("HIP (ROCm)", "hip"), huh.NewOption("Vulkan (Mesa RADV)", "vulkan")).
+			Options(backendOptions(msg.backends)...).
 			Value(&v.backend),
 		huh.NewSelect[string]().Title("Default layout").
 			Description("A model can override this in its own settings.").
@@ -102,6 +103,24 @@ func (v *hardwareView) build(msg hardwareLoaded) tea.Cmd {
 			Value(&v.layout),
 	)).WithShowHelp(false)
 	return v.form.Init()
+}
+
+// backendNames are the labels for the backends that a host image ships.
+var backendNames = map[hardware.Backend]string{
+	hardware.BackendHIP:    "HIP (ROCm)",
+	hardware.BackendCUDA:   "CUDA",
+	hardware.BackendVulkan: "Vulkan",
+}
+
+func backendOptions(bs []hardware.Backend) []huh.Option[string] {
+	if len(bs) == 0 {
+		bs = hardware.Backends(hardware.VariantAMD) // an older System API
+	}
+	opts := make([]huh.Option[string], 0, len(bs))
+	for _, b := range bs {
+		opts = append(opts, huh.NewOption(backendNames[b], string(b)))
+	}
+	return opts
 }
 
 func (v *hardwareView) save() tea.Cmd {
@@ -177,7 +196,11 @@ func (v *hardwareView) loadAndEdit() tea.Cmd {
 		if err != nil {
 			return noteMsg{"load GPUs: " + err.Error(), false}
 		}
-		return hardwareEdit{hardwareLoaded{hw: hw, gpus: g}}
+		st, err := v.c.Status(ctx)
+		if err != nil {
+			return noteMsg{"load status: " + err.Error(), false}
+		}
+		return hardwareEdit{hardwareLoaded{hw: hw, gpus: g, backends: st.Backends}}
 	}
 }
 

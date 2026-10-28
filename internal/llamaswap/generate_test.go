@@ -94,14 +94,14 @@ func TestGenerateSingleGPUNeverSplits(t *testing.T) {
 }
 
 func TestGenerateNoModels(t *testing.T) {
-	cfg, _ := Generate(hardware.Default(), nil, nil)
+	cfg, _ := Generate(hardware.Default(hardware.VariantAMD), nil, nil)
 	if cfg.Routing != nil || len(cfg.Models) != 0 {
 		t.Errorf("want an empty config, got %+v", cfg)
 	}
 }
 
 func TestDropIn(t *testing.T) {
-	got := DropIn(twoGPUs(hardware.LayoutSpan), "ghcr.io/ihavespoons", "1.2.3")
+	got := DropIn(hardware.VariantAMD, twoGPUs(hardware.LayoutSpan), "ghcr.io/ihavespoons", "1.2.3")
 	for _, want := range []string{
 		"Image=ghcr.io/ihavespoons/sibyl-llama-swap:1.2.3-hip\n",
 		"Environment=HIP_VISIBLE_DEVICES=0,1\n",
@@ -111,22 +111,43 @@ func TestDropIn(t *testing.T) {
 		}
 	}
 	hw := hardware.Config{Backend: hardware.BackendVulkan, GPUs: []int{1}}
-	if got := DropIn(hw, "r", "t"); !strings.Contains(got, "Environment=GGML_VK_VISIBLE_DEVICES=1\n") {
+	if got := DropIn(hardware.VariantAMD, hw, "r", "t"); !strings.Contains(got, "Environment=GGML_VK_VISIBLE_DEVICES=1\n") {
 		t.Errorf("vulkan drop-in:\n%s", got)
 	}
 }
 
 // The image ships a default backend.conf. It must match the drop-in for the
 // default hardware byte for byte, or the first apply restarts llama-swap.
+// TestImageDefaultDropIn checks that the image's default drop-in for each
+// variant matches DropIn(Default), so a first boot with no hardware.yaml
+// does not restart llama-swap.
 func TestImageDefaultDropIn(t *testing.T) {
-	raw, err := os.ReadFile("../../os/rootfs/etc/containers/systemd/users/1001/llama-swap.container.d/backend.conf")
-	if err != nil {
-		t.Fatal(err)
+	for _, v := range []hardware.Variant{hardware.VariantAMD, hardware.VariantNVIDIA, hardware.VariantIntel} {
+		raw, err := os.ReadFile("../../os/rootfs/usr/share/sibyl/backend/" + string(v) + ".conf")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.ReplaceAll(string(raw), "@IMAGE_TAG@", "tag")
+		want := DropIn(v, hardware.Default(v), "ghcr.io/ihavespoons", "tag")
+		if got != want {
+			t.Errorf("%s: image default drop-in differs from DropIn(Default()):\n--- image\n%s--- generated\n%s", v, got, want)
+		}
 	}
-	got := strings.ReplaceAll(string(raw), "@IMAGE_TAG@", "tag")
-	want := DropIn(hardware.Default(), "ghcr.io/ihavespoons", "tag")
-	if got != want {
-		t.Errorf("image default drop-in differs from DropIn(Default()):\n--- image\n%s--- generated\n%s", got, want)
+}
+
+func TestDropInNVIDIA(t *testing.T) {
+	hw := hardware.Config{Backend: hardware.BackendCUDA, GPUs: []int{1, 0}, Layout: hardware.LayoutSpan}
+	got := DropIn(hardware.VariantNVIDIA, hw, "r", "t")
+	for _, want := range []string{"Image=r/sibyl-llama-swap:t-cuda\n", "AddDevice=nvidia.com/gpu=all\n", "Environment=CUDA_VISIBLE_DEVICES=0,1\n"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("drop-in lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "/dev/kfd") {
+		t.Error("an NVIDIA drop-in adds /dev/kfd")
+	}
+	if DevicePrefix(hardware.BackendCUDA) != "CUDA" {
+		t.Error("CUDA device prefix")
 	}
 }
 

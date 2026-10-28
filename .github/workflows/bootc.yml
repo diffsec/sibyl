@@ -31,6 +31,10 @@ on:
         description: Build and push the offline update bundle (about 4 GB)
         type: boolean
         default: false
+      variants:
+        description: Also build the nvidia and intel host images (untested hardware)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -51,6 +55,7 @@ jobs:
     outputs:
       image_tag: ${{ steps.tag.outputs.image_tag }}
       push: ${{ steps.tag.outputs.push }}
+      variants: ${{ steps.tag.outputs.variants }}
     steps:
       - id: tag
         env:
@@ -58,7 +63,15 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
           EVENT: ${{ github.event_name }}
+          ALL_VARIANTS: ${{ inputs.variants }}
         run: |
+          # amd builds on every push. nvidia and intel build only for release
+          # tags or on request, to save runner minutes: no one tests them yet.
+          if [[ "$REF" == refs/tags/v* || "$ALL_VARIANTS" == true ]]; then
+            echo 'variants=["amd","nvidia","intel"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'variants=["amd"]' >> "$GITHUB_OUTPUT"
+          fi
           # One tag for the whole image set, so the OS image's Quadlet units
           # always reference service images from the same build.
           if [[ "$REF" == refs/tags/v* ]]; then
@@ -113,6 +126,12 @@ jobs:
             file: containers/llama-swap/Containerfile.vulkan
             suffix: -vulkan
             inputs: containers/llama-swap
+          # NVIDIA: llama.cpp's own CUDA build, plus llama-swap.
+          - name: sibyl-llama-swap
+            context: containers
+            file: containers/llama-swap-cuda/Containerfile
+            suffix: -cuda
+            inputs: containers/llama-swap-cuda containers/llama-swap/fetch-llama-swap.sh containers/llama-swap/config.yaml
           - name: sibyl-caddy
             context: containers/caddy
             file: containers/caddy/Containerfile
@@ -242,8 +261,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # nvidia and intel are added in phase 4.
-        variant: [amd]
+        variant: ${{ fromJSON(needs.tag.outputs.variants) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -275,6 +293,9 @@ jobs:
           push: ${{ needs.tag.outputs.push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # The MOK key signs the NVIDIA kernel modules (os/variants/nvidia.sh).
+          secrets: |
+            mok_key=${{ secrets.MOK_PRIVATE_KEY }}
           build-args: |
             GPU_VARIANT=${{ matrix.variant }}
             IMAGE_TAG=${{ needs.tag.outputs.image_tag }}
@@ -311,7 +332,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [amd]
+        variant: ${{ fromJSON(needs.tag.outputs.variants) }}
     env:
       OS_IMAGE: ghcr.io/ihavespoons/sibyl-os:${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}
       ISO_REF: ghcr.io/ihavespoons/sibyl-iso:${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}
@@ -416,7 +437,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [amd]
+        variant: ${{ fromJSON(needs.tag.outputs.variants) }}
     env:
       TAG: ${{ needs.tag.outputs.image_tag }}
       VARIANT: ${{ matrix.variant }}

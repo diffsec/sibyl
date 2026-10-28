@@ -14,6 +14,7 @@ import (
 
 	"github.com/ihavespoons/sibyl/internal/api"
 	"github.com/ihavespoons/sibyl/internal/download"
+	"github.com/ihavespoons/sibyl/internal/hardware"
 	"github.com/ihavespoons/sibyl/internal/hf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
 	"github.com/ihavespoons/sibyl/internal/ollama"
@@ -54,6 +55,7 @@ func run(log *slog.Logger) error {
 		Token:    strings.TrimSpace(string(token)),
 		Registry: env("SIBYL_REGISTRY", "ghcr.io/ihavespoons"),
 		ImageTag: env("SIBYL_IMAGE_TAG", "latest"),
+		Variant:  hardware.Variant(env("SIBYL_GPU_VARIANT", "amd")),
 		Version:  env("SIBYL_VERSION", "dev"),
 		Log:      log,
 	}

@@ -1,6 +1,6 @@
 # Sibyl design
 
-Sibyl is a hardened, immutable Linux host for local LLM inference. It boots from USB or installs to disk, and serves an OpenAI-compatible API from llama.cpp. It is tuned first for AMD RDNA3 GPUs, with one or more Radeon RX 7900 XTX cards.
+Sibyl is an all-in-one inference server: a hardened, immutable Linux host that boots from USB or installs to disk, and serves OpenAI- and Ollama-compatible APIs from llama.cpp, with a chat UI, a model manager and a container platform. Each GPU vendor has its own host image variant. The AMD variant is tested on a host with two Radeon RX 7900 XTX cards. The NVIDIA and Intel variants build and pass the same checks, but no one has run them on hardware yet.
 
 This document records the design decisions from October 2026 and the delivery phases.
 
@@ -8,15 +8,15 @@ This document records the design decisions from October 2026 and the delivery ph
 
 | Area | Decision | Reason |
 |---|---|---|
-| Host OS | Fedora bootc (`quay.io/fedora/fedora-bootc:44`) | The OS is a Containerfile. Updates are atomic, with rollback. The kernel is current for gfx1100. |
+| Host OS | Fedora bootc (`quay.io/fedora/fedora-bootc:44`) | The OS is a Containerfile. Updates are atomic, with rollback. The kernel is current for new GPUs. |
 | Container runtime | Podman with Quadlet, rootless | Fedora default. Quadlet units start at boot without a daemon. |
 | Container UI | Arcane (BSD-3-Clause) | Compose editor, Git Sync, native Podman and Quadlet pages. Dockhand is source-available (BSL 1.1), so it is out. |
-| Inference engine | llama.cpp `llama-server` behind llama-swap | Best single-stream speed for GGUF on RDNA3. llama-swap swaps models and places them on GPUs. |
-| GPU backends | HIP (ROCm) and Vulkan images, both shipped | Results on RDNA3 differ by quant and context size. A benchmark picks one per model. |
-| Model format | GGUF only | Fits 24 GB per card. No vLLM. |
+| Inference engine | llama.cpp `llama-server` behind llama-swap | One engine for every GPU vendor, with fast single-stream GGUF inference. llama-swap swaps models and places them on GPUs. |
+| GPU backends | HIP (ROCm) and Vulkan for AMD, CUDA and Vulkan for NVIDIA, Vulkan for Intel | The fastest backend differs by GPU, quant and context size. The benchmark compares the variant's backends. |
+| Model format | GGUF only | Quantized models fit consumer GPUs. No vLLM. |
 | Multi-GPU | Per-model layout through the llama-swap matrix router | One model can span both cards, or two models can run on one card each. |
-| Other GPUs | Separate image variants: `-amd`, `-nvidia`, `-intel` | Only the NVIDIA variant carries signed out-of-tree kernel modules. |
-| Base for service images | Wolfi where possible | Smaller images with fewer CVEs. ROCm images stay on the AMD base, because Wolfi does not package ROCm. |
+| GPU vendors | Separate image variants: `-amd`, `-nvidia`, `-intel` | Only the NVIDIA variant carries out-of-tree kernel modules, signed with the project MOK key. NVIDIA and Intel are untested on hardware. |
+| Base for service images | Wolfi where possible | Smaller images with fewer CVEs. The inference images use the vendors' bases, because Wolfi does not package ROCm or CUDA. |
 | Boot | Live USB with persistence, and install to disk | Try it from USB, then install. |
 | Disks | Guided installer, LUKS with TPM2 unlock, model storage pools, USB persistence | See "Storage". |
 | Hardening | SELinux enforcing, Secure Boot, signed images, CIS-style lockdown | See "Security". |
@@ -182,7 +182,9 @@ The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.
 
 `containers/llama-swap/Containerfile.hip` builds llama.cpp for `gfx1100` only, on `rocm/dev-ubuntu-24.04:<ROCm>-complete`. A single-target build compiles faster and the kernels match the card. The runtime stage keeps only the HIP runtime libraries that `llama-server` links against.
 
-`containers/llama-swap/Containerfile.vulkan` builds llama.cpp with `GGML_VULKAN=ON` on Ubuntu 26.04. Mesa RADV is the Vulkan driver. The image has no ROCm userspace. It uses Ubuntu, not Wolfi, to match the upstream llama.cpp Vulkan build.
+`containers/llama-swap/Containerfile.vulkan` builds llama.cpp with `GGML_VULKAN=ON` on Ubuntu 26.04. Mesa is the Vulkan driver for AMD (RADV) and Intel (ANV). The image has no ROCm userspace. It uses Ubuntu, not Wolfi, to match the upstream llama.cpp Vulkan build.
+
+`containers/llama-swap-cuda/Containerfile` starts from llama.cpp's own CUDA image (`ghcr.io/ggml-org/llama.cpp:full-cuda-<release>`, pinned by digest), so CI compiles no CUDA. It moves llama.cpp to `/opt/llama`, like the other images. The NVIDIA driver and `libcuda` come from the host through CDI, so the library check allows only `libcuda.so.1` to be missing at build time.
 
 Both images add the llama-swap release binary and run as UID 10001 inside the container.
 
@@ -211,7 +213,9 @@ The `capacity` router, which tracks VRAM per card, is on llama-swap `main` but n
 
 `--split-mode tensor` is experimental upstream, and upstream gives no performance guarantee outside CUDA (`docs/multi-gpu.md` in llama.cpp). The benchmark decides if it beats `layer` on two 7900 XTX cards.
 
-Device names differ per backend: `ROCm0` for HIP and `Vulkan0` for Vulkan. The System API writes the llama-swap configuration, so it fills in the right names.
+Device names differ per backend: `ROCm0` for HIP, `CUDA0` for CUDA and `Vulkan0` for Vulkan. The System API writes the llama-swap configuration, so it fills in the right names. It also writes the backend drop-in (`internal/llamaswap` `DropIn`), which picks the image, the GPU devices (`/dev/kfd` and `/dev/dri` for HIP, `/dev/dri` for Vulkan on AMD and Intel, and the CDI device `nvidia.com/gpu=all` on NVIDIA) and the variable that limits the visible GPUs. The System API learns the variant from `SIBYL_GPU_VARIANT`, and accepts only that variant's backends.
+
+The multi-GPU table above uses HIP device names, from the AMD test host. The other backends work the same way.
 
 ### Benchmark
 
@@ -250,6 +254,19 @@ Many clients speak only the Ollama API, and llama-swap has none. The System API 
 - Host-only tools that cannot run in a container: GPU detection, the installer and disk management.
 
 The AMD variant needs no extra kernel modules. `amdgpu` is in the Fedora kernel and is signed for Secure Boot. The host needs only the firmware (`amd-gpu-firmware`) and device access. The ROCm userspace is in the HIP image only.
+
+The Intel variant also uses in-kernel drivers (`i915` and `xe`) and only adds the firmware (`intel-gpu-firmware`). Its inference image is the Vulkan one, with Mesa ANV.
+
+The NVIDIA variant runs `os/variants/nvidia.sh` during the image build:
+
+1. It adds RPM Fusion and the NVIDIA Container Toolkit repository.
+2. It builds the driver's open kernel modules with `akmods` for the image's kernel. NVIDIA recommends the open modules for Turing and newer GPUs.
+3. akmods signs the modules with the project MOK key, which CI passes as the build secret `mok_key` (the `MOK_PRIVATE_KEY` repository secret). The key exists only inside that one build step, so no image layer holds it. The public certificate is in the image at `/usr/share/sibyl/sibyl-mok.der`.
+4. It enables `nvidia-cdi-refresh`, which writes the CDI devices at boot, and sets kernel arguments in `/usr/lib/bootc/kargs.d` that keep `nouveau` off the GPU.
+
+Secure Boot loads the modules only after the host enrolls the MOK certificate once: `sudo mokutil --import /usr/share/sibyl/sibyl-mok.der`, then a reboot and the confirmation in the MOK manager. The model fit estimate shows `unknown` on NVIDIA and Intel, because their drivers do not report VRAM in sysfs the way `amdgpu` does.
+
+CI builds the NVIDIA and Intel host images only for release tags or with `gh workflow run bootc.yml -f variants=true`, to save runner minutes. The CUDA inference image builds with the others.
 
 The NVIDIA variant adds `akmod-nvidia` built at image build time and signed with a project MOK key. The user enrolls that key once with `mokutil`. The Intel variant adds `intel-compute-runtime` to the host for device nodes, and the inference image uses Vulkan or SYCL.
 

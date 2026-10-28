@@ -1,0 +1,3 @@
+# nouveau must not claim the GPU before the NVIDIA module loads.
+kargs = ["rd.driver.blacklist=nouveau", "modprobe.blacklist=nouveau", "nvidia-drm.modeset=1"]
+match-architectures = ["x86_64"]

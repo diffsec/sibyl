@@ -18,7 +18,7 @@ func TestHardwareShowsEveryGPU(t *testing.T) {
 		{Index: 0, PCIAddr: "0000:07:00.0", Vendor: "amd", VRAMTotal: 24 << 30},
 		{Index: 1, PCIAddr: "0000:0b:00.0", Vendor: "amd", VRAMTotal: 24 << 30},
 	}
-	hw := hardware.Config{Backend: "hip", GPUs: []int{0}, Layout: "span"}
+	hw := hardware.Config{Backend: hardware.BackendHIP, GPUs: []int{0}, Layout: hardware.LayoutSpan}
 
 	v := newHardwareView(nil)
 	v.update(hardwareLoaded{hw: hw, gpus: gpus})
@@ -35,5 +35,16 @@ func TestHardwareShowsEveryGPU(t *testing.T) {
 		if !strings.Contains(form, want) {
 			t.Errorf("form lacks %q:\n%s", want, form)
 		}
+	}
+}
+
+func TestBackendOptionsFollowTheVariant(t *testing.T) {
+	v := newHardwareView(nil)
+	gpus := []gpu.GPU{{Index: 0, PCIAddr: "0000:01:00.0", Vendor: "nvidia"}}
+	v.update(hardwareEdit{hardwareLoaded{hw: hardware.Default(hardware.VariantNVIDIA), gpus: gpus,
+		backends: hardware.Backends(hardware.VariantNVIDIA)}})
+	form := ansi.ReplaceAllString(v.render(120), "")
+	if !strings.Contains(form, "CUDA") || strings.Contains(form, "HIP") {
+		t.Fatalf("NVIDIA form backends:\n%s", form)
 	}
 }

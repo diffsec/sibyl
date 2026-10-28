@@ -5,10 +5,9 @@ After=network-online.target
 
 [Container]
 ContainerName=llama-swap
-# The backend drop-in (llama-swap.container.d/backend.conf) sets Image=.
+# The backend drop-in (llama-swap.container.d/backend.conf) sets Image= and
+# the GPU devices, which differ per backend and GPU vendor.
 Network=sibyl.network
-AddDevice=/dev/kfd
-AddDevice=/dev/dri
 GroupAdd=keep-groups
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:ro,z
@@ -17,7 +16,7 @@ Volume=/var/lib/sibyl/models:/models:ro,z
 Volume=/var/lib/sibyl-pools:/pools:ro,rslave
 # A directory mount, so llama-swap sees the API's atomic rewrites of config.yaml.
 Volume=/var/lib/sibyl/config/llama-swap:/app/config:ro,z
-# GPU shader caches (Mesa RADV, ROCm). :U gives the volume to the container user.
+# GPU shader and kernel caches (Mesa, ROCm, CUDA). :U gives the volume to the container user.
 Volume=llama-swap-cache.volume:/app/.cache:U
 DropCapability=ALL
 NoNewPrivileges=true

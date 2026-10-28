@@ -24,6 +24,9 @@ const (
 	FitSplit Fit = "split"
 	// FitNo means the file is larger than VRAM plus half of system RAM.
 	FitNo Fit = "no"
+	// FitUnknown means a selected GPU does not report its VRAM. amdgpu does
+	// in sysfs; the NVIDIA and Intel drivers do not.
+	FitUnknown Fit = "unknown"
 )
 
 // kvReserve is the VRAM per GPU left for the KV cache and compute buffers.
@@ -79,10 +82,14 @@ func (s *Server) hfRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	vram, ram := s.memory()
+	vram, ram, known := s.memory()
 	out := repoView{Repo: repo, Revision: rev, VRAM: vram, RAM: ram}
 	for _, v := range hf.Variants(files) {
-		out.Variants = append(out.Variants, variantView{Variant: v, Fit: fit(v.Size, vram, ram)})
+		f := FitUnknown
+		if known {
+			f = fit(v.Size, vram, ram)
+		}
+		out.Variants = append(out.Variants, variantView{Variant: v, Fit: f})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -98,13 +105,19 @@ func fit(size, vram, ram int64) Fit {
 	}
 }
 
-// memory returns usable VRAM (selected GPUs, less the KV reserve) and total RAM.
-func (s *Server) memory() (vram, ram int64) {
+// memory returns usable VRAM (selected GPUs, less the KV reserve) and total
+// RAM. known is false when a selected GPU does not report its VRAM.
+func (s *Server) memory() (vram, ram int64, known bool) {
 	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
-	hw, err := hardware.Load(s.Paths.hardwareFile())
+	hw, err := hardware.Load(s.Paths.hardwareFile(), s.Variant)
+	known = err == nil
 	if err == nil {
 		for _, i := range hw.GPUs {
-			if i >= 0 && i < len(gpus) && gpus[i].VRAMTotal > kvReserve {
+			if i < 0 || i >= len(gpus) || gpus[i].VRAMTotal == 0 {
+				known = false
+				continue
+			}
+			if gpus[i].VRAMTotal > kvReserve {
 				vram += int64(gpus[i].VRAMTotal) - kvReserve
 			}
 		}
@@ -119,7 +132,7 @@ func (s *Server) memory() (vram, ram int64) {
 			}
 		}
 	}
-	return vram, ram
+	return vram, ram, known
 }
 
 type downloadRequest struct {

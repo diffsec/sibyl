@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -15,8 +16,31 @@ type Backend string
 
 const (
 	BackendHIP    Backend = "hip"
+	BackendCUDA   Backend = "cuda"
 	BackendVulkan Backend = "vulkan"
 )
+
+// Variant is the GPU variant of the host image: amd, nvidia or intel.
+type Variant string
+
+const (
+	VariantAMD    Variant = "amd"
+	VariantNVIDIA Variant = "nvidia"
+	VariantIntel  Variant = "intel"
+)
+
+// Backends returns the backends that a variant ships, the default first.
+// Vulkan runs on every vendor. An unknown variant is treated as amd.
+func Backends(v Variant) []Backend {
+	switch v {
+	case VariantNVIDIA:
+		return []Backend{BackendCUDA, BackendVulkan}
+	case VariantIntel:
+		return []Backend{BackendVulkan}
+	default:
+		return []Backend{BackendHIP, BackendVulkan}
+	}
+}
 
 // Layout is the default placement of a model on the selected GPUs.
 type Layout string
@@ -36,17 +60,17 @@ type Config struct {
 	Layout Layout `yaml:"layout" json:"layout"`
 }
 
-// Default is used before the setup wizard runs: HIP on GPU 0 only.
-func Default() Config {
-	return Config{Backend: BackendHIP, GPUs: []int{0}, Layout: LayoutSpan}
+// Default is used before the setup wizard runs: the variant's first
+// backend, on GPU 0 only.
+func Default(v Variant) Config {
+	return Config{Backend: Backends(v)[0], GPUs: []int{0}, Layout: LayoutSpan}
 }
 
-// Validate checks the configuration against the number of detected GPUs.
-func (c Config) Validate(detected int) error {
-	switch c.Backend {
-	case BackendHIP, BackendVulkan:
-	default:
-		return fmt.Errorf("backend %q: must be %q or %q", c.Backend, BackendHIP, BackendVulkan)
+// Validate checks the configuration against the variant and the number of
+// detected GPUs.
+func (c Config) Validate(v Variant, detected int) error {
+	if !slices.Contains(Backends(v), c.Backend) {
+		return fmt.Errorf("backend %q: the %s variant ships %v", c.Backend, v, Backends(v))
 	}
 	switch c.Layout {
 	case LayoutSpan, LayoutPin:
@@ -69,11 +93,11 @@ func (c Config) Validate(detected int) error {
 	return nil
 }
 
-// Load reads path. A missing file returns Default.
-func Load(path string) (Config, error) {
+// Load reads path. A missing file returns the variant's Default.
+func Load(path string, v Variant) (Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Default(), nil
+		return Default(v), nil
 	}
 	if err != nil {
 		return Config{}, err

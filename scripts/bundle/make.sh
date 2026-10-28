@@ -4,8 +4,8 @@
 # project key (cosign sign-blob); sibyl-update checks that signature.
 #
 # The bundle holds the host image, every Sibyl service image for the same
-# tag (both llama-swap backends, so the backend can change offline), and the
-# third-party images that the Quadlet units pin by digest.
+# tag (every llama-swap backend of the variant, so the backend can change
+# offline), and the third-party images that the Quadlet units pin by digest.
 #
 # Usage: scripts/bundle/make.sh <tag> <variant> <output directory>
 # Example: scripts/bundle/make.sh sha-93a977a amd bundle
@@ -26,16 +26,15 @@ images=(
     "sibyl sibyl-system-api.oci.tar $registry/sibyl-system-api:$tag"
     "tui sibyl-tui.oci.tar $registry/sibyl-tui:$tag"
 )
+# The llama-swap backends that each variant ships (hardware.Backends).
 case "$variant" in
-    amd)
-        images+=("sibyl sibyl-llama-swap-hip.oci.tar $registry/sibyl-llama-swap:$tag-hip"
-                 "sibyl sibyl-llama-swap-vulkan.oci.tar $registry/sibyl-llama-swap:$tag-vulkan")
-        ;;
-    *)
-        echo "the $variant variant has no llama-swap images yet" >&2
-        exit 2
-        ;;
+    amd) backends="hip vulkan" ;;
+    nvidia) backends="cuda vulkan" ;;
+    intel) backends="vulkan" ;;
 esac
+for b in $backends; do
+    images+=("sibyl sibyl-llama-swap-$b.oci.tar $registry/sibyl-llama-swap:$tag-$b")
+done
 # Third-party images exactly as the Quadlet units pin them.
 while read -r ref; do
     name="${ref%@*}"

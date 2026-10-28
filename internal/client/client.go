@@ -109,12 +109,14 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 
 // Status is the GET /status response.
 type Status struct {
-	Version  string          `json:"version"`
-	ImageTag string          `json:"image_tag"`
-	GPUs     int             `json:"gpus"`
-	Hardware hardware.Config `json:"hardware"`
-	Services hostctl.Status  `json:"services"`
-	Errors   []string        `json:"errors,omitempty"`
+	Version  string             `json:"version"`
+	ImageTag string             `json:"image_tag"`
+	GPUs     int                `json:"gpus"`
+	Variant  hardware.Variant   `json:"variant"`
+	Backends []hardware.Backend `json:"backends"`
+	Hardware hardware.Config    `json:"hardware"`
+	Services hostctl.Status     `json:"services"`
+	Errors   []string           `json:"errors,omitempty"`
 }
 
 // Model is one entry of GET /models.

@@ -19,6 +19,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update
 
+# The variant build scripts, as a stage: a RUN step on an SELinux build host
+# cannot read a bind mount taken straight from the build context.
+FROM scratch AS variants
+COPY os/variants/ /
+
 FROM ${BASE_IMAGE}
 
 ARG GPU_VARIANT=amd
@@ -33,6 +38,15 @@ RUN grep -hEv '^\s*(#|$)' /tmp/packages/common.txt "/tmp/packages/${GPU_VARIANT}
         | xargs dnf -y install --setopt=install_weak_deps=False \
     && dnf clean all \
     && rm -rf /tmp/packages /run/dnf /var/cache/* /var/lib/dnf /var/log/dnf*
+
+# Variant-specific build steps. Only nvidia has any today: it builds and
+# signs the NVIDIA kernel modules (os/variants/nvidia.sh).
+RUN --mount=type=bind,from=variants,target=/variants \
+    --mount=type=secret,id=mok_key \
+    if [ "${GPU_VARIANT}" = nvidia ]; then \
+        bash /variants/nvidia.sh \
+        && install -D -m 0644 /variants/sibyl-nvidia-kargs.toml /usr/lib/bootc/kargs.d/50-sibyl-nvidia.toml; \
+    fi
 
 COPY os/rootfs/ /
 COPY --from=hostd /out/sibyl-hostd /usr/libexec/sibyl/hostd
@@ -51,7 +65,11 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
         sibyl-hostd.path sibyl-hostd-state.timer sibyl-provision.service \
     && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
-    && sed -i "s/@IMAGE_TAG@/${IMAGE_TAG}/g" /etc/containers/systemd/users/1001/*.container \
+    && mkdir -p /etc/containers/systemd/users/1001/llama-swap.container.d \
+    && cp "/usr/share/sibyl/backend/${GPU_VARIANT}.conf" \
+        /etc/containers/systemd/users/1001/llama-swap.container.d/backend.conf \
+    && sed -i -e "s/@IMAGE_TAG@/${IMAGE_TAG}/g" -e "s/@GPU_VARIANT@/${GPU_VARIANT}/g" \
+        /etc/containers/systemd/users/1001/*.container \
         /etc/containers/systemd/users/1001/*.container.d/*.conf
 
 RUN bootc container lint
