@@ -1,11 +1,71 @@
 {
     "default": [
         {
-            "type": "insecureAcceptAnything"
+            "type": "reject"
         }
     ],
     "transports": {
         "docker": {
+            "docker.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "quay.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "ghcr.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "registry.fedoraproject.org": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "gcr.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "registry.k8s.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "mcr.microsoft.com": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "public.ecr.aws": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "nvcr.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "registry.gitlab.com": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "cgr.dev": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
+            "lscr.io": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
             "ghcr.io/ihavespoons": [
                 {
                     "type": "sigstoreSigned",
@@ -16,7 +76,42 @@
                 }
             ]
         },
+        "containers-storage": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
         "docker-daemon": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
+        "docker-archive": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
+        "oci": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
+        "oci-archive": {
+            "": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ]
+        },
+        "dir": {
             "": [
                 {
                     "type": "insecureAcceptAnything"
