@@ -49,7 +49,23 @@ jobs:
           - package: sibyl-bundle
             keep: 3
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+      # The ISO and the bundle exist only after an opt-in build.
+      - name: Check that the package exists
+        id: exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ matrix.package }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if gh api "/orgs/${OWNER}/packages/container/${PACKAGE}" > /dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No package ${PACKAGE} yet; nothing to clean."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.exists.outputs.found == 'true'
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
           package: ${{ matrix.package }}
           keep-n-tagged: ${{ matrix.keep }}
