@@ -40,11 +40,22 @@ qemu-img create -q -f qcow2 "$work/disk.qcow2" 80G
 rm -f "$work/id_ed25519" "$work/id_ed25519.pub"
 ssh-keygen -q -t ed25519 -N "" -C vmtest -f "$work/id_ed25519"
 
-# The software TPM keeps its state in $work/tpm across both boots.
+# The software TPM keeps its state in $work/tpm across both boots. QEMU
+# shuts swtpm down when the VM powers off, so each boot starts it again.
 mkdir -p "$work/tpm"
-swtpm socket --tpm2 --tpmstate "dir=$work/tpm" --ctrl "type=unixio,path=$work/swtpm.sock" \
-    --daemon --pid "file=$work/swtpm.pid"
-trap 'kill "$(cat "$work/swtpm.pid")" 2>/dev/null || true' EXIT
+start_tpm() {
+    rm -f "$work/swtpm.sock" "$work/swtpm.pid"
+    swtpm socket --tpm2 --tpmstate "dir=$work/tpm" --ctrl "type=unixio,path=$work/swtpm.sock" \
+        --daemon --pid "file=$work/swtpm.pid"
+    local tries=50
+    while (( tries-- > 0 )); do
+        [[ -S "$work/swtpm.sock" ]] && return
+        sleep 0.1
+    done
+    log "FAIL: swtpm did not start"
+    exit 1
+}
+trap 'kill "$(cat "$work/swtpm.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
 
 password="vmtest-$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9')"
 cat > "$work/install.json" <<EOF
@@ -89,6 +100,7 @@ wait_vm() {
 }
 
 log "installing from $iso (log: $work/install.log)"
+start_tpm
 qemu "$work/install.log" \
     -drive "media=cdrom,readonly=on,file=$iso" -boot order=d \
     -smbios "$(cred sibyl.install.json "$work/install.json")" \
@@ -102,6 +114,7 @@ fi
 grep -A1 -i "recovery key" "$work/install.log" | head -3 >&2 || true
 
 log "booting the installed disk (log: $work/boot.log)"
+start_tpm
 qemu "$work/boot.log" -boot order=c &
 vm=$!
 ssh_cmd=(ssh -i "$work/id_ed25519" -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
