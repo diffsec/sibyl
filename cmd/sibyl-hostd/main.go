@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 func main() {

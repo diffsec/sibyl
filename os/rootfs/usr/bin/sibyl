@@ -23,7 +23,7 @@ cd /
 podman secret create --replace sibyl-api-key "$dir/api.key" >/dev/null
 podman secret create --replace sibyl-ca "$dir/ca.crt" >/dev/null
 
-image="ghcr.io/ihavespoons/sibyl-tui:$(cat /usr/share/sibyl/image-tag)"
+image="ghcr.io/diffsec/sibyl-tui:$(cat /usr/share/sibyl/image-tag)"
 # An offline update (sibyl-update) leaves the TUI here, for hosts that cannot
 # pull it. Load it once into the caller's own storage.
 offline=/var/lib/sibyl-update

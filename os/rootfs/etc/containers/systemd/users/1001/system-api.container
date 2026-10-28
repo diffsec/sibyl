@@ -4,7 +4,7 @@ After=sibyl-agent.path
 
 [Container]
 ContainerName=system-api
-Image=ghcr.io/ihavespoons/sibyl-system-api:@IMAGE_TAG@
+Image=ghcr.io/diffsec/sibyl-system-api:@IMAGE_TAG@
 Network=sibyl.network
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:z

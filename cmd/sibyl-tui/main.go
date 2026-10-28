@@ -18,8 +18,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ihavespoons/sibyl/internal/client"
-	"github.com/ihavespoons/sibyl/internal/tui"
+	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/tui"
 )
 
 func env(key, def string) string {

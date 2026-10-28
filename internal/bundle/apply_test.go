@@ -14,9 +14,9 @@ func TestApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := Manifest{Version: 1, Tag: "sha-test", Variant: "amd", Images: []Image{
-		{Ref: "ghcr.io/ihavespoons/sibyl-os:sha-test-amd", File: "os.oci.tar", Store: OS},
+		{Ref: "ghcr.io/diffsec/sibyl-os:sha-test-amd", File: "os.oci.tar", Store: OS},
 		{Ref: "ghcr.io/getarcaneapp/manager@sha256:" + strings.Repeat("a", 64), File: "arcane.oci.tar", Store: Sibyl},
-		{Ref: "ghcr.io/ihavespoons/sibyl-tui:sha-test", File: "tui.oci.tar", Store: TUI},
+		{Ref: "ghcr.io/diffsec/sibyl-tui:sha-test", File: "tui.oci.tar", Store: TUI},
 	}}
 	stage := filepath.Join(t.TempDir(), "stage")
 	var calls []string
@@ -45,7 +45,7 @@ func TestApply(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stage, "arcane.oci.tar")); !os.IsNotExist(err) {
 		t.Error("staged archive not removed")
 	}
-	if b, _ := os.ReadFile(filepath.Join(stage, "sibyl-tui.ref")); string(b) != "ghcr.io/ihavespoons/sibyl-tui:sha-test\n" {
+	if b, _ := os.ReadFile(filepath.Join(stage, "sibyl-tui.ref")); string(b) != "ghcr.io/diffsec/sibyl-tui:sha-test\n" {
 		t.Errorf("tui ref %q", b)
 	}
 	if _, err := os.Stat(filepath.Join(stage, "sibyl-tui.oci.tar")); err != nil {

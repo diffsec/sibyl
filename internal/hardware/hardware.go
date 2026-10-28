@@ -11,7 +11,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ihavespoons/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/gpu"
 )
 
 // Backend is the llama.cpp GPU backend.

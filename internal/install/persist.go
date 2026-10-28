@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/disks"
 )
 
 // PersistLabel is the XFS label of the persistence partition. XFS allows 12

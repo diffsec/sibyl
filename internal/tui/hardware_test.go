@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
 )
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)

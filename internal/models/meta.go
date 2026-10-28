@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/gguf"
+	"github.com/diffsec/sibyl/internal/gguf"
 )
 
 // Meta is what the model file says about its context and the KV cache. The

@@ -18,7 +18,7 @@ done < .env
 : "${PXE_SERVER_IP:?set PXE_SERVER_IP in .env}"
 : "${SSH_KEY:?set SSH_KEY in .env}"
 : "${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}"
-ISO_REF="${ISO_REF:-ghcr.io/ihavespoons/sibyl-iso:latest-amd}"
+ISO_REF="${ISO_REF:-ghcr.io/diffsec/sibyl-iso:latest-amd}"
 INSTALL_DISK="${INSTALL_DISK:-nvme0n1}"
 ADMIN_NAME="${ADMIN_NAME:-admin}"
 ORAS_IMAGE="ghcr.io/oras-project/oras:v1.3.6@sha256:9cfb578be975b762fd898b9d004243d8003aeb807a3e15b2ed212cdd1326c9eb"

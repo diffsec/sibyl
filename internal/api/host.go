@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 // defaultHostWait is how long a host route waits for sibyl-hostd before it

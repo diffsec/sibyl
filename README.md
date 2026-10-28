@@ -40,7 +40,7 @@ The NVIDIA driver is built into the image and signed with the project's Machine 
 
 The [user guide](docs/user-guide.md) has every step. In short:
 
-1. Download the live ISO for your variant: `oras pull ghcr.io/ihavespoons/sibyl-iso:latest-amd`.
+1. Download the live ISO for your variant: `oras pull ghcr.io/diffsec/sibyl-iso:latest-amd`.
 2. Write it to a USB stick, and boot the computer from it with Secure Boot on.
 3. In the menu, choose "Install Sibyl to a disk". The installer erases the disk that you choose and prints a recovery key. Keep that key.
 4. After the reboot, log in as the administrator that you created and run `sibyl setup`.

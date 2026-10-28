@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/client"
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
 )
 
 // fitMargin is the share of VRAM above which part of the model spills to

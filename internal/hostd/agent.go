@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/disks"
 )
 
 // Runner runs a command with stdin and returns its standard output.

@@ -17,7 +17,7 @@ out="$3"
 [[ "$tag" =~ ^[A-Za-z0-9._-]+$ && "$variant" =~ ^(amd|nvidia|intel)$ ]] || { echo "invalid tag or variant" >&2; exit 2; }
 cd "$(dirname "$0")/../.."
 mkdir -p "$out"
-registry=ghcr.io/ihavespoons
+registry=ghcr.io/diffsec
 
 # <store> <file> <reference>
 images=(

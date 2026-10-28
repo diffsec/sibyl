@@ -3,7 +3,7 @@ Description=Sibyl Caddy TLS front door
 
 [Container]
 ContainerName=caddy
-Image=ghcr.io/ihavespoons/sibyl-caddy:@IMAGE_TAG@
+Image=ghcr.io/diffsec/sibyl-caddy:@IMAGE_TAG@
 Network=sibyl.network
 PublishPort=10443:10443
 PublishPort=18443:18443

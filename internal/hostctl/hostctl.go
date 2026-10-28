@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 // Units are the services that the API can restart. The host agent holds the

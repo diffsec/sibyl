@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hf"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ben@laptop"

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/disks"
 )
 
 // MinPoolDisk is the smallest disk that can become a model pool.

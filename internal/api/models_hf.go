@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hf"
 )
 
 // Fit says how a model of a given size can run on this host.

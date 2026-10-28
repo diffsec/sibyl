@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hostctl"
 )
 
 // BackendResult is one backend's llama-bench result.

@@ -25,8 +25,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hf"
-	"github.com/ihavespoons/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // Status is a job state.

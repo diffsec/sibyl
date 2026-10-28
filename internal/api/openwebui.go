@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/models"
-	"github.com/ihavespoons/sibyl/internal/owui"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/owui"
 )
 
 // OpenWebUI holds the Open WebUI integration state.

@@ -15,7 +15,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/ihavespoons/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hardware"
 )
 
 // Model is one installed GGUF model. A split model is listed once, by its first shard.

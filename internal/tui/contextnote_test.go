@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/client"
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 func TestContextNote(t *testing.T) {

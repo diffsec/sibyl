@@ -27,12 +27,12 @@ import (
 
 	"charm.land/huh/v2"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
-	"github.com/ihavespoons/sibyl/internal/hostd"
-	"github.com/ihavespoons/sibyl/internal/install"
+	"github.com/diffsec/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/install"
 )
 
-const registry = "ghcr.io/ihavespoons/sibyl-os"
+const registry = "ghcr.io/diffsec/sibyl-os"
 
 func main() {
 	config := flag.String("config", "", "JSON file with the install choices: no questions are asked")

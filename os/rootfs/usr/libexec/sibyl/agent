@@ -85,7 +85,7 @@ bench() {
             echo "sibyl-agent: skipping $backend for $id"
             continue
         fi
-        image="ghcr.io/ihavespoons/sibyl-llama-swap:${tag}-${backend}"
+        image="ghcr.io/diffsec/sibyl-llama-swap:${tag}-${backend}"
         case "$backend" in
             hip) visible=HIP_VISIBLE_DEVICES ;;
             cuda) visible=CUDA_VISIBLE_DEVICES ;;

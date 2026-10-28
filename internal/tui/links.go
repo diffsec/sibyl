@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 // service is one web address that Sibyl serves through Caddy.

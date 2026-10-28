@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 func TestServiceLinks(t *testing.T) {

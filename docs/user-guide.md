@@ -51,7 +51,7 @@ The installer is an ISO file. It is published as an OCI artifact on GitHub's con
 
 ```bash
 mkdir sibyl-iso && cd sibyl-iso
-oras pull ghcr.io/ihavespoons/sibyl-iso:latest-amd
+oras pull ghcr.io/diffsec/sibyl-iso:latest-amd
 ```
 
 3. Make sure that the file is complete. The command must print `OK`. On Linux, use `sha256sum -c SHA256SUMS` instead:
@@ -351,7 +351,7 @@ A host with no internet updates from a bundle on a USB drive.
 1. On a computer with internet, download the bundle for your variant to a USB drive of 8 GB or more:
 
 ```bash
-oras pull ghcr.io/ihavespoons/sibyl-bundle:latest-amd -o /path/to/usb/sibyl-bundle
+oras pull ghcr.io/diffsec/sibyl-bundle:latest-amd -o /path/to/usb/sibyl-bundle
 ```
 
 2. Plug the drive into the Sibyl host and mount it:
@@ -434,4 +434,4 @@ An administrator adds you with `sudo usermod -aG sibyl-operators <user>`. Log ou
 
 ### Report a problem
 
-Open an issue at [github.com/ihavespoons/sibyl/issues](https://github.com/ihavespoons/sibyl/issues). Include the output of `sudo bootc status`, the Status screen, and the log of the service that fails. Do not include the API key.
+Open an issue at [github.com/diffsec/sibyl/issues](https://github.com/diffsec/sibyl/issues). Include the output of `sudo bootc status`, the Status screen, and the log of the service that fails. Do not include the API key.

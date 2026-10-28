@@ -7,7 +7,7 @@ set -eu
 : "${SSH_KEY:?set SSH_KEY to the public key for the admin user}"
 FEDORA_RELEASE="${FEDORA_RELEASE:-44}"
 FEDORA_MIRROR="${FEDORA_MIRROR:-https://dl.fedoraproject.org/pub/fedora/linux/releases}"
-SIBYL_IMAGE="${SIBYL_IMAGE:-ghcr.io/ihavespoons/sibyl-os:latest-amd}"
+SIBYL_IMAGE="${SIBYL_IMAGE:-ghcr.io/diffsec/sibyl-os:latest-amd}"
 INSTALL_DISK="${INSTALL_DISK:-nvme0n1}"
 TIMEZONE="${TIMEZONE:-Etc/UTC}"
 # GRUB_KERNEL_VIA=http is fast (seconds) but needs a direct path to the HTTP

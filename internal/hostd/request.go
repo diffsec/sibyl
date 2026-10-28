@@ -24,7 +24,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/disks"
 )
 
 // Action is a request type.

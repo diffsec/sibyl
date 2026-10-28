@@ -20,7 +20,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ihavespoons/sibyl/internal/bundle"
+	"github.com/diffsec/sibyl/internal/bundle"
 )
 
 const (
@@ -86,7 +86,7 @@ func run(ctx context.Context, cmd, dir string) error {
 	}
 	fmt.Printf("\nThe update to %s is staged. Reboot to start it: sudo systemctl reboot\n", m.Tag)
 	fmt.Printf("bootc now follows the archive. When the host is online again, return to the registry with:\n")
-	fmt.Printf("  sudo bootc switch --enforce-container-sigpolicy ghcr.io/ihavespoons/sibyl-os:latest-%s\n", m.Variant)
+	fmt.Printf("  sudo bootc switch --enforce-container-sigpolicy ghcr.io/diffsec/sibyl-os:latest-%s\n", m.Variant)
 	return nil
 }
 

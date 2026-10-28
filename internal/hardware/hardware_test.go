@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/gpu"
 )
 
 func TestBackendsPerVariant(t *testing.T) {

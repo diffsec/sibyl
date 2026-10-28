@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/gguf"
+	"github.com/diffsec/sibyl/internal/gguf"
 )
 
 // repeat returns n copies of a pattern, cut to n.

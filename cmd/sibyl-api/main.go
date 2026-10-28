@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/api"
-	"github.com/ihavespoons/sibyl/internal/download"
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/hf"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
-	"github.com/ihavespoons/sibyl/internal/ollama"
+	"github.com/diffsec/sibyl/internal/api"
+	"github.com/diffsec/sibyl/internal/download"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/ollama"
 )
 
 func env(key, def string) string {
@@ -53,7 +53,7 @@ func run(log *slog.Logger) error {
 		HostAgent: hostctl.NewHost(env("SIBYL_RUN_DIR", "/run/sibyl")+"/host",
 			env("SIBYL_HOST_OUT_DIR", "/run/sibyl-host")),
 		Token:    strings.TrimSpace(string(token)),
-		Registry: env("SIBYL_REGISTRY", "ghcr.io/ihavespoons"),
+		Registry: env("SIBYL_REGISTRY", "ghcr.io/diffsec"),
 		ImageTag: env("SIBYL_IMAGE_TAG", "latest"),
 		Variant:  hardware.Variant(env("SIBYL_GPU_VARIANT", "amd")),
 		Version:  env("SIBYL_VERSION", "dev"),

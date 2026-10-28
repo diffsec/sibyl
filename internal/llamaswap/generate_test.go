@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 var installed = []models.Model{
@@ -101,9 +101,9 @@ func TestGenerateNoModels(t *testing.T) {
 }
 
 func TestDropIn(t *testing.T) {
-	got := DropIn(hardware.VariantAMD, twoGPUs(hardware.LayoutSpan), "ghcr.io/ihavespoons", "1.2.3")
+	got := DropIn(hardware.VariantAMD, twoGPUs(hardware.LayoutSpan), "ghcr.io/diffsec", "1.2.3")
 	for _, want := range []string{
-		"Image=ghcr.io/ihavespoons/sibyl-llama-swap:1.2.3-hip\n",
+		"Image=ghcr.io/diffsec/sibyl-llama-swap:1.2.3-hip\n",
 		"Environment=HIP_VISIBLE_DEVICES=0,1\n",
 	} {
 		if !strings.Contains(got, want) {
@@ -128,7 +128,7 @@ func TestImageDefaultDropIn(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := strings.ReplaceAll(string(raw), "@IMAGE_TAG@", "tag")
-		want := DropIn(v, hardware.Default(v, nil), "ghcr.io/ihavespoons", "tag")
+		want := DropIn(v, hardware.Default(v, nil), "ghcr.io/diffsec", "tag")
 		if got != want {
 			t.Errorf("%s: image default drop-in differs from DropIn(Default()):\n--- image\n%s--- generated\n%s", v, got, want)
 		}

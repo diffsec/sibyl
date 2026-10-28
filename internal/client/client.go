@@ -15,15 +15,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
-	"github.com/ihavespoons/sibyl/internal/download"
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/hf"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
-	"github.com/ihavespoons/sibyl/internal/hostd"
-	"github.com/ihavespoons/sibyl/internal/llamaswap"
-	"github.com/ihavespoons/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/download"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/llamaswap"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // Client calls the System API at Base with a bearer token.

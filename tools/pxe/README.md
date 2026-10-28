@@ -1,6 +1,6 @@
 # PXE install server
 
-This container installs Sibyl over the network. It serves Fedora's signed shim and GRUB over TFTP, so Secure Boot stays on. It serves the Fedora installer and a kickstart over HTTP. The kickstart installs `ghcr.io/ihavespoons/sibyl-os` with `ostreecontainer`.
+This container installs Sibyl over the network. It serves Fedora's signed shim and GRUB over TFTP, so Secure Boot stays on. It serves the Fedora installer and a kickstart over HTTP. The kickstart installs `ghcr.io/diffsec/sibyl-os` with `ostreecontainer`.
 
 Warning: the default menu entry erases `INSTALL_DISK` with no confirmation, 10 seconds after the menu appears.
 

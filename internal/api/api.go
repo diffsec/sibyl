@@ -16,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/download"
-	"github.com/ihavespoons/sibyl/internal/gpu"
-	"github.com/ihavespoons/sibyl/internal/hardware"
-	"github.com/ihavespoons/sibyl/internal/hf"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
-	"github.com/ihavespoons/sibyl/internal/llamaswap"
-	"github.com/ihavespoons/sibyl/internal/models"
-	"github.com/ihavespoons/sibyl/internal/ollama"
+	"github.com/diffsec/sibyl/internal/download"
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/llamaswap"
+	"github.com/diffsec/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/ollama"
 )
 
 // Paths are the directories that the API reads and writes, as seen inside its container.

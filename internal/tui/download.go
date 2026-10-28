@@ -11,10 +11,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 
-	"github.com/ihavespoons/sibyl/internal/client"
-	"github.com/ihavespoons/sibyl/internal/download"
-	"github.com/ihavespoons/sibyl/internal/hf"
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/download"
+	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 type searchResult struct {

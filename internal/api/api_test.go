@@ -14,9 +14,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/gguf"
-	"github.com/ihavespoons/sibyl/internal/hostctl"
-	"github.com/ihavespoons/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/gguf"
+	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 const token = "test-token"
@@ -74,7 +74,7 @@ func newFixture(t *testing.T) *fixture {
 		Paths:    p,
 		Host:     hostctl.New(run),
 		Token:    token,
-		Registry: "ghcr.io/ihavespoons",
+		Registry: "ghcr.io/diffsec",
 		ImageTag: "test",
 		Version:  "test",
 		Log:      slog.New(slog.NewTextHandler(io.Discard, nil)),

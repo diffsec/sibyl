@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/disks"
 )
 
 const (
@@ -59,8 +59,8 @@ func (f *fake) index(prefix string) int {
 func options() Options {
 	return Options{
 		Disk:    disks.Disk{Path: "/dev/nvme0n1", Size: 1 << 40},
-		Payload: "ghcr.io/ihavespoons/sibyl-os:sha-1-amd",
-		Target:  "ghcr.io/ihavespoons/sibyl-os:latest-amd",
+		Payload: "ghcr.io/diffsec/sibyl-os:sha-1-amd",
+		Target:  "ghcr.io/diffsec/sibyl-os:latest-amd",
 		TPM:     true,
 		Admin:   Admin{Name: "admin", Keys: []string{testKey}, PasswordHash: testHash},
 	}
@@ -104,8 +104,8 @@ func TestInstall(t *testing.T) {
 		last = i
 	}
 	pod := f.calls[f.index("unshare --mount --propagation private -- bootc install to-filesystem")].String()
-	for _, want := range []string{"--source-imgref containers-storage:ghcr.io/ihavespoons/sibyl-os:sha-1-amd",
-		"--target-imgref ghcr.io/ihavespoons/sibyl-os:latest-amd", "--karg rd.luks.uuid=luks-1111-2222", work + "/target"} {
+	for _, want := range []string{"--source-imgref containers-storage:ghcr.io/diffsec/sibyl-os:sha-1-amd",
+		"--target-imgref ghcr.io/diffsec/sibyl-os:latest-amd", "--karg rd.luks.uuid=luks-1111-2222", work + "/target"} {
 		if !strings.Contains(pod, want) {
 			t.Errorf("bootc command lacks %q: %s", want, pod)
 		}

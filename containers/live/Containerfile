@@ -3,7 +3,7 @@
 # embeds the host image for an offline install (see docs/design.md, Storage).
 # Build context: containers/live.
 
-ARG OS_IMAGE=ghcr.io/ihavespoons/sibyl-os:latest-amd
+ARG OS_IMAGE=ghcr.io/diffsec/sibyl-os:latest-amd
 
 FROM ${OS_IMAGE}
 

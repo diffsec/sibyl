@@ -47,7 +47,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  OWNER: ihavespoons
+  OWNER: diffsec
 
 jobs:
   tag:
@@ -148,8 +148,8 @@ jobs:
             suffix: ''
             inputs: containers/tui cmd internal go.mod go.sum
     env:
-      IMAGE: ghcr.io/ihavespoons/${{ matrix.name }}
-      CACHE: ghcr.io/ihavespoons/sibyl-buildcache:${{ matrix.name }}${{ matrix.suffix }}
+      IMAGE: ghcr.io/diffsec/${{ matrix.name }}
+      CACHE: ghcr.io/diffsec/sibyl-buildcache:${{ matrix.name }}${{ matrix.suffix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -300,8 +300,8 @@ jobs:
             GPU_VARIANT=${{ matrix.variant }}
             IMAGE_TAG=${{ needs.tag.outputs.image_tag }}
             SIBYL_VERSION=${{ needs.tag.outputs.image_tag }}
-          cache-from: type=registry,ref=ghcr.io/ihavespoons/sibyl-buildcache:os-${{ matrix.variant }}
-          cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref=ghcr.io/ihavespoons/sibyl-buildcache:os-{0},mode=max,image-manifest=true,oci-mediatypes=true', matrix.variant) || '' }}
+          cache-from: type=registry,ref=ghcr.io/diffsec/sibyl-buildcache:os-${{ matrix.variant }}
+          cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref=ghcr.io/diffsec/sibyl-buildcache:os-{0},mode=max,image-manifest=true,oci-mediatypes=true', matrix.variant) || '' }}
 
       - if: needs.tag.outputs.push == 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -334,8 +334,8 @@ jobs:
       matrix:
         variant: ${{ fromJSON(needs.tag.outputs.variants) }}
     env:
-      OS_IMAGE: ghcr.io/ihavespoons/sibyl-os:${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}
-      ISO_REF: ghcr.io/ihavespoons/sibyl-iso:${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}
+      OS_IMAGE: ghcr.io/diffsec/sibyl-os:${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}
+      ISO_REF: ghcr.io/diffsec/sibyl-iso:${{ needs.tag.outputs.image_tag }}-${{ matrix.variant }}
       IMAGE_BUILDER: ghcr.io/osbuild/image-builder-cli@sha256:37b7c22483b03013f54030094683d8af8a83ee642c2a4dc9a51dcd9a79be6b6f
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -421,7 +421,7 @@ jobs:
       - name: Sign the ISO
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
-        run: cosign sign --yes "ghcr.io/ihavespoons/sibyl-iso@${DIGEST}"
+        run: cosign sign --yes "ghcr.io/diffsec/sibyl-iso@${DIGEST}"
 
   # The offline update bundle: every image for one tag, as OCI archives, with
   # a manifest that the project key signs. sibyl-update checks it on the host.
@@ -480,5 +480,5 @@ jobs:
           echo "$TOKEN" | oras login ghcr.io -u "$ACTOR" --password-stdin
           cd bundle
           oras push --artifact-type application/vnd.sibyl.bundle \
-            "ghcr.io/ihavespoons/sibyl-bundle:${TAG}-${VARIANT},latest-${VARIANT}" \
+            "ghcr.io/diffsec/sibyl-bundle:${TAG}-${VARIANT},latest-${VARIANT}" \
             manifest.json manifest.json.sig ./*.oci.tar

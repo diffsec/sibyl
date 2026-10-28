@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/hf"
 )
 
 const rev = "4c577be098c274a1f579e072178db01dd3a8e449"

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ihavespoons/sibyl/internal/hardware"
+	"github.com/diffsec/sibyl/internal/hardware"
 )
 
 // HuggingFace is the Hugging Face sign-in state.

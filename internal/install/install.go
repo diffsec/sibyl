@@ -12,8 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ihavespoons/sibyl/internal/disks"
-	"github.com/ihavespoons/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/disks"
+	"github.com/diffsec/sibyl/internal/hostd"
 )
 
 // Cmd is one command to run.

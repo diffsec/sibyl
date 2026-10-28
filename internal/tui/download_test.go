@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/ihavespoons/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/client"
 )
 
 // A paste arrives as tea.PasteMsg, which the app passes to update, not key.

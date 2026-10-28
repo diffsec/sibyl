@@ -1,4 +1,4 @@
-module github.com/ihavespoons/sibyl
+module github.com/diffsec/sibyl
 
 go 1.27.2
 

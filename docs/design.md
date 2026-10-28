@@ -51,11 +51,11 @@ systemd owns the core services. The Quadlet files are in the OS image under `/et
 
 | Container | Image | Port on the `sibyl` network | Exposed on the host |
 |---|---|---|---|
-| `llama-swap` | `ghcr.io/ihavespoons/sibyl-llama-swap:<ver>-hip` or `-vulkan` | 8080 | No |
+| `llama-swap` | `ghcr.io/diffsec/sibyl-llama-swap:<ver>-hip` or `-vulkan` | 8080 | No |
 | `open-webui` | `ghcr.io/open-webui/open-webui` (pinned digest) | 8080 | No |
-| `system-api` | `ghcr.io/ihavespoons/sibyl-system-api` | 3001 | No |
+| `system-api` | `ghcr.io/diffsec/sibyl-system-api` | 3001 | No |
 | `arcane` | `ghcr.io/getarcaneapp/manager` (pinned digest) | 3552 | No |
-| `caddy` | `ghcr.io/ihavespoons/sibyl-caddy` | 10443, 18443, 19443 | Yes, through nftables redirect |
+| `caddy` | `ghcr.io/diffsec/sibyl-caddy` | 10443, 18443, 19443 | Yes, through nftables redirect |
 
 nftables redirects host port 443 to 10443 (Open WebUI), 8443 to 18443 (OpenAI API and System API), and 9443 to 19443 (Arcane). The input chain accepts the high ports only for redirected connections. This keeps `net.ipv4.ip_unprivileged_port_start` at its default of 1024.
 
@@ -301,9 +301,9 @@ The `sibyl` user is in the `render` and `video` groups. Quadlet passes `/dev/kfd
 
 ### Live USB
 
-`containers/live/Containerfile` adds a live boot to the host image: `dmsquash-live` in the initramfs, shim and GRUB for an ISO, and `iso.yaml`. CI turns that image into an ISO with image-builder's `generic-iso` type. The ISO also holds the host image in its container storage (`--bootc-installer-payload-ref`), so the installer works offline. CI pushes the ISO to `ghcr.io/ihavespoons/sibyl-iso:<tag>-<variant>` as a signed OCI artifact, because it is larger than the 2 GiB limit for release assets.
+`containers/live/Containerfile` adds a live boot to the host image: `dmsquash-live` in the initramfs, shim and GRUB for an ISO, and `iso.yaml`. CI turns that image into an ISO with image-builder's `generic-iso` type. The ISO also holds the host image in its container storage (`--bootc-installer-payload-ref`), so the installer works offline. CI pushes the ISO to `ghcr.io/diffsec/sibyl-iso:<tag>-<variant>` as a signed OCI artifact, because it is larger than the 2 GiB limit for release assets.
 
-- Download the ISO with `oras pull ghcr.io/ihavespoons/sibyl-iso:latest-amd`.
+- Download the ISO with `oras pull ghcr.io/diffsec/sibyl-iso:latest-amd`.
 - image-builder boots the live system with `enforcing=0`, because the squashfs has no SELinux labels. The installed system runs enforcing.
 - The first console logs in as root and shows a menu: install, make a persistence partition, shell, reboot.
 - Without persistence, the Sibyl services do not start, because their images do not fit in RAM. `sibyl-install persist` adds an XFS partition in the free space after the ISO on the USB. At the next boot it mounts at `/var/lib/sibyl`, and the services start from it.
@@ -316,7 +316,7 @@ The `sibyl` user is in the `render` and `video` groups. Quadlet passes `/dev/kfd
 2. The user names the administrator, with a password and optional SSH keys or a GitHub user. Without a TPM2, a disk passphrase is required.
 3. The user types the disk's serial number to confirm the wipe.
 4. The installer makes three partitions: a 600 MiB ESP, a 2 GiB `/boot`, and LUKS2 for the rest. A random key file starts the LUKS header. The installer enrolls the TPM2 with PCR 7, a systemd recovery key, and the optional passphrase, and then removes the key file's slot.
-5. `bootc install to-filesystem` runs on the live system itself, with `--source-imgref containers-storage:<embedded image>`, `--karg rd.luks.uuid=...` and `--target-imgref ghcr.io/ihavespoons/sibyl-os:latest-<variant>`, so `bootc upgrade` follows the registry afterwards. It runs under `unshare --mount`, so its mounts go away when it exits. It cannot run in a container of the embedded image: that image sits in a read-only image store on the squashfs, and crun cannot find `/tmp` in the nested overlay. bootc remounts the target read-only at the end, so the installer remounts it read-write for the next step.
+5. `bootc install to-filesystem` runs on the live system itself, with `--source-imgref containers-storage:<embedded image>`, `--karg rd.luks.uuid=...` and `--target-imgref ghcr.io/diffsec/sibyl-os:latest-<variant>`, so `bootc upgrade` follows the registry afterwards. It runs under `unshare --mount`, so its mounts go away when it exits. It cannot run in a container of the embedded image: that image sits in a read-only image store on the squashfs, and crun cannot find `/tmp` in the nested overlay. bootc remounts the target read-only at the end, so the installer remounts it read-write for the next step.
 6. The installer writes the administrator to `/var/lib/sibyl-install/admin.json` on the new disk. At the first boot `sibyl-provision.service` creates the account in `wheel` and `sibyl-operators`, and deletes the file.
 7. The installer prints the recovery key.
 
@@ -361,7 +361,7 @@ When the GPU set changes, for example after a card is added, the System API dete
 
 ## Offline updates
 
-A host with no internet updates from a bundle. CI builds one only for release tags or on request (`gh workflow run bootc.yml -f bundle=true`), because a bundle is about 4 GB (3.8 GB for the amd variant at sha-93a977a). It pushes the bundle to `ghcr.io/ihavespoons/sibyl-bundle:<tag>-<variant>`.
+A host with no internet updates from a bundle. CI builds one only for release tags or on request (`gh workflow run bootc.yml -f bundle=true`), because a bundle is about 4 GB (3.8 GB for the amd variant at sha-93a977a). It pushes the bundle to `ghcr.io/diffsec/sibyl-bundle:<tag>-<variant>`.
 
 A bundle is a directory:
 
@@ -375,7 +375,7 @@ A bundle is a directory:
 
 To update a host:
 
-1. On a machine with internet, run `oras pull ghcr.io/ihavespoons/sibyl-bundle:<tag>-<variant>` into a directory on a USB drive.
+1. On a machine with internet, run `oras pull ghcr.io/diffsec/sibyl-bundle:<tag>-<variant>` into a directory on a USB drive.
 2. Mount the drive on the host, and run `sudo sibyl-update apply <directory>`.
 3. Reboot with `sudo systemctl reboot`.
 
@@ -383,7 +383,7 @@ To update a host:
 
 - It loads each service image into the `sibyl` user's storage with `skopeo copy --preserve-digests`, so the digests that the Quadlet units pin still match. Each archive is first copied to `/var/lib/sibyl-update`, because the `sibyl` user cannot read the USB drive, and skopeo cannot read an archive from a pipe.
 - It keeps the TUI archive in `/var/lib/sibyl-update`. The `sibyl` command loads it into the caller's own storage when the image is missing.
-- It runs `bootc switch --enforce-container-sigpolicy --transport oci-archive` on the host image archive. After that, bootc follows the archive, so the host returns to online updates with `sudo bootc switch --enforce-container-sigpolicy ghcr.io/ihavespoons/sibyl-os:latest-<variant>`.
+- It runs `bootc switch --enforce-container-sigpolicy --transport oci-archive` on the host image archive. After that, bootc follows the archive, so the host returns to online updates with `sudo bootc switch --enforce-container-sigpolicy ghcr.io/diffsec/sibyl-os:latest-<variant>`.
 
 `sibyl-update verify <directory>` only checks a bundle.
 
@@ -392,12 +392,12 @@ To update a host:
 - SELinux stays enforcing. Only Arcane runs with `SecurityLabelDisable=true`.
 - Secure Boot uses the Fedora shim and kernel. The NVIDIA variant adds the project MOK key.
 - CI signs every image twice (`scripts/ci/sign.sh`). The keyless signature carries the workflow identity, for anyone who checks with `cosign verify`. The key signature is what the host checks.
-- The host's `/etc/containers/policy.json` requires a signature from the project key (`/etc/pki/containers/sibyl-cosign.pub`) for every image under `ghcr.io/ihavespoons`. podman, the Quadlet units and bootc refuse an image without it. Third-party images in the Quadlet files are pinned by digest.
+- The host's `/etc/containers/policy.json` requires a signature from the project key (`/etc/pki/containers/sibyl-cosign.pub`) for every image under `ghcr.io/diffsec`. podman, the Quadlet units and bootc refuse an image without it. The project moved from `ghcr.io/ihavespoons` on 2026-10-28, and the policy trusts that namespace too, with the same key, so a host can switch from one to the other. Third-party images in the Quadlet files are pinned by digest.
 - The policy's default is `reject`, because bootc refuses a verified image reference when the default is `insecureAcceptAnything`. Common public registries are allowed as before, so Arcane can still run their images: `docker.io`, `quay.io`, `ghcr.io`, `registry.fedoraproject.org`, `gcr.io`, `registry.k8s.io`, `mcr.microsoft.com`, `public.ecr.aws`, `nvcr.io`, `registry.gitlab.com`, `cgr.dev` and `lscr.io`. Local transports such as `containers-storage` are allowed too. For any other registry, an administrator adds an entry under `docker` in `/etc/containers/policy.json`.
 - podman and bootc verify only key-based sigstore signatures, and only in the older `.sig` attachment format. Keyless policies need a `subjectEmail`, which a GitHub workflow certificate does not have. So CI signs with `--new-bundle-format=false`, and with `--recursive`, because podman checks the platform image that it picks, not only the index.
 - The private key is in the `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` repository secrets, with an offline backup held by the maintainer. A new key needs a new public key in the image, and a host must have that image before images signed with the new key reach it.
 - `/usr/lib/bootc/install/50-sibyl.toml` sets `enforce-container-sigpolicy`, so every install records a verified image reference and `bootc upgrade` checks the policy. A host installed before this change needs `bootc switch --enforce-container-sigpolicy <image>` once.
-- If signing ever breaks, running containers keep running. To pull an unsigned image on purpose, an administrator changes the `ghcr.io/ihavespoons` entry in `/etc/containers/policy.json` on that host.
+- If signing ever breaks, running containers keep running. To pull an unsigned image on purpose, an administrator changes the `ghcr.io/diffsec` entry in `/etc/containers/policy.json` on that host.
 - Every Quadlet container drops all capabilities, sets `NoNewPrivileges=true` and `ReadOnly=true`, and gets a tmpfs for `/tmp`. Writable state goes to named volumes only.
 - nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open.
 - SSH accepts keys only. Root login is off.

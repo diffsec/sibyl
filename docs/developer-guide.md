@@ -219,7 +219,7 @@ gh workflow run bootc.yml -f variants=true  # nvidia and intel host images
 
 ### Signing
 
-`scripts/ci/sign.sh` signs every pushed image twice. The keyless signature carries the workflow identity. The project key signature is the one that hosts check, because podman and bootc verify only key-based signatures. The host's `/etc/containers/policy.json` refuses any `ghcr.io/ihavespoons` image without it.
+`scripts/ci/sign.sh` signs every pushed image twice. The keyless signature carries the workflow identity. The project key signature is the one that hosts check, because podman and bootc verify only key-based signatures. The host's `/etc/containers/policy.json` refuses any `ghcr.io/diffsec` image without it.
 
 | Repository secret | Use |
 |---|---|
@@ -227,6 +227,16 @@ gh workflow run bootc.yml -f variants=true  # nvidia and intel host images
 | `MOK_PRIVATE_KEY` | Signs the NVIDIA kernel modules |
 
 A new signing key needs the new public key in `os/rootfs/etc/pki/containers/sibyl-cosign.pub`, and every host must run an image with that key before images signed only with the new key reach it.
+
+### Image retention
+
+`cleanup.yml` deletes old image versions every Sunday. It keeps every image from the last 14 days, the newest builds of each package beyond that (the `keep` column in the workflow), and every release and `latest` tag. It never touches `sibyl-buildcache`. A host that is further behind than that cannot pull an image that it has not pulled before, such as the other llama-swap backend.
+
+The workflow needs the Admin role on each package, in the package's settings under "Manage Actions access". Run it by hand with the dry run first:
+
+```bash
+gh workflow run cleanup.yml -f dry_run=true
+```
 
 ### Base image
 
@@ -256,10 +266,10 @@ gh workflow run bootc.yml --ref v0.1.0 -f iso=true -f variants=true
 
 ### Update a test host to a build
 
-A host follows `ghcr.io/ihavespoons/sibyl-os:latest-<variant>`, which every push to `main` moves. To run a specific build:
+A host follows `ghcr.io/diffsec/sibyl-os:latest-<variant>`, which every push to `main` moves. To run a specific build:
 
 ```bash
-sudo bootc switch --enforce-container-sigpolicy ghcr.io/ihavespoons/sibyl-os:sha-<commit>-amd
+sudo bootc switch --enforce-container-sigpolicy ghcr.io/diffsec/sibyl-os:sha-<commit>-amd
 sudo systemctl reboot
 ```
 
