@@ -4,7 +4,7 @@
 # The GPU userspace (ROCm, Vulkan) lives in the inference container, not here.
 
 ARG GO_IMAGE=cgr.dev/chainguard/go@sha256:85788137110936acab58b7a2901df787f71377ffac4809a9b04db7401f689580
-ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:44@sha256:101c835e34efb4bb94cf6731b5d79374f39b082656ccbb2370d24ea0d50b197d
+ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:44@sha256:fa1bdfabdc0d920f230a70ce40d3cf6d116975e2dd487e1c116a560a9b78771c
 
 # sibyl-hostd runs the privileged host actions, and sibyl-install is the disk
 # installer. They run on the host, so they are built here.
