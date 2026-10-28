@@ -21,7 +21,7 @@ func TestContextNote(t *testing.T) {
 	// Empty context: the native 262,144 tokens at f16 need 18 GiB, which
 	// with 29 GiB of weights exceeds 92% of 48 GiB.
 	got := contextNote(m, &settingsForm{}, hw, gpus)
-	for _, want := range []string{"Empty uses the native context: 262,144 tokens", "18.0 GiB", "of 48.0 GiB VRAM on 2 GPU(s)", "may not fit"} {
+	for _, want := range []string{"Empty uses the native context: 262,144 tokens", "18.0 GiB", "of 48.0 GiB VRAM on 2 GPU(s)", "more than the GPUs hold"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("empty context: %q lacks %q", got, want)
 		}
@@ -29,13 +29,13 @@ func TestContextNote(t *testing.T) {
 
 	// 32k with a q8_0 cache fits.
 	got = contextNote(m, &settingsForm{CtxSize: "32768", KVTypeK: "q8_0", KVTypeV: "q8_0"}, hw, gpus)
-	if strings.Contains(got, "may not fit") || !strings.Contains(got, "At 32,768 tokens") {
+	if strings.Contains(got, "more than the GPUs hold") || !strings.Contains(got, "At 32,768 tokens") {
 		t.Errorf("32k q8_0: %q", got)
 	}
 
 	// Pinned to one GPU, only that GPU's VRAM counts.
 	got = contextNote(m, &settingsForm{CtxSize: "8192", Layout: "gpu:1"}, hw, gpus)
-	if !strings.Contains(got, "of 24.0 GiB VRAM on 1 GPU(s)") || !strings.Contains(got, "may not fit") {
+	if !strings.Contains(got, "of 24.0 GiB VRAM on 1 GPU(s)") || !strings.Contains(got, "more than the GPUs hold") {
 		t.Errorf("pinned: %q", got)
 	}
 

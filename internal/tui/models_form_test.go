@@ -29,7 +29,7 @@ func TestEditFormShowsContextEstimate(t *testing.T) {
 	run(v, v.editForm(m), 0)
 	v.update(tea.WindowSizeMsg{Width: 140, Height: 60})
 	view := v.form.View()
-	for _, want := range []string{"native context 262,144 tokens", "Empty uses the native context", "may not fit"} {
+	for _, want := range []string{"native context 262,144 tokens", "Empty uses the native context", "more than the GPUs hold"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("form view lacks %q:\n%s", want, view)
 		}
@@ -42,7 +42,7 @@ func TestEditFormShowsContextEstimate(t *testing.T) {
 		send(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	view = v.form.View()
-	if !strings.Contains(view, "At 32,768 tokens") || strings.Contains(view, "may not fit") {
+	if !strings.Contains(view, "At 32,768 tokens") || strings.Contains(view, "more than the GPUs hold") {
 		t.Errorf("after typing 32768:\n%s", view)
 	}
 }

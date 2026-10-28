@@ -181,7 +181,7 @@ The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.
 
 `GET /models` includes each model's GGUF metadata (`internal/gguf`, `models.ReadMeta`): the architecture, the native context, the per-token KV cache elements, and the sampling defaults in `general.sampling.*`. The System API caches it by file size and modification time. The reader reads only the header, and refuses lengths over fixed limits.
 
-With no `ctx_size`, llama-server uses the native context, which is often 262,144 tokens. The TUI's context field shows the native context and an estimate of the GPU memory for the chosen context and KV cache types, and warns above 92% of the VRAM of the GPUs that the model's layout uses. The estimate per token is:
+With no `ctx_size`, llama-server uses the native context, which is often 262,144 tokens. The TUI's context field shows the native context and an estimate of the GPU memory for the chosen context and KV cache types, and says when the total passes 92% of the VRAM of the GPUs that the model's layout uses. llama.cpp then keeps the rest in system RAM: on the test host, a 63 GB model at a 131,072 token context ran with 42 GB on two 24 GB GPUs. The estimate per token is:
 
 - the K and V elements of every layer that keeps a full-length cache, at the cache type's size: recurrent layers, sliding-window layers and multi-token prediction layers are left out;
 - the sparse attention indexer, if the model has one, in f16;

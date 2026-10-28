@@ -11,8 +11,9 @@ import (
 	"github.com/ihavespoons/sibyl/internal/hardware"
 )
 
-// fitMargin is the share of VRAM above which a model may not load: the
-// runtime, the compute graph and other processes need the rest.
+// fitMargin is the share of VRAM above which part of the model spills to
+// system RAM: the runtime, the compute graph and other processes need the
+// rest.
 const fitMargin = 0.92
 
 // modelGPUs returns the detected GPUs that a model runs on with layout,
@@ -76,7 +77,8 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	}
 	lines = append(lines, line)
 	if vram > 0 && float64(total) > fitMargin*float64(vram) {
-		lines = append(lines, "This may not fit. Use a smaller context, a q8_0 or q4_0 KV cache, or span more GPUs.")
+		lines = append(lines, "This is more than the GPUs hold, so llama.cpp keeps part of it in system RAM, which is slower.\n"+
+			"A smaller context, a q8_0 or q4_0 KV cache, or more GPUs keeps it all on the GPUs.")
 	}
 	return strings.Join(lines, "\n")
 }
