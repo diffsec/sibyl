@@ -34,7 +34,7 @@ func (f *fake) run(_ context.Context, c Cmd) (string, error) {
 		return "1111-2222\n", nil
 	case strings.Contains(c.String(), "--recovery-key"):
 		return "A secret recovery key has been generated for this volume:\n\n    " + recovery + "\n", nil
-	case c.Name == "podman":
+	case strings.Contains(c.String(), "bootc install"):
 		return "", os.MkdirAll(filepath.Join(f.work, "target/ostree/deploy/default/var"), 0o755)
 	}
 	return "", nil
@@ -90,10 +90,9 @@ func TestInstall(t *testing.T) {
 		"mount /dev/mapper/luks-1111-2222 " + work + "/target",
 		"mount /dev/nvme0n1p2 " + work + "/target/boot",
 		"mount /dev/nvme0n1p1 " + work + "/target/boot/efi",
-		"podman run",
-		"umount " + work + "/target/boot/efi",
-		"umount " + work + "/target/boot",
-		"umount " + work + "/target",
+		"unshare --mount --propagation private -- bootc install to-filesystem",
+		"mount -o remount,rw " + work + "/target",
+		"umount --recursive " + work + "/target",
 		"cryptsetup close luks-1111-2222",
 	}
 	last := -1
@@ -104,11 +103,11 @@ func TestInstall(t *testing.T) {
 		}
 		last = i
 	}
-	pod := f.calls[f.index("podman run")].String()
-	for _, want := range []string{"--tmpfs /tmp", "--source-imgref containers-storage:ghcr.io/ihavespoons/sibyl-os:sha-1-amd",
-		"--target-imgref ghcr.io/ihavespoons/sibyl-os:latest-amd", "--karg rd.luks.uuid=luks-1111-2222", "/target"} {
+	pod := f.calls[f.index("unshare --mount --propagation private -- bootc install to-filesystem")].String()
+	for _, want := range []string{"--source-imgref containers-storage:ghcr.io/ihavespoons/sibyl-os:sha-1-amd",
+		"--target-imgref ghcr.io/ihavespoons/sibyl-os:latest-amd", "--karg rd.luks.uuid=luks-1111-2222", work + "/target"} {
 		if !strings.Contains(pod, want) {
-			t.Errorf("podman command lacks %q: %s", want, pod)
+			t.Errorf("bootc command lacks %q: %s", want, pod)
 		}
 	}
 	if !strings.Contains(f.calls[f.index("sfdisk")].Stdin, `type=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709, name="root"`) {
@@ -150,11 +149,11 @@ func TestInstallPassphraseWithoutTPM(t *testing.T) {
 
 func TestInstallCleansUpAfterFailure(t *testing.T) {
 	work := t.TempDir()
-	f := &fake{work: work, fail: "podman run"}
+	f := &fake{work: work, fail: "unshare"}
 	if _, err := (&Installer{Run: f.run, Work: work}).Install(context.Background(), options()); err == nil {
 		t.Fatal("no error")
 	}
-	if f.index("umount "+work+"/target") < 0 || f.index("cryptsetup close luks-1111-2222") < 0 {
+	if f.index("umount --recursive "+work+"/target") < 0 || f.index("cryptsetup close luks-1111-2222") < 0 {
 		t.Fatalf("no cleanup: %v", f.calls)
 	}
 }

@@ -11,10 +11,10 @@
 # docker, bsdtar and base64 on this host. Usage: tools/pxe/live-netboot.sh
 set -euo pipefail
 cd "$(dirname "$0")"
-set -a
-# shellcheck source=/dev/null
-. ./.env
-set +a
+# .env is in docker compose format: KEY=value, with spaces and no quotes.
+while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] && [[ -z "${!key:-}" ]] && export "$key=$value"
+done < .env
 : "${PXE_SERVER_IP:?set PXE_SERVER_IP in .env}"
 : "${SSH_KEY:?set SSH_KEY in .env}"
 : "${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}"
@@ -24,10 +24,16 @@ ADMIN_NAME="${ADMIN_NAME:-admin}"
 ORAS_IMAGE="ghcr.io/oras-project/oras:v1.3.6@sha256:9cfb578be975b762fd898b9d004243d8003aeb807a3e15b2ed212cdd1326c9eb"
 
 mkdir -p www/iso www/live
-echo "Pulling $ISO_REF"
-docker run --rm -v "$PWD/www/iso:/work" -w /work "$ORAS_IMAGE" pull "$ISO_REF"
-iso="$(find www/iso -maxdepth 1 -name "*.iso" -print -quit)"
-(cd www/iso && shasum -a 256 -c SHA256SUMS)
+# ISO_FILE uses a local ISO, for example one built on a Linux host with
+# image-builder, instead of pulling one from GHCR.
+if [[ -n "${ISO_FILE:-}" ]]; then
+    iso="$ISO_FILE"
+else
+    echo "Pulling $ISO_REF"
+    docker run --rm -v "$PWD/www/iso:/work" -w /work "$ORAS_IMAGE" pull "$ISO_REF"
+    iso="$(find www/iso -maxdepth 1 -name "*.iso" -print -quit)"
+    (cd www/iso && shasum -a 256 -c SHA256SUMS)
+fi
 
 echo "Unpacking $iso"
 bsdtar -xf "$iso" -C www/live --strip-components 2 images/pxeboot/vmlinuz images/pxeboot/initrd.img
@@ -39,6 +45,19 @@ hash="$(printf '%s\n' "$ADMIN_PASSWORD" | docker run --rm -i docker.io/library/a
 config="$(printf '{"disk":"/dev/%s","then":"reboot","admin":{"name":"%s","password_hash":"%s","keys":["%s"]}}' \
     "$INSTALL_DISK" "$ADMIN_NAME" "$hash" "$SSH_KEY")"
 cred="$(printf '%s' "$config" | base64 | tr -d '\n')"
+args="systemd.set_credential_binary=sibyl.install.json:$cred"
+
+# DEBUG_SSH=1 lets SSH_KEY log in as root to the live system, so a failed
+# unattended install can be inspected over the network. It changes only the
+# netbooted live system in RAM, never the installed one.
+if [[ "${DEBUG_SSH:-}" == 1 ]]; then
+    key="$(printf '%s\n' "$SSH_KEY" | base64 | tr -d '\n')"
+    # systemd expands $OPTIONS from sshd's environment file, not this shell.
+    dropin="$(printf '%s\n' '[Service]' 'ExecStart=' \
+        "ExecStart=/usr/sbin/sshd -D -o PermitRootLogin=prohibit-password \$OPTIONS" | base64 | tr -d '\n')"
+    args="$args systemd.set_credential_binary=ssh.authorized_keys.root:$key"
+    args="$args systemd.set_credential_binary=systemd.unit-dropin.sshd.service~debug:$dropin"
+fi
 
 cat > www/live/grub.cfg <<EOF
 # Written by tools/pxe/live-netboot.sh. GRUB loads the kernel and initrd over
@@ -47,7 +66,7 @@ set default=0
 set timeout=10
 
 menuentry 'Install Sibyl, no questions (erases $INSTALL_DISK)' --id install {
-    linux (http,$PXE_SERVER_IP)/live/vmlinuz root=live:http://$PXE_SERVER_IP/live/squashfs.img rd.live.image rd.live.overlay.overlayfs=1 rd.neednet=1 ip=dhcp enforcing=0 systemd.set_credential_binary=sibyl.install.json:$cred
+    linux (http,$PXE_SERVER_IP)/live/vmlinuz root=live:http://$PXE_SERVER_IP/live/squashfs.img rd.live.image rd.live.overlay.overlayfs=1 rd.neednet=1 ip=dhcp enforcing=0 $args
     initrd (http,$PXE_SERVER_IP)/live/initrd.img
 }
 

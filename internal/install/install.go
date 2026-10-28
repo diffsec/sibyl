@@ -230,31 +230,39 @@ func (in *Installer) Install(ctx context.Context, o Options) (res Result, err er
 		if _, err := run("", Cmd{Name: "mount", Args: []string{m.dev, m.dir}}); err != nil {
 			return res, err
 		}
-		cleanup = append(cleanup, Cmd{Name: "umount", Args: []string{m.dir}})
 	}
+	// bootc adds its own mounts under the target, so unmount the whole tree.
+	cleanup = append(cleanup, Cmd{Name: "umount", Args: []string{"--recursive", target}})
 
 	logLevel := "info"
 	if in.Debug {
 		logLevel = "trace"
 	}
-	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "podman", Args: []string{"run", "--rm", "--privileged", "--pid=host",
-		"--security-opt", "label=type:unconfined_t", "-e", "RUST_LOG=" + logLevel,
-		// The image that image-builder embeds in the live ISO has no /tmp, and
-		// bootc needs a tmpfs there.
-		"--tmpfs", "/tmp",
-		"-v", "/dev:/dev", "-v", "/var/lib/containers:/var/lib/containers", "-v", target + ":/target",
-		o.Payload,
+	// bootc runs on the live system itself, which is the same image. It
+	// reads the embedded image from container storage. Running it inside a
+	// container of that image fails on the live system: the image sits in a
+	// read-only image store on the squashfs, and crun cannot find /tmp in the
+	// nested overlay.
+	// bootc makes its own mount namespace only inside a container. unshare
+	// gives it a private one here, so its mounts, such as /run/bootc/storage,
+	// go away when it exits.
+	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "unshare", Args: []string{
+		"--mount", "--propagation", "private", "--",
 		"bootc", "install", "to-filesystem",
 		"--source-imgref", "containers-storage:" + o.Payload,
 		"--target-imgref", o.Target,
 		"--skip-fetch-check",
 		"--karg", "rd.luks.uuid=" + mapper,
-		"/target"}}); err != nil {
+		target}, Env: []string{"RUST_LOG=" + logLevel}}); err != nil {
 		return res, err
 	}
 
 	if in.Step != nil {
 		in.Step("Writing the admin account for the first boot")
+	}
+	// bootc's last step remounts the target read-only.
+	if _, err := run("", Cmd{Name: "mount", Args: []string{"-o", "remount,rw", target}}); err != nil {
+		return res, err
 	}
 	if err := writeProvision(filepath.Join(target, "ostree/deploy/default/var"), o.Admin); err != nil {
 		return res, err

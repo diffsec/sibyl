@@ -59,3 +59,16 @@ sudo systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 /dev/nvme0n1p3
 Check the partition name with `lsblk` before you run it. PCR 7 records the Secure Boot state, so a binding made with Secure Boot off does not protect the disk, and it breaks when Secure Boot is turned on.
 
 4. Reboot with `sudo systemctl reboot`. A staged `bootc upgrade` is applied only during a clean shutdown.
+
+## Live network install
+
+`live-netboot.sh` boots the Sibyl live system over the network and installs with no questions, through `sibyl-autoinstall.service`. It needs `ADMIN_PASSWORD` in `.env`, as well as `PXE_SERVER_IP` and `SSH_KEY`.
+
+Warning: the default menu entry erases `INSTALL_DISK` with no confirmation, 10 seconds after the menu appears.
+
+1. Run `tools/pxe/live-netboot.sh`. It pulls the ISO from GHCR. To use a local ISO, set `ISO_FILE=path/to.iso`.
+2. Start the TFTP server: `PXE_MODE=live docker compose up --build -d`.
+3. Serve `www` on port 80 with the native HTTP server that the script prints.
+4. On the box, run `sudo efibootmgr -n <PXE IPv4 entry>` and reboot, or choose PXE in the firmware menu.
+
+The live system prints the recovery key on its console and in the journal of `sibyl-autoinstall.service`. Read it before the reboot, or set `DEBUG_SSH=1` to let `SSH_KEY` log in as root to the live system. `DEBUG_SSH` changes only the live system in RAM, and it also lets you read the logs of a failed install.
