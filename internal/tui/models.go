@@ -67,7 +67,7 @@ func (v *modelsView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	return "↑/↓ select · enter edit · b benchmark HIP vs Vulkan · d delete"
+	return "↑/↓ select · enter edit · b benchmark the backends · d delete"
 }
 
 func (v *modelsView) selected() (client.Model, bool) {

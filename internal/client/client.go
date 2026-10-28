@@ -133,7 +133,7 @@ type BackendResult struct {
 	Error     string  `json:"error,omitempty"`
 }
 
-// Benchmark is a model's HIP versus Vulkan benchmark.
+// Benchmark is a model's benchmark of the variant's backends.
 type Benchmark struct {
 	Status      string                   `json:"status"`
 	Updated     string                   `json:"updated,omitempty"`

@@ -30,7 +30,15 @@ The NVIDIA and Intel variants build in CI and pass the same checks as the AMD on
 
 The NVIDIA driver is built into the image and signed with the project's Machine Owner Key (MOK). Secure Boot loads it only after you enroll that key once: run `sudo mokutil --import /usr/share/sibyl/sibyl-mok.der`, reboot, and confirm the key in the blue MOK screen.
 
+## Documentation
+
+- [User guide](docs/user-guide.md): install, setup, daily use, updates and recovery.
+- [Developer guide](docs/developer-guide.md): how the parts fit, build and test, CI and releases.
+- [Design](docs/design.md): the design decisions and the phase plan.
+
 ## Install
+
+The [user guide](docs/user-guide.md) has every step. In short:
 
 1. Download the live ISO for your variant: `oras pull ghcr.io/ihavespoons/sibyl-iso:latest-amd`.
 2. Write it to a USB stick, and boot the computer from it with Secure Boot on.
@@ -41,7 +49,7 @@ To install over the network instead, see [tools/pxe/README.md](tools/pxe/README.
 
 ## Status
 
-Sibyl is pre-alpha. The design and the phase plan are in [docs/design.md](docs/design.md).
+Sibyl is pre-alpha.
 
 ## Build
 

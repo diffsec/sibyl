@@ -134,8 +134,6 @@ At each boot, `sibyl-operator-export.service` copies the API key and the certifi
 | Download | Hugging Face search, variants with fit, confirmation, and download jobs |
 | Host | Hostname, network with rollback, model pools, and operator accounts with SSH keys |
 
-The network, account and SSH key steps of the setup wizard need host-level changes that the System API does not offer yet. Phase 3 adds them.
-
 ### Model downloads
 
 The download manager (`internal/download`) runs one job at a time. Each job pins a commit, so every file comes from one revision even if the repository changes during the download.
@@ -224,7 +222,7 @@ The multi-GPU table above uses HIP device names, from the AMD test host. The oth
 
 ### Benchmark
 
-`POST /models/{id}/benchmark` (key `b` in the TUI) compares the backends on one model. The host agent unloads llama-swap's models, then runs `llama-bench` in the HIP image and in the Vulkan image, on the selected GPUs: 512 prompt tokens and 128 generated tokens, twice each. `GET /models/{id}/benchmark` and the model list report tokens per second for each backend, and recommend the faster one by generation speed.
+`POST /models/{id}/benchmark` (key `b` in the TUI) compares the backends on one model. The host agent unloads llama-swap's models, then runs `llama-bench` in the image of each backend that the variant ships and that every selected GPU supports, on the selected GPUs: 512 prompt tokens and 128 generated tokens, twice each. `GET /models/{id}/benchmark` and the model list report tokens per second for each backend, and recommend the faster one by generation speed.
 
 llama-swap runs one image, so the backend applies to every model. The recommendation is advice: the user sets the backend in the Hardware screen. Longer contexts, such as 8192 or 32768 tokens, are a later addition.
 
@@ -327,7 +325,7 @@ llama-swap and the System API mount `/var/lib/sibyl-pools` at `/pools` with `rsl
 
 The setup wizard configures the hardware and the services. It runs in the TUI in three places: at the end of the disk installer, at the first boot of a live USB, and on demand with `sibyl setup`. Every step can run again later without a reinstall.
 
-1. Detect the GPUs. The wizard reads `lspci` and `amd-smi` (or `nvidia-smi`), and lists each card with its model, VRAM, PCIe link width and speed.
+1. Detect the GPUs. The System API reads sysfs and lists each card with its vendor, ROCm target on AMD, VRAM, and PCIe link width.
 2. Choose the GPUs for inference. The user can exclude a card, for example a card that drives a display.
 3. Choose the default layout for the selected GPUs: span one model across all of them, or pin one model per card. A model can override the default later.
 4. Choose the backend: HIP, Vulkan, or "benchmark". The benchmark runs a short `llama-bench` on both images with a small model and keeps the faster one.
@@ -398,7 +396,7 @@ To update a host:
 | 2 | System API and TUI in containers. They control units through the systemd D-Bus API. Setup wizard with GPU selection and layout. TUI editor for model settings: sampling, speculative decoding, KV cache, context and layout. Hugging Face picker. Ollama shim. Benchmark. | The API test suite passes against a running host. The wizard configures one card and two cards on the target host. |
 | 3 | Live ISO, persistence, guided disk installer that ends in the setup wizard, LUKS with TPM2, model pools. Privileged host changes for the wizard (network, accounts, SSH keys) as allowlisted host agent actions | Install from USB to disk on the target host, and unlock without a passphrase. |
 | 4 | NVIDIA and Intel variants, offline update bundles, signature policy enforced | Each variant boots. An unsigned image fails to pull. |
-| 5 | User guide and developer guide | A new user installs Sibyl on a fresh host from the guide alone. |
+| 5 | User guide (`docs/user-guide.md`) and developer guide (`docs/developer-guide.md`) | A new user installs Sibyl on a fresh host from the guide alone. |
 | 6 | Smart model router: a gateway in front of llama-swap that serves local requests that fit and routes others to frontier providers (Anthropic, OpenAI, OpenRouter and similar), using request profiles and customisable rules, optionally decided by a small local classifier model | Design to be written when phases 2 to 5 are done |
 
 ## Open items
