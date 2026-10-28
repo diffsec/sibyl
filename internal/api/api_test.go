@@ -14,7 +14,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ihavespoons/sibyl/internal/gguf"
 	"github.com/ihavespoons/sibyl/internal/hostctl"
+	"github.com/ihavespoons/sibyl/internal/models"
 )
 
 const token = "test-token"
@@ -408,4 +410,57 @@ func TestDefaultBackendOnUnsupportedGPU(t *testing.T) {
 	if code != 200 || b["backend"] != "vulkan" {
 		t.Errorf("default hardware = %d %v, want vulkan", code, b)
 	}
+}
+
+// GET /models carries the GGUF metadata, for the context size estimate.
+func TestModelsCarryMeta(t *testing.T) {
+	f := newFixture(t)
+	data, err := gguf.Encode(map[string]any{
+		"general.architecture": "llama", "llama.block_count": 2, "llama.context_length": 8192,
+		"llama.attention.head_count": 8, "llama.attention.head_count_kv": 8, "llama.attention.key_length": 64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(f.paths.Models, "small.gguf"), string(data))
+	_, raw := f.doRaw(t, "GET", "/models")
+	var list []struct {
+		ID   string       `json:"id"`
+		Meta *models.Meta `json:"meta"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range list {
+		switch m.ID {
+		case "small":
+			if m.Meta == nil || m.Meta.ContextLength != 8192 || m.Meta.AttentionLayers != 2 {
+				t.Errorf("small meta = %+v", m.Meta)
+			}
+		case "chat-14b":
+			if m.Meta != nil {
+				t.Errorf("a file that is not GGUF has meta %+v", m.Meta)
+			}
+		}
+	}
+}
+
+// doRaw sends an authorized request and returns the status and the body.
+func (f *fixture) doRaw(t *testing.T, method, path string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequest(method, f.srv.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, raw
 }

@@ -63,6 +63,43 @@ type Server struct {
 
 	// mu serializes every change to the configuration files.
 	mu sync.Mutex
+
+	metaMu    sync.Mutex
+	metaCache map[string]cachedMeta
+}
+
+// cachedMeta is a model's GGUF metadata, valid while the file keeps its
+// size and modification time.
+type cachedMeta struct {
+	size int64
+	mod  time.Time
+	meta *models.Meta
+}
+
+// modelMeta reads the GGUF metadata of a model's first file, or returns nil
+// when the header cannot be read.
+func (s *Server) modelMeta(m models.Model) *models.Meta {
+	path := filepath.Join(m.Root(s.Paths.Models, s.Paths.Pools), m.Path)
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+	s.metaMu.Lock()
+	defer s.metaMu.Unlock()
+	if c, ok := s.metaCache[path]; ok && c.size == fi.Size() && c.mod.Equal(fi.ModTime()) {
+		return c.meta
+	}
+	var meta *models.Meta
+	if mt, err := models.ReadMeta(path); err == nil {
+		meta = &mt
+	} else {
+		s.Log.Warn("read model metadata", "model", m.ID, "err", err)
+	}
+	if s.metaCache == nil {
+		s.metaCache = map[string]cachedMeta{}
+	}
+	s.metaCache[path] = cachedMeta{size: fi.Size(), mod: fi.ModTime(), meta: meta}
+	return meta
 }
 
 // Handler returns the HTTP routes. Every route except /health needs the bearer token.
@@ -199,6 +236,9 @@ type modelView struct {
 	models.Model
 	Settings  models.Settings `json:"settings"`
 	Benchmark *Benchmark      `json:"benchmark,omitempty"`
+	// Meta is what the model file says about its context, for the context
+	// size and memory estimate. It is missing when the header is unreadable.
+	Meta *models.Meta `json:"meta,omitempty"`
 }
 
 func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
@@ -214,7 +254,7 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 	}
 	out := make([]modelView, len(installed))
 	for i, m := range installed {
-		out[i] = modelView{Model: m, Settings: settings[m.ID]}
+		out[i] = modelView{Model: m, Settings: settings[m.ID], Meta: s.modelMeta(m)}
 		if b, ok := s.readBenchmark(m.ID); ok {
 			out[i].Benchmark = &b
 		}

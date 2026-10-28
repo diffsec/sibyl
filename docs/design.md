@@ -177,6 +177,21 @@ The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.
 - If a draft model is deleted, the generator turns speculative decoding off for the models that used it, and reports an issue. The model itself keeps running.
 - Raw `args` cannot set a flag that has a typed setting, so each value has one source.
 
+### Context size and memory estimate
+
+`GET /models` includes each model's GGUF metadata (`internal/gguf`, `models.ReadMeta`): the architecture, the native context, the per-token KV cache elements, and the sampling defaults in `general.sampling.*`. The System API caches it by file size and modification time. The reader reads only the header, and refuses lengths over fixed limits.
+
+With no `ctx_size`, llama-server uses the native context, which is often 262,144 tokens. The TUI's context field shows the native context and an estimate of the GPU memory for the chosen context and KV cache types, and warns above 92% of the VRAM of the GPUs that the model's layout uses. The estimate per token is:
+
+- the K and V elements of every layer that keeps a full-length cache, at the cache type's size: recurrent layers, sliding-window layers and multi-token prediction layers are left out;
+- the sparse attention indexer, if the model has one, in f16;
+- 8 KiB of compute buffer;
+- for a quantized cache, 4 bytes for each K and V element of the largest layer.
+
+These terms come from measurements on the test host (llama.cpp b11889, ROCm): the VRAM change between a 32,768 and a 131,072 token context. The estimate matched six of seven measurements within 0.4%, across a dense model, a hybrid model, and a sliding-window model at f16, q8_0 and q4_0. It was 3% low on a model with compressed attention layers. `internal/models/meta_test.go` holds the measured values.
+
+The sampling fields show the model file's recommendation, or llama.cpp's default, as their placeholder. llama-server applies the file's values when a setting is empty: `/props` on the test host reported the file's temperature 1.0 and top-k 20.
+
 ## Inference
 
 ### Images

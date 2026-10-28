@@ -90,13 +90,13 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(filepath.Join(dir, id+"."+b+".log"))
 	}
 	files := map[string]string{
-		".path":   filepath.ToSlash(m.Path),
-		".pool":   m.Pool,
-		".gpus":   strings.Join(list, ","),
+		".path": filepath.ToSlash(m.Path),
+		".pool": m.Pool,
+		".gpus": strings.Join(list, ","),
 		// The agent runs only these backends. HIP is left out when a
 		// selected GPU has a ROCm target that the HIP image lacks.
 		".backends": strings.Join(run, " "),
-		".status": "queued " + time.Now().UTC().Format(time.RFC3339),
+		".status":   "queued " + time.Now().UTC().Format(time.RFC3339),
 	}
 	for ext, body := range files {
 		if err := hardware.WriteFileAtomic(filepath.Join(dir, id+ext), []byte(body), 0o640); err != nil {

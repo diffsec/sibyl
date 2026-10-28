@@ -124,6 +124,7 @@ type Model struct {
 	models.Model
 	Settings  models.Settings `json:"settings"`
 	Benchmark *Benchmark      `json:"benchmark,omitempty"`
+	Meta      *models.Meta    `json:"meta,omitempty"`
 }
 
 // BackendResult is one backend's llama-bench result.

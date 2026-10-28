@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"charm.land/huh/v2"
 
 	"github.com/ihavespoons/sibyl/internal/client"
+	"github.com/ihavespoons/sibyl/internal/gpu"
 	"github.com/ihavespoons/sibyl/internal/hardware"
 	"github.com/ihavespoons/sibyl/internal/models"
 )
@@ -18,6 +21,7 @@ import (
 type modelsLoaded struct {
 	models []client.Model
 	hw     hardware.Config
+	gpus   []gpu.GPU
 	err    error
 }
 
@@ -36,6 +40,7 @@ type modelsView struct {
 	c      *client.Client
 	list   []client.Model
 	hw     hardware.Config
+	gpus   []gpu.GPU // detected GPUs, for the memory estimate
 	err    error
 	cursor int
 
@@ -57,7 +62,12 @@ func (v *modelsView) activate() tea.Cmd {
 			return modelsLoaded{err: err}
 		}
 		hw, err := v.c.Hardware(ctx)
-		return modelsLoaded{models: m, hw: hw, err: err}
+		if err != nil {
+			return modelsLoaded{err: err}
+		}
+		// Without the GPU list the estimate leaves out the VRAM total.
+		gpus, _ := v.c.GPUs(ctx)
+		return modelsLoaded{models: m, hw: hw, gpus: gpus}
 	}
 }
 
@@ -80,6 +90,12 @@ func (v *modelsView) selected() (client.Model, bool) {
 func optionalNumber(title, desc string, whole bool, value *string) *huh.Input {
 	return huh.NewInput().Title(title).Description(desc).Placeholder("model default").
 		Value(value).Validate(numberCheck(whole))
+}
+
+// samplingNumber is a sampling field whose placeholder shows the value that
+// applies when it is empty: the model file's, or llama.cpp's own.
+func samplingNumber(title, desc string, whole bool, value *string, file *float64, llamaDefault string) *huh.Input {
+	return optionalNumber(title, desc, whole, value).Placeholder(samplingHint(file, llamaDefault))
 }
 
 // editForm builds the settings form for one model.
@@ -111,24 +127,38 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 		kv = append(kv, huh.NewOption(t, t))
 	}
 
+	head := fmt.Sprintf("%s · %d shard(s)", gib(m.Size), m.Shards)
+	var fileSampling models.Sampling
+	if m.Meta != nil {
+		head += fmt.Sprintf(" · %s · native context %s tokens", m.Meta.Architecture, thousands(m.Meta.ContextLength))
+		fileSampling = m.Meta.Sampling
+	}
+	var fileTopK *float64
+	if fileSampling.TopK != nil {
+		k := float64(*fileSampling.TopK)
+		fileTopK = &k
+	}
+	hw, gpus := v.hw, v.gpus
+
 	v.form = huh.NewForm(
 		huh.NewGroup(
-			huh.NewNote().Title(m.ID).Description(fmt.Sprintf("%s · %d shard(s)", gib(m.Size), m.Shards)),
+			huh.NewNote().Title(m.ID).Description(head),
 			huh.NewSelect[string]().Title("Layout").Inline(true).Options(layouts...).Value(&f.Layout),
-			optionalNumber("Context size", "Tokens. Larger needs more VRAM for the KV cache.", true, &f.CtxSize),
+			optionalNumber("Context size", "", true, &f.CtxSize).Placeholder("native").
+				DescriptionFunc(func() string { return contextNote(m, f, hw, gpus) }, f),
 			huh.NewSelect[string]().Title("KV cache K type").Inline(true).Options(kv...).Value(&f.KVTypeK),
 			huh.NewSelect[string]().Title("KV cache V type").Inline(true).Options(kv...).Value(&f.KVTypeV),
 			huh.NewConfirm().Title("Embedding model").Value(&f.Embedding),
 			huh.NewConfirm().Title("Hide from the model list").Value(&f.Hidden),
 		).Title("Model"),
 		huh.NewGroup(
-			optionalNumber("Temperature", "0 to 5", false, &f.Temperature),
-			optionalNumber("Top K", "0 to 1000", true, &f.TopK),
-			optionalNumber("Top P", "0 to 1", false, &f.TopP),
-			optionalNumber("Min P", "0 to 1", false, &f.MinP),
+			samplingNumber("Temperature", "0 to 5", false, &f.Temperature, fileSampling.Temperature, "0.8"),
+			samplingNumber("Top K", "0 to 1000", true, &f.TopK, fileTopK, "40"),
+			samplingNumber("Top P", "0 to 1", false, &f.TopP, fileSampling.TopP, "0.95"),
+			samplingNumber("Min P", "0 to 1", false, &f.MinP, fileSampling.MinP, "0.05"),
 			optionalNumber("Repeat penalty", "0 to 5", false, &f.RepeatPenalty),
 			optionalNumber("Presence penalty", "-2 to 2", false, &f.PresencePenalty),
-		).Title("Sampling defaults").Description("Clients can still override these per request."),
+		).Title("Sampling defaults").Description("Empty uses the value in grey. Clients can still override these per request."),
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().Title("Speculative decoding types").
 				Description("Tried in order. draft-* types except draft-mtp need a draft model.").
@@ -187,7 +217,7 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 	case modelsLoaded:
 		v.err = msg.err
 		if msg.err == nil {
-			v.list, v.hw = msg.models, msg.hw
+			v.list, v.hw, v.gpus = msg.models, msg.hw, msg.gpus
 		}
 		if v.cursor >= len(v.list) {
 			v.cursor = max(0, len(v.list)-1)
@@ -318,7 +348,8 @@ func benchLine(b *client.Benchmark) string {
 		return "benchmark " + b.Status
 	}
 	var parts []string
-	for _, backend := range []string{"hip", "vulkan"} {
+	backends := slices.Sorted(maps.Keys(b.Results))
+	for _, backend := range backends {
 		r := b.Results[backend]
 		if r.Error != "" {
 			parts = append(parts, backend+" failed")

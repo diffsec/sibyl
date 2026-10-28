@@ -273,10 +273,10 @@ On the Models screen, select a model and press Enter. The settings apply as soon
 | Setting | Effect |
 |---|---|
 | Layout | Span across all selected GPUs, or pin to one GPU. |
-| Context size | The longest conversation in tokens. 0 uses the model's default. Larger contexts need more VRAM. |
+| Context size | The longest conversation in tokens. Empty uses the model's native context, which is often 262,144 tokens and needs a lot of VRAM. The field shows the native context and an estimate of the memory that your choice needs, and warns when it may not fit. |
 | Embedding | Marks a model for embeddings. Open WebUI uses the first embedding model for document search. |
 | Hidden | Leaves the model out of the model lists. |
-| Sampling | Default temperature, top-k, top-p, min-p and penalties. A client can still override them per request. |
+| Sampling | Default temperature, top-k, top-p, min-p and penalties. An empty field shows in grey the value that applies: the model file's recommendation, or llama.cpp's default. A client can still override them per request. |
 | KV cache | The precision of the context memory. `q8_0` halves its size with little loss. |
 | Speculative decoding | Speeds up generation with a small draft model or with n-gram lookup. |
 
