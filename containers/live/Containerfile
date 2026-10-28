@@ -34,6 +34,7 @@ RUN sed -i '/linger\/sibyl/d' /usr/lib/tmpfiles.d/sibyl.conf \
     && systemctl enable var-lib-sibyl.mount sibyl-live-persist.service sibyl-autoinstall.service \
     && systemctl mask bootloader-update.service sibyl-hostd-state.timer
 
-# The nonempty-boot warning is expected: the image-builder ISO contract needs
-# shim and GRUB in /boot/efi. The live image is never deployed with bootc.
-RUN bootc container lint
+# nonempty-boot is skipped here only: image-builder's ISO contract needs shim
+# and GRUB in /boot/efi, and this image becomes an ISO, never a bootc install.
+# The host image runs every check.
+RUN bootc container lint --skip nonempty-boot
