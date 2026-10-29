@@ -210,13 +210,15 @@ func (m *Manager) Add(ctx context.Context, repo, revision, variant, pool string)
 		Pool: pool, Files: v.Files, Status: Queued, BytesTotal: v.Size, Created: now, Updated: now,
 	}
 	m.jobs[j.ID] = j
+	// The worker can change the job as soon as the lock is free.
+	out := *j
 	m.mu.Unlock()
 
 	if err := m.save(); err != nil {
 		return Job{}, err
 	}
 	m.poke()
-	return *j, nil
+	return out, nil
 }
 
 // Cancel stops a job and deletes its partial files.
