@@ -10,7 +10,6 @@ PublishPort=18443:18443
 PublishPort=19443:19443
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/tls:/tls:ro,z
-Secret=sibyl-api-key,type=env,target=SIBYL_API_KEY
 DropCapability=ALL
 NoNewPrivileges=true
 ReadOnly=true

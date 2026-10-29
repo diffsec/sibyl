@@ -1,17 +1,28 @@
 #!/bin/bash
-# Copy the System API key and the TLS certificate where members of
-# sibyl-operators can read them, so they can run the TUI without sudo.
+# Copy the System API key, the inference key of the router client "default"
+# and the TLS certificate where members of sibyl-operators can read them, so
+# they can run the TUI without sudo and give the inference key to programs.
 set -euo pipefail
 
 dir=/var/lib/sibyl-operator
 uid="$(id -u sibyl)"
-key="$(runuser -u sibyl -- env XDG_RUNTIME_DIR="/run/user/$uid" HOME=/var/lib/sibyl/home \
-    podman secret inspect --showsecret --format '{{.SecretData}}' sibyl-api-key)"
+secret() {
+    runuser -u sibyl -- env XDG_RUNTIME_DIR="/run/user/$uid" HOME=/var/lib/sibyl/home \
+        podman secret inspect --showsecret --format '{{.SecretData}}' "$1"
+}
 
-umask 077
-printf '%s' "$key" > "$dir/.api.key.tmp"
-chown root:sibyl-operators "$dir/.api.key.tmp"
-chmod 0640 "$dir/.api.key.tmp"
-mv -f "$dir/.api.key.tmp" "$dir/api.key"
+# export <secret> <file>
+export_key() {
+    local key
+    key="$(secret "$1")"
+    umask 077
+    printf '%s' "$key" > "$dir/.$2.tmp"
+    chown root:sibyl-operators "$dir/.$2.tmp"
+    chmod 0640 "$dir/.$2.tmp"
+    mv -f "$dir/.$2.tmp" "$dir/$2"
+}
+
+export_key sibyl-api-key api.key
+export_key sibyl-inference-key inference.key
 
 install -o root -g sibyl-operators -m 0644 /var/lib/sibyl/tls/server.crt "$dir/ca.crt"

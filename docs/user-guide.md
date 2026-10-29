@@ -139,7 +139,7 @@ Write the recovery key down and keep it away from the computer. You need it if t
 
 ## First boot and setup
 
-The first boot creates the TLS certificate and the API key, then downloads the service images. This takes 5 to 15 minutes, depending on your internet connection. The disk unlocks without a passphrase when the TPM is in use.
+The first boot creates the TLS certificate and the keys, then downloads the service images. This takes 5 to 15 minutes, depending on your internet connection. The disk unlocks without a passphrase when the TPM is in use.
 
 ### Log in
 
@@ -175,7 +175,8 @@ The wizard walks through the setup screens in order. Each step tells you which k
 3. Operator accounts. Press `a` to add a person who can run `sibyl` over SSH. Operators cannot use `sudo`.
 4. Open WebUI administrator. Press `o` and create the first Open WebUI account. Sign-up from the browser is off, so this is the only way to make the first account. Add more accounts later in Open WebUI, under Admin Panel, Users.
 5. First model. Press `/` and search Hugging Face. See [Download a model](#download-a-model).
-6. Done. The Status screen lists the addresses of the services as links. The last step also shows the SHA-256 fingerprint of the TLS certificate.
+6. API keys for your programs. On the Router screen, press `n` for each program that will call Sibyl, such as a laptop or Home Assistant. The new key is shown once. Copy it into the program. See [The API keys](#the-api-keys).
+7. Done. The Status screen lists the addresses of the services as links. The last step also shows the SHA-256 fingerprint of the TLS certificate.
 
 ### Trust the certificate
 
@@ -203,20 +204,33 @@ A new Arcane install has the login `arcane` / `arcane-admin`. The System API rep
 | Ollama-compatible API | `https://<address>:8443/api` | Programs and tools that speak the Ollama API |
 | Arcane | `https://<address>:9443/` | Other containers on the same host |
 
-### The API key
+### The API keys
 
-The APIs need a key. The first key is in `/var/lib/sibyl-operator/api.key`, which the administrator and operators can read. Treat it like a password: the same key also controls the Sibyl System API, which manages models, accounts and disks.
+Sibyl has two kinds of key:
+
+- An inference key belongs to one client of the model router. It works for the OpenAI, Anthropic and Ollama APIs, and nothing else.
+- The System API key manages models, accounts, disks and the router. The `sibyl` console uses it. Do not give it to programs. It does not work for inference.
+
+The first boot makes three keys with `openssl rand`, and stores them as Podman secrets of the `sibyl` user:
+
+| Key | Secret | Use |
+|---|---|---|
+| System API key | `sibyl-api-key` | Copied to `/var/lib/sibyl-operator/api.key` for the console |
+| Inference key of the client `default` | `sibyl-inference-key` | Copied to `/var/lib/sibyl-operator/inference.key` |
+| Inference key of the client `open-webui` | `sibyl-router-owui-key` | Given to Open WebUI only |
+
+The administrator and operators can read both files in `/var/lib/sibyl-operator`.
+
+Give each program its own key. Make one on the Router screen of `sibyl` (key `6`, then `n`), or with `POST /system/router/clients`. Sibyl stores only the hash of a client key, so it shows the key once. Delete the client to revoke its key. The `default` key is for a quick test:
 
 ```bash
-cat /var/lib/sibyl-operator/api.key
+cat /var/lib/sibyl-operator/inference.key
 ```
-
-Give each program its own client key instead. A client key works only for inference, and it can be revoked alone. See "Client keys and the model router" below.
 
 ### Call the OpenAI API
 
 ```bash
-KEY="$(ssh admin@<address> cat /var/lib/sibyl-operator/api.key)"
+KEY="$(ssh admin@<address> cat /var/lib/sibyl-operator/inference.key)"
 curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" https://<address>:8443/v1/models
 ```
 
@@ -226,7 +240,7 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: app
   -d '{"model":"<model id>","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-In a program, set the base URL to `https://<address>:8443/v1` and the API key to the key. The model ID is a name from `/v1/models`.
+In a program, set the base URL to `https://<address>:8443/v1` and the API key to its client key. The model ID is a name from `/v1/models`.
 
 The first request to a model loads it into GPU memory. That takes from a few seconds to a few minutes for a large model.
 
@@ -240,11 +254,9 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" https://<address>:844
 
 Sibyl downloads models itself, so `ollama pull` and the other model management calls return an error that says so.
 
-The Ollama API accepts only the first key in this release.
-
 ### Call the Anthropic API
 
-Tools that speak the Anthropic Messages API, such as Claude Code, can use the local models. Set the base URL to `https://<address>:8443` and the API key to a Sibyl key. Sibyl reads the key from the `x-api-key` header or from `Authorization: Bearer`.
+Tools that speak the Anthropic Messages API, such as Claude Code, can use the local models. Set the base URL to `https://<address>:8443` and the API key to a client key. Sibyl reads the key from the `x-api-key` header or from `Authorization: Bearer`.
 
 ```bash
 curl --cacert sibyl-ca.crt -H "x-api-key: $KEY" -H "Content-Type: application/json" \
@@ -263,21 +275,25 @@ Each key belongs to a client. A client has one of two policies:
 - `local-only`: the client's requests never leave the host. This is the default.
 - `hybrid`: the routing rules can send the client's requests to a provider.
 
-Two clients exist from the start: `default`, which owns the first key, and `open-webui`. Both are `local-only`.
+Two clients exist from the start: `default` and `open-webui`. Both are `local-only`.
 
-The Router screen of the `sibyl` console (key `6`) creates clients, sets their policies and budgets, and adds providers. The System API does the same at `https://<address>:8443/system/router`. These examples use the first key in `$KEY`.
+The Router screen of the `sibyl` console (key `6`) creates clients, sets their policies and budgets, and adds providers. The System API does the same at `https://<address>:8443/system/router`. These examples use the System API key in `$ADMIN`:
+
+```bash
+ADMIN="$(ssh admin@<address> cat /var/lib/sibyl-operator/api.key)"
+```
 
 Create a client. The answer holds the new key. Copy it, because Sibyl stores only its hash and cannot show it again:
 
 ```bash
-curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
   https://<address>:8443/system/router/clients -d '{"name":"laptop","policy":"local-only"}'
 ```
 
 Add a provider. Sibyl checks the key with the provider before it stores it. The type `openai` covers OpenAI, OpenRouter and other services with an OpenAI-compatible API. The type `anthropic` is the Anthropic API, and needs no base URL:
 
 ```bash
-curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
   -X PUT https://<address>:8443/system/router/providers/openrouter \
   -d '{"type":"openai","base_url":"https://openrouter.ai/api/v1","api_key":"<provider key>","models":["<model>"]}'
 ```
@@ -285,7 +301,7 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: app
 Let a client use providers. Do this only for clients whose prompts can leave the host:
 
 ```bash
-curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
   -X PUT https://<address>:8443/system/router/clients/laptop -d '{"policy":"hybrid"}'
 ```
 
@@ -306,7 +322,7 @@ Run `sibyl` on the host, at the console or over SSH. It is a terminal interface 
 | `3` | Models | `enter` edits a model's settings. `b` runs the benchmark. `d` deletes the model. |
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `c` cancels a download, `R` retries one. |
 | `5` | Host | `h` hostname, `n` network, `a` add operator, `k` keys, `d` delete operator, `p` new model pool, `x` detach pool. |
-| `6` | Router | `n` new client, `e` edit its policy and budget, `d` delete a client, `p` add or change a provider, `x` delete a provider. It shows the spend per client and the last decisions. |
+| `6` | Router | `n` new client and key, `k` new key for a client, `e` edit its policy and budget, `d` delete a client, `p` add or change a provider, `x` delete a provider. It shows the spend per client and the last decisions. |
 
 The bottom line of each screen lists its keys.
 
@@ -368,7 +384,7 @@ Downloads can then go to the pool. To remove a pool, press `x`. The data stays o
 
 ### Operators
 
-An operator can log in over SSH and run `sibyl`, but cannot use `sudo`. Add operators on the Host screen with `a`, with SSH keys or a GitHub user name. An operator can read the API key, so add only people whom you trust with the whole server.
+An operator can log in over SSH and run `sibyl`, but cannot use `sudo`. Add operators on the Host screen with `a`, with SSH keys or a GitHub user name. An operator can read the System API key, so add only people whom you trust with the whole server.
 
 To let an existing account run `sibyl`, an administrator runs:
 
@@ -504,4 +520,4 @@ An administrator adds you with `sudo usermod -aG sibyl-operators <user>`. Log ou
 
 ### Report a problem
 
-Open an issue at [github.com/diffsec/sibyl/issues](https://github.com/diffsec/sibyl/issues). Include the output of `sudo bootc status`, the Status screen, and the log of the service that fails. Do not include the API key.
+Open an issue at [github.com/diffsec/sibyl/issues](https://github.com/diffsec/sibyl/issues). Include the output of `sudo bootc status`, the Status screen, and the log of the service that fails. Do not include a key.

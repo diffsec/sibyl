@@ -42,7 +42,7 @@ type routerView struct {
 	ticks  bool
 
 	form *huh.Form
-	mode string // new, edit, delete, provider, unprovider
+	mode string // new, edit, delete, rekey, provider, unprovider
 	// Form values.
 	name, policy, daily, monthly string
 	allowHint, confirm           bool
@@ -82,7 +82,7 @@ func (v *routerView) help() string {
 	}
 	h := "n new client · e edit · p add or change provider · x delete provider · ↑/↓ select"
 	if c, ok := v.selected(); ok && !c.Builtin {
-		h += " · d delete client"
+		h += " · k new key · d delete client"
 	}
 	return h
 }
@@ -170,6 +170,16 @@ func (v *routerView) deleteForm(name string) tea.Cmd {
 		huh.NewConfirm().Title("Delete client " + name + "?").
 			Description("Its key stops working at once.").
 			Affirmative("Delete").Negative("Keep").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *routerView) rekeyForm(name string) tea.Cmd {
+	v.mode, v.name, v.confirm = "rekey", name, false
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title("New key for " + name + "?").
+			Description("The old key stops working at once. The new key is shown once.").
+			Affirmative("New key").Negative("Keep").Value(&v.confirm),
 	)).WithShowHelp(false)
 	return v.form.Init()
 }
@@ -266,6 +276,14 @@ func (v *routerView) submit() tea.Cmd {
 		return run("change client "+name, func(ctx context.Context) (string, error) {
 			return "", v.c.SetRouterClient(ctx, name, policy, hint, b)
 		})
+	case "rekey":
+		if !v.confirm {
+			return note(false, "%s keeps its key", name)
+		}
+		return run("new key for "+name, func(ctx context.Context) (string, error) {
+			nc, err := v.c.NewRouterClientKey(ctx, name)
+			return nc.Key, err
+		})
 	case "delete":
 		if !v.confirm {
 			return note(false, "%s kept", name)
@@ -309,7 +327,7 @@ func (v *routerView) update(msg tea.Msg) tea.Cmd {
 			return tea.Batch(note(false, "%s: %v", msg.what, msg.err), v.fetch())
 		}
 		if msg.key != "" {
-			v.key, v.keyFor = msg.key, strings.TrimPrefix(msg.what, "create client ")
+			v.key, v.keyFor = msg.key, strings.TrimPrefix(strings.TrimPrefix(msg.what, "create client "), "new key for ")
 		}
 		return tea.Batch(note(true, "%s: done", msg.what), v.fetch())
 	case tea.KeyPressMsg:
@@ -356,6 +374,10 @@ func (v *routerView) keyPress(k string) tea.Cmd {
 	case "d":
 		if ok && !c.Builtin {
 			return v.deleteForm(c.Name)
+		}
+	case "k":
+		if ok && !c.Builtin {
+			return v.rekeyForm(c.Name)
 		}
 	case "p":
 		return v.providerForm()
@@ -407,6 +429,7 @@ func (v *routerView) render(int) string {
 		b.WriteString(badSty.Render("  Key for "+v.keyFor+". Copy it now, it is not shown again:") + "\n")
 		b.WriteString("    " + selSty.Render(v.key) + "\n")
 	}
+	b.WriteString(mutedSty.Render("  The default key is in /var/lib/sibyl-operator/inference.key. Programs use their own keys.") + "\n")
 
 	b.WriteString("\n" + titleSty.Render("Providers") + "\n")
 	if len(v.r.Providers) == 0 {

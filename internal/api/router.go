@@ -197,18 +197,16 @@ func (s *Server) postRouterClient(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, fmt.Errorf("client %q exists", req.Name))
 		return
 	}
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
+	key, hash, err := newClientKey()
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	key := "sib-" + hex.EncodeToString(b)
-	sum := sha256.Sum256([]byte(key))
 	if req.Policy == "" {
 		req.Policy = router.LocalOnly
 	}
 	c.Clients.Clients = append(c.Clients.Clients, router.Client{
-		Name: req.Name, KeySHA256: hex.EncodeToString(sum[:]), Policy: req.Policy, AllowHint: req.AllowHint,
+		Name: req.Name, KeySHA256: hash, Policy: req.Policy, AllowHint: req.AllowHint,
 		Budget: req.Budget,
 	})
 	if err := s.saveClients(c.Clients); err != nil {
@@ -217,6 +215,51 @@ func (s *Server) postRouterClient(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("router client created", "client", req.Name, "policy", req.Policy)
 	writeJSON(w, http.StatusCreated, map[string]any{"name": req.Name, "policy": req.Policy, "key": key})
+}
+
+// newClientKey returns a new client key and its hex SHA-256.
+func newClientKey() (key, hash string, err error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", "", err
+	}
+	key = "sib-" + hex.EncodeToString(b)
+	sum := sha256.Sum256([]byte(key))
+	return key, hex.EncodeToString(sum[:]), nil
+}
+
+// postRouterClientKey gives a client a new key. The old key stops working
+// within two seconds, when the router reloads clients.yaml.
+func (s *Server) postRouterClientKey(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if router.Builtin(name) {
+		writeError(w, http.StatusConflict, fmt.Errorf("the key of %q is a Podman secret: replace it on the host with podman secret", name))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, err := s.loadRouter()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	i := slices.IndexFunc(c.Clients.Clients, func(x router.Client) bool { return x.Name == name })
+	if i < 0 {
+		writeError(w, http.StatusNotFound, fmt.Errorf("no client %q", name))
+		return
+	}
+	key, hash, err := newClientKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	c.Clients.Clients[i].KeySHA256 = hash
+	if err := s.saveClients(c.Clients); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.Log.Info("router client key replaced", "client", name)
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "policy": c.Clients.Clients[i].Policy, "key": key})
 }
 
 func (s *Server) saveClients(f router.ClientsFile) error {

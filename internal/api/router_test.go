@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/diffsec/sibyl/internal/arcane"
+	"github.com/diffsec/sibyl/internal/ollama"
 	"github.com/diffsec/sibyl/internal/router"
 )
 
@@ -316,5 +318,79 @@ func TestArcaneDefaultPasswordReplaced(t *testing.T) {
 	f.do(t, "GET", "/integrations/arcane", "", true)
 	if logins != n+1 {
 		t.Errorf("%d logins for two polls, want 1", logins-n)
+	}
+}
+
+// TestOllamaTakesClientKeys checks that /api takes router client keys, not
+// the System API key, and that a good key is kept for a minute.
+func TestOllamaTakesClientKeys(t *testing.T) {
+	f := newFixture(t)
+	checks := 0
+	rt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checks++
+		if r.URL.Path == "/v1/models" && r.Header.Get("Authorization") == "Bearer client-key" {
+			_, _ = w.Write([]byte(`{"data":[]}`))
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer rt.Close()
+	f.server.Ollama = &ollama.Shim{Upstream: rt.URL, HTTP: &http.Client{},
+		Models:    func(context.Context) ([]ollama.ModelInfo, error) { return []ollama.ModelInfo{{ID: "m"}}, nil },
+		Authorize: (&RouterAuth{URL: rt.URL}).Authorize}
+	srv := httptest.NewServer(f.server.Handler())
+	defer srv.Close()
+	get := func(key string) int {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/tags", nil)
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	for key, want := range map[string]int{"": 401, token: 401, "wrong": 401, "client-key": 200} {
+		if got := get(key); got != want {
+			t.Errorf("key %q: %d, want %d", key, got, want)
+		}
+	}
+	n := checks
+	get("client-key")
+	if checks != n {
+		t.Error("a good key was checked again within a minute")
+	}
+	// The client key does not open the System API.
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/status", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	if resp, err := http.DefaultClient.Do(req); err != nil || resp.StatusCode != 401 {
+		t.Errorf("client key on /status: %v %v", resp.StatusCode, err)
+	}
+}
+
+func TestRouterClientNewKey(t *testing.T) {
+	f := newFixture(t)
+	_, b := f.do(t, "POST", "/router/clients", `{"name":"laptop"}`, true)
+	old := b["key"].(string)
+	code, b := f.do(t, "POST", "/router/clients/laptop/key", "", true)
+	key, _ := b["key"].(string)
+	if code != 200 || key == "" || key == old {
+		t.Fatalf("new key = %d %v", code, b)
+	}
+	cfg, err := router.LoadConfig(filepath.Join(f.paths.Config, "router"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(key))
+	if cfg.Clients.Clients[0].KeySHA256 != hex.EncodeToString(sum[:]) {
+		t.Error("clients.yaml holds the old hash")
+	}
+	if code, _ := f.do(t, "POST", "/router/clients/default/key", "", true); code != http.StatusConflict {
+		t.Errorf("built-in client = %d, want 409", code)
+	}
+	if code, _ := f.do(t, "POST", "/router/clients/nobody/key", "", true); code != http.StatusNotFound {
+		t.Errorf("unknown client = %d, want 404", code)
 	}
 }

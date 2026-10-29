@@ -493,6 +493,12 @@ func (c *Client) SetRouterClient(ctx context.Context, name, policy string, allow
 	return c.do(ctx, http.MethodPut, "/router/clients/"+url.PathEscape(name), in, nil)
 }
 
+// NewRouterClientKey gives a client a new key. The old key stops working.
+func (c *Client) NewRouterClientKey(ctx context.Context, name string) (NewRouterClient, error) {
+	var r NewRouterClient
+	return r, c.do(ctx, http.MethodPost, "/router/clients/"+url.PathEscape(name)+"/key", struct{}{}, &r)
+}
+
 // DeleteRouterClient deletes a client, which revokes its key.
 func (c *Client) DeleteRouterClient(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/router/clients/"+url.PathEscape(name), nil, nil)

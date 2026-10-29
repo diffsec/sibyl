@@ -112,10 +112,11 @@ type harness struct {
 }
 
 const (
-	adminKey  = "sib-admin"
-	owuiKey   = "sib-owui"
-	hybridKey = "sib-hybrid"
-	localKey  = "sib-local"
+	adminKey   = "sib-admin"
+	defaultKey = "sib-default"
+	owuiKey    = "sib-owui"
+	hybridKey  = "sib-hybrid"
+	localKey   = "sib-local"
 )
 
 func write(t *testing.T, path, body string) {
@@ -164,7 +165,7 @@ func newHarness(t *testing.T, profiles string) *harness {
 		write(t, filepath.Join(h.dir, ProfilesName), profiles)
 	}
 	h.router = &Server{
-		ConfigDir: h.dir, LocalURL: localSrv.URL, AdminKey: adminKey, OpenWebUIKey: owuiKey,
+		ConfigDir: h.dir, LocalURL: localSrv.URL, AdminKey: adminKey, DefaultKey: defaultKey, OpenWebUIKey: owuiKey,
 		HTTP: provSrv.Client(), Log: &Log{Path: filepath.Join(h.dir, "decisions.jsonl")},
 		Spend:  &Spend{Path: filepath.Join(h.dir, "usage.json")},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -226,7 +227,7 @@ func TestAuth(t *testing.T) {
 	for _, c := range []struct {
 		key  string
 		want int
-	}{{"", 401}, {"wrong", 401}, {adminKey, 200}, {owuiKey, 200}, {hybridKey, 200}, {localKey, 200}} {
+	}{{"", 401}, {"wrong", 401}, {adminKey, 401}, {defaultKey, 200}, {owuiKey, 200}, {hybridKey, 200}, {localKey, 200}} {
 		resp := h.post(t, "/v1/chat/completions", c.key, chatBody("small", "hi"))
 		if resp.StatusCode != c.want {
 			t.Errorf("key %q: status %d, want %d", c.key, resp.StatusCode, c.want)
@@ -242,7 +243,7 @@ func TestAuth(t *testing.T) {
 
 func TestLocalRequestIsUnchanged(t *testing.T) {
 	h := newHarness(t, "")
-	resp := h.post(t, "/v1/chat/completions", adminKey, chatBody("small", "hi"))
+	resp := h.post(t, "/v1/chat/completions", defaultKey, chatBody("small", "hi"))
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 || !strings.Contains(string(b), "from local") {
 		t.Fatalf("status %d body %s", resp.StatusCode, b)
@@ -270,7 +271,7 @@ func TestProviderRoute(t *testing.T) {
 
 	// Local-only clients, and the built-in clients by default, cannot name
 	// a provider model.
-	for _, key := range []string{localKey, adminKey, owuiKey} {
+	for _, key := range []string{localKey, defaultKey, owuiKey} {
 		resp := h.post(t, "/v1/chat/completions", key, chatBody("cloud/big", "hi"))
 		if resp.StatusCode != http.StatusForbidden {
 			t.Errorf("key %q: status %d, want 403", key, resp.StatusCode)
@@ -343,7 +344,7 @@ func TestLocalOnlyNeverLeaves(t *testing.T) {
         route: cloud/big
     fallback: [cloud/big, cloud/other]
 `, cond))
-			for _, key := range []string{localKey, adminKey, owuiKey} {
+			for _, key := range []string{localKey, defaultKey, owuiKey} {
 				for _, hint := range []string{"", "cloud", "local"} {
 					h.post(t, "/v1/chat/completions", key, chatBody("auto", "hi"), "X-Sibyl-Route", hint)
 					h.post(t, "/v1/messages", key, map[string]any{"model": "auto", "max_tokens": 5,

@@ -35,9 +35,11 @@ type Server struct {
 	ConfigDir string
 	// LocalURL is llama-swap, such as http://llama-swap:8080.
 	LocalURL string
-	// AdminKey is the System API key. It is also the key of the client
-	// "default", and it is the only key that can call /sibyl/explain.
+	// AdminKey is the System API key. It is not an inference key: it can
+	// only call /sibyl/explain.
 	AdminKey string
+	// DefaultKey is the key of the client "default".
+	DefaultKey string
 	// OpenWebUIKey is the key of the client "open-webui".
 	OpenWebUIKey string
 	// HTTP sends requests to llama-swap and the providers. It has no
@@ -175,7 +177,7 @@ func (s *Server) client(key string) (Client, bool) {
 	if key == "" {
 		return Client{}, false
 	}
-	if equal(key, s.AdminKey) {
+	if equal(key, s.DefaultKey) {
 		return builtin(DefaultClient), true
 	}
 	if equal(key, s.OpenWebUIKey) {

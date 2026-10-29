@@ -62,6 +62,10 @@ func run(log *slog.Logger, addr string) error {
 	if err != nil {
 		return err
 	}
+	def, err := readKey(env("SIBYL_DEFAULT_KEY_FILE", "/run/secrets/default-key"))
+	if err != nil {
+		log.Warn("no key for the client default; it is off", "err", err)
+	}
 	owui, err := readKey(env("SIBYL_OPEN_WEBUI_KEY_FILE", "/run/secrets/open-webui-key"))
 	if err != nil {
 		log.Warn("no Open WebUI key; the open-webui client is off", "err", err)
@@ -70,6 +74,7 @@ func run(log *slog.Logger, addr string) error {
 		ConfigDir:    env("SIBYL_ROUTER_CONFIG", "/config"),
 		LocalURL:     env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080"),
 		AdminKey:     admin,
+		DefaultKey:   def,
 		OpenWebUIKey: owui,
 		HTTP: &http.Client{Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,

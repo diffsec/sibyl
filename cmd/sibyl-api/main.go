@@ -101,6 +101,8 @@ func run(log *slog.Logger) error {
 		Running:  llamaSwap,
 		Models:   s.OllamaModels,
 		HTTP:     &http.Client{},
+		// A router client key, never the System API key.
+		Authorize: (&api.RouterAuth{URL: s.RouterURL}).Authorize,
 	}
 
 	// Bring the generated files in line with the disk at startup, for example

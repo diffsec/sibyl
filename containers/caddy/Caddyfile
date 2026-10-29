@@ -52,20 +52,16 @@
 		}
 	}
 
-	@authed header Authorization "Bearer {env.SIBYL_API_KEY}"
-
-	handle @authed {
-		# Ollama-compatible shim, served by the System API. It sends the
-		# caller's key on to the router.
-		handle /api/* {
-			reverse_proxy system-api:3001 {
-				flush_interval -1
-			}
+	# Ollama-compatible shim, served by the System API. It takes router
+	# client keys, which it checks with the router, never the System API key.
+	handle /api/* {
+		reverse_proxy system-api:3001 {
+			flush_interval -1
 		}
 	}
 
 	handle {
-		respond `{"error":"missing or invalid API key"}` 401
+		respond `{"error":"not found"}` 404
 	}
 }
 

@@ -34,8 +34,8 @@ Open WebUI --------------------------------> router
 System API Ollama shim (/api/*) -----------> router
 ```
 
-- Caddy sends `/v1/*` to the router instead of llama-swap. The router checks the client key, so Caddy no longer compares a bearer token for `/v1`.
-- Open WebUI calls the router with its own client key, `open-webui`. The Ollama shim sends the caller's key to the router, so the caller's policy applies.
+- Caddy sends `/v1/*` to the router instead of llama-swap, and `/api/*` to the System API's Ollama shim. Caddy compares no key: the router and the shim check them.
+- Open WebUI calls the router with its own client key, `open-webui`. The Ollama shim checks the caller's key with the router (`GET /v1/models`, kept for a minute) and sends it on, so the caller's policy applies. The shim refuses the System API key.
 - llama-swap stays unreachable from outside the `sibyl` network.
 
 The router is not part of the System API, for two reasons. The System API holds administrative power over the host, and the router handles untrusted request bodies at high volume. Keeping them apart limits what a bug in either one exposes. It also completes the key split from the security audit: inference clients get router keys, and only operators get the System API key.
@@ -62,9 +62,9 @@ clients:
 - `local-only` clients never reach a provider, whatever the rules or the request say.
 - `hybrid` clients follow the rules.
 - The System API creates and revokes keys (`POST /router/clients`, `DELETE /router/clients/{name}`) and shows a new key once. The TUI gets a Router screen for this.
-- The key that Sibyl creates at the first boot becomes the first client, `default`, with the `local-only` policy, so an upgrade changes nothing for existing clients.
+- The first client is `default`, with the `local-only` policy. Its key is `sibyl-inference-key`, which operators read in `/var/lib/sibyl-operator/inference.key`. Until 2026-10-29 the System API key was also the `default` key. Since then the System API key is not an inference key, so a program that used `api.key` for `/v1` needs `inference.key` or a client key of its own.
 - Open WebUI starts as the client `open-webui` with the `local-only` policy. The admin changes it to `hybrid` to let Open WebUI use providers.
-- The keys of `default` and `open-webui` are Podman secrets (`sibyl-api-key` and `sibyl-router-owui-key`), not hashes in `clients.yaml`. An entry for either name in `clients.yaml` sets only its policy. The secrets service creates a missing secret at every boot, so an upgraded host gets the Open WebUI key before the services start.
+- The keys of `default` and `open-webui` are Podman secrets (`sibyl-inference-key` and `sibyl-router-owui-key`), not hashes in `clients.yaml`. An entry for either name in `clients.yaml` sets only its policy. The secrets service creates a missing secret at every boot, so an upgraded host gets the Open WebUI key before the services start.
 - Open WebUI keeps its connection settings in its database after the first start. The System API therefore moves an older install from llama-swap to the router through Open WebUI's admin API, when an Open WebUI admin key is stored. Until then, Open WebUI keeps calling llama-swap directly.
 - The router reloads its configuration files within two seconds of a change. A file with an error is not used: the router keeps the last good configuration and logs the error.
 

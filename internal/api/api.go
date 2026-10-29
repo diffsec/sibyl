@@ -155,14 +155,17 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /router", s.getRouter)
 	auth.HandleFunc("POST /router/clients", s.postRouterClient)
 	auth.HandleFunc("PUT /router/clients/{name}", s.putRouterClient)
+	auth.HandleFunc("POST /router/clients/{name}/key", s.postRouterClientKey)
 	auth.HandleFunc("DELETE /router/clients/{name}", s.deleteRouterClient)
 	auth.HandleFunc("PUT /router/providers/{name}", s.putRouterProvider)
 	auth.HandleFunc("DELETE /router/providers/{name}", s.deleteRouterProvider)
 	auth.HandleFunc("PUT /router/profiles", s.putRouterProfiles)
 	auth.HandleFunc("POST /router/explain", s.postRouterExplain)
 	auth.HandleFunc("GET /router/stats", s.getRouterStats)
+	// The Ollama shim is for inference clients, so it takes router client
+	// keys, not the System API key. The router checks them.
 	if s.Ollama != nil {
-		s.Ollama.Register(auth)
+		s.Ollama.Register(mux)
 	}
 	mux.Handle("/", s.requireToken(auth))
 	return mux

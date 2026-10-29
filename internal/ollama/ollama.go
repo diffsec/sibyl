@@ -33,30 +33,40 @@ type Shim struct {
 	Models   func(ctx context.Context) ([]ModelInfo, error) // installed models
 	HTTP     *http.Client                                   // no overall timeout: responses stream
 	Now      func() time.Time
+	// Authorize checks the caller's Authorization header. Nil lets every
+	// caller in.
+	Authorize func(ctx context.Context, auth string) error
 }
 
 type authKey struct{}
 
-// withAuth keeps the caller's Authorization header, so the upstream sees
-// the caller's key.
-func withAuth(h http.HandlerFunc) http.HandlerFunc {
+// withAuth checks the caller's key, and keeps the Authorization header so
+// the upstream sees the caller's key.
+func (s *Shim) withAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		h(w, r.WithContext(context.WithValue(r.Context(), authKey{}, r.Header.Get("Authorization"))))
+		auth := r.Header.Get("Authorization")
+		if s.Authorize != nil {
+			if err := s.Authorize(r.Context(), auth); err != nil {
+				writeErr(w, http.StatusUnauthorized, err)
+				return
+			}
+		}
+		h(w, r.WithContext(context.WithValue(r.Context(), authKey{}, auth)))
 	}
 }
 
 // Register adds the Ollama routes to mux.
 func (s *Shim) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/version", s.version)
-	mux.HandleFunc("GET /api/tags", s.tags)
-	mux.HandleFunc("POST /api/show", s.show)
-	mux.HandleFunc("GET /api/ps", s.ps)
-	mux.HandleFunc("POST /api/chat", withAuth(s.chat))
-	mux.HandleFunc("POST /api/generate", withAuth(s.generate))
-	mux.HandleFunc("POST /api/embed", withAuth(s.embed))
-	mux.HandleFunc("POST /api/embeddings", withAuth(s.embeddingsLegacy))
+	mux.HandleFunc("GET /api/version", s.withAuth(s.version))
+	mux.HandleFunc("GET /api/tags", s.withAuth(s.tags))
+	mux.HandleFunc("POST /api/show", s.withAuth(s.show))
+	mux.HandleFunc("GET /api/ps", s.withAuth(s.ps))
+	mux.HandleFunc("POST /api/chat", s.withAuth(s.chat))
+	mux.HandleFunc("POST /api/generate", s.withAuth(s.generate))
+	mux.HandleFunc("POST /api/embed", s.withAuth(s.embed))
+	mux.HandleFunc("POST /api/embeddings", s.withAuth(s.embeddingsLegacy))
 	for _, p := range []string{"pull", "push", "create", "copy", "delete", "blobs/"} {
-		mux.HandleFunc("/api/"+p, notSupported)
+		mux.HandleFunc("/api/"+p, s.withAuth(notSupported))
 	}
 }
 

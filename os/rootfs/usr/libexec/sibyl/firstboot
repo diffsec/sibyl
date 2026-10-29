@@ -35,6 +35,12 @@ if ! secret_exists sibyl-api-key; then
     printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-api-key - >/dev/null
 fi
 
+# The inference key of the router client "default". The System API key
+# (sibyl-api-key) is not an inference key.
+if ! secret_exists sibyl-inference-key; then
+    printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-inference-key - >/dev/null
+fi
+
 # The router key of Open WebUI (the router client "open-webui").
 if ! secret_exists sibyl-router-owui-key; then
     printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-router-owui-key - >/dev/null
