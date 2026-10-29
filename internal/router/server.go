@@ -55,6 +55,17 @@ type Server struct {
 	mu    sync.RWMutex
 	cfg   *Config
 	stamp string
+
+	clsOnce sync.Once
+	cls     *classifier
+}
+
+// classifier returns the classifier, which it makes on first use.
+func (s *Server) classifier() *classifier {
+	s.clsOnce.Do(func() {
+		s.cls = &classifier{embed: s.embed, log: s.logger().Info}
+	})
+	return s.cls
 }
 
 // config returns the current configuration.
@@ -71,7 +82,7 @@ func (s *Server) config() *Config {
 // change shows without reading them.
 func stampOf(dir string) string {
 	var b strings.Builder
-	names := []string{ClientsName, ProvidersName, ProfilesName, ModelsName, CatalogName}
+	names := []string{ClientsName, ProvidersName, ProfilesName, ModelsName, CatalogName, ExamplesName}
 	if es, err := os.ReadDir(filepath.Join(dir, KeysDir)); err == nil {
 		for _, e := range es {
 			names = append(names, filepath.Join(KeysDir, e.Name()))
@@ -107,6 +118,7 @@ func (s *Server) Reload() error {
 	}
 	s.cfg, s.stamp = cfg, stamp
 	s.mu.Unlock()
+	s.classifier().update(cfg)
 	s.logger().Info("configuration loaded", "clients", len(cfg.Clients.Clients),
 		"providers", len(cfg.Providers.Providers), "profiles", len(cfg.Profiles.Profiles))
 	return nil
@@ -154,6 +166,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/embeddings", s.authed(s.embeddings))
 	mux.HandleFunc("/v1/", s.authed(s.passthrough))
 	mux.HandleFunc("POST /sibyl/explain", s.explain)
+	mux.HandleFunc("POST /sibyl/classify", s.classifyText)
 	return mux
 }
 
@@ -266,7 +279,7 @@ func errCode(err error) int {
 
 // resolver returns the decision inputs for a client and request.
 func (s *Server) resolver(c Client, h http.Header) resolver {
-	return resolver{cfg: s.config(), client: c, hint: hint(h, c), ready: s.localReady}
+	return resolver{cfg: s.config(), client: c, hint: hint(h, c), ready: s.localReady, classify: s.classifier().classify}
 }
 
 // localReady asks llama-swap whether model is loaded and ready.
@@ -667,7 +680,11 @@ func (s *Server) account(e *Entry, rt Route, u Usage) {
 }
 
 func entryFor(c Client, endpoint string, d Decision) Entry {
-	return Entry{Client: c.Name, Endpoint: endpoint, Requested: d.Requested, Profile: d.Profile, Rule: d.Rule}
+	e := Entry{Client: c.Name, Endpoint: endpoint, Requested: d.Requested, Profile: d.Profile, Rule: d.Rule}
+	if d.Classification != nil {
+		e.Task, e.Difficulty = d.Classification.Task, d.Classification.Difficulty
+	}
+	return e
 }
 
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
@@ -1020,7 +1037,47 @@ func (s *Server) explain(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, errCode(err), err.Error())
 		return
 	}
+	if !d.Route.Local() {
+		if p, ok := s.config().price(d.Route); ok {
+			d.Price = &p
+		}
+	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// ClassifyRequest is the body of /sibyl/classify.
+type ClassifyRequest struct {
+	Text string `json:"text"`
+}
+
+// ClassifyResponse is the answer of /sibyl/classify.
+type ClassifyResponse struct {
+	Index          IndexStatus     `json:"index"`
+	Classification *Classification `json:"classification"`
+}
+
+// classifyText labels a text with the classifier, for the owner to test
+// examples. Only the System API key can call it.
+func (s *Server) classifyText(w http.ResponseWriter, r *http.Request) {
+	if !equal(clientKey(r), s.AdminKey) {
+		writeOpenAIError(w, http.StatusUnauthorized, "missing or invalid API key")
+		return
+	}
+	body, err := readBody(w, r)
+	if err != nil {
+		writeOpenAIError(w, errCode(err), err.Error())
+		return
+	}
+	var cr ClassifyRequest
+	if err := json.Unmarshal(body, &cr); err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "the body is not valid JSON")
+		return
+	}
+	cls := s.classifier()
+	writeJSON(w, http.StatusOK, ClassifyResponse{
+		Index:          cls.status(),
+		Classification: cls.classify(s.config().Profiles.Classifier, cr.Text),
+	})
 }
 
 // clientByName finds a client by name, including the built-in clients.

@@ -15,6 +15,8 @@ type Entry struct {
 	Requested        string    `json:"requested,omitempty"`
 	Profile          string    `json:"profile,omitempty"`
 	Rule             string    `json:"rule,omitempty"`
+	Task             string    `json:"task,omitempty"`
+	Difficulty       string    `json:"difficulty,omitempty"`
 	Route            string    `json:"route,omitempty"`
 	Status           int       `json:"status"`
 	PromptTokens     int       `json:"prompt_tokens,omitempty"`

@@ -175,6 +175,25 @@ func TestRouterStatsAndExplain(t *testing.T) {
 	}
 }
 
+func TestRouterExamples(t *testing.T) {
+	f := newFixture(t)
+	code, b := f.do(t, "GET", "/router/examples", "", true)
+	if code != 200 || len(b["examples"].([]any)) != 0 || b["starter"].(float64) < 100 {
+		t.Errorf("empty examples = %d %v", code, b)
+	}
+	code, b = f.do(t, "PUT", "/router/examples", `[{"text":"sort a slice in go","task":"code","difficulty":"easy"}]`, true)
+	if code != 200 || len(b["examples"].([]any)) != 1 {
+		t.Errorf("put examples = %d %v", code, b)
+	}
+	if got, err := os.ReadFile(filepath.Join(f.paths.Config, "router", router.ExamplesName)); err != nil ||
+		string(got) != `{"text":"sort a slice in go","task":"code","difficulty":"easy"}`+"\n" {
+		t.Errorf("examples.jsonl = %q, %v", got, err)
+	}
+	if code, b := f.do(t, "PUT", "/router/examples", `[{"text":"x","task":"poetry","difficulty":"easy"}]`, true); code != 422 {
+		t.Errorf("a bad task was saved: %d %v", code, b)
+	}
+}
+
 func TestSyncOpenWebUIAtStartRetries(t *testing.T) {
 	f := newFixture(t)
 	write(t, filepath.Join(f.paths.Config, "open-webui.key"), "good-key")

@@ -78,7 +78,21 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch path {
 	case "/embeddings":
-		_, _ = io.WriteString(w, `{"data":[{"index":0,"embedding":[0.1]}],"usage":{"prompt_tokens":3}}`)
+		var texts []string
+		switch in := body["input"].(type) {
+		case string:
+			texts = []string{in}
+		case []any:
+			for _, t := range in {
+				s, _ := t.(string)
+				texts = append(texts, s)
+			}
+		}
+		data := make([]map[string]any, len(texts))
+		for i, t := range texts {
+			data[i] = map[string]any{"index": i, "embedding": bagOfWords(t)}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "usage": map[string]int{"prompt_tokens": 3}})
 	case "/chat/completions":
 		if body["stream"] == true {
 			w.Header().Set("Content-Type", "text/event-stream")

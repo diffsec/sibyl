@@ -65,6 +65,8 @@ type Features struct {
 	Task         string `json:"task"`
 	Difficulty   string `json:"difficulty"`
 	Hint         string `json:"hint"`
+	// query is the text that the classifier labels: the last user message.
+	query string
 }
 
 // charsPerToken is the estimate of characters per token. English text runs
@@ -103,6 +105,38 @@ func (r chatRequest) text() (string, bool) {
 	return b.String(), images
 }
 
+// messageText returns the text of a message's content.
+func messageText(content json.RawMessage) string {
+	var s string
+	if json.Unmarshal(content, &s) == nil {
+		return s
+	}
+	var parts []contentPart
+	_ = json.Unmarshal(content, &parts)
+	var b strings.Builder
+	for _, p := range parts {
+		if p.Type == "text" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
+}
+
+// lastUser returns the text of the last user message that has text.
+func (r chatRequest) lastUser() string {
+	for i := len(r.Messages) - 1; i >= 0; i-- {
+		if r.Messages[i].Role == "user" {
+			if t := messageText(r.Messages[i].Content); strings.TrimSpace(t) != "" {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
 // features computes the parts of the profile that come from the request.
 func (r chatRequest) features(words []string) Features {
 	text, images := r.text()
@@ -115,6 +149,7 @@ func (r chatRequest) features(words []string) Features {
 		Sensitive:    Sensitive(text, words),
 		Task:         "unknown",
 		Difficulty:   "unknown",
+		query:        r.lastUser(),
 	}
 	switch {
 	case r.MaxCompletionTokens != nil:

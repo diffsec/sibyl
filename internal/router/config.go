@@ -280,8 +280,10 @@ type Profile struct {
 type ProfilesFile struct {
 	// SensitiveWords are words that mark a request as sensitive, in
 	// addition to the built-in secret detectors.
-	SensitiveWords []string           `yaml:"sensitive_words,omitempty" json:"sensitive_words,omitempty"`
-	Profiles       map[string]Profile `yaml:"profiles" json:"profiles"`
+	SensitiveWords []string `yaml:"sensitive_words,omitempty" json:"sensitive_words,omitempty"`
+	// Classifier sets up the task and difficulty labels.
+	Classifier ClassifierConfig   `yaml:"classifier,omitempty" json:"classifier,omitzero"`
+	Profiles   map[string]Profile `yaml:"profiles" json:"profiles"`
 }
 
 // The labels that the classifier gives, and the hints that a client sends.
@@ -297,6 +299,9 @@ func (f ProfilesFile) Validate(providers ProvidersFile) error {
 		if strings.TrimSpace(w) == "" {
 			return errors.New("sensitive_words: a word is empty")
 		}
+	}
+	if err := f.Classifier.validate(); err != nil {
+		return err
 	}
 	for name, p := range f.Profiles {
 		if err := ValidName(name); err != nil {
@@ -416,6 +421,8 @@ type Config struct {
 	Catalog catalog.Catalog
 	// CatalogErr is why catalog.json could not be read, if it could not.
 	CatalogErr error
+	// Examples are the owner's classifier examples from examples.jsonl.
+	Examples []Example
 }
 
 // The file names in the configuration directory.
@@ -481,6 +488,11 @@ func LoadConfig(dir string) (*Config, error) {
 	if err := c.Profiles.Validate(c.Providers); err != nil {
 		return nil, err
 	}
+	ex, err := loadExamples(filepath.Join(dir, ExamplesName))
+	if err != nil {
+		return nil, err
+	}
+	c.Examples = ex
 	for name := range c.Providers.Providers {
 		b, err := os.ReadFile(filepath.Join(dir, KeysDir, name))
 		if err != nil {

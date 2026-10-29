@@ -1,0 +1,152 @@
+# Starter examples for the Sibyl router classifier: one JSON object per line.
+# Tasks: chat, code, math, writing, extraction. Difficulties: easy, medium, hard.
+{"text": "hi, how are you today?", "task": "chat", "difficulty": "easy"}
+{"text": "What is the capital of Canada?", "task": "chat", "difficulty": "easy"}
+{"text": "Thanks, that worked!", "task": "chat", "difficulty": "easy"}
+{"text": "Can you recommend a good sci-fi movie for tonight?", "task": "chat", "difficulty": "easy"}
+{"text": "How many ounces are in a cup?", "task": "chat", "difficulty": "easy"}
+{"text": "What time zone is Sydney in?", "task": "chat", "difficulty": "easy"}
+{"text": "Tell me a fun fact about octopuses.", "task": "chat", "difficulty": "easy"}
+{"text": "What does RSVP stand for?", "task": "chat", "difficulty": "easy"}
+{"text": "Good morning! Any tips for staying focused while working from home?", "task": "chat", "difficulty": "easy"}
+{"text": "Who wrote Pride and Prejudice?", "task": "chat", "difficulty": "easy"}
+{"text": "I'm trying to decide between renting and buying a home in a city where prices keep going up. What should I consider?", "task": "chat", "difficulty": "medium"}
+{"text": "Explain how vaccines train the immune system, in terms a teenager would understand.", "task": "chat", "difficulty": "medium"}
+{"text": "What are the main differences between Stoicism and Epicureanism, and how do they apply to daily life?", "task": "chat", "difficulty": "medium"}
+{"text": "Plan a 5 day trip to Japan for someone who likes food and hiking, on a mid-range budget.", "task": "chat", "difficulty": "medium"}
+{"text": "My sourdough starter smells like acetone and isn't rising. What is going wrong and how do I fix it?", "task": "chat", "difficulty": "medium"}
+{"text": "Why did the Roman Republic turn into an empire? Give the main causes.", "task": "chat", "difficulty": "medium"}
+{"text": "Compare heat pumps and gas furnaces for a cold climate house, including running costs.", "task": "chat", "difficulty": "medium"}
+{"text": "How should I prepare for a salary negotiation for a senior engineering role?", "task": "chat", "difficulty": "medium"}
+{"text": "What is the difference between a Roth IRA and a traditional IRA, and which suits a 30 year old?", "task": "chat", "difficulty": "medium"}
+{"text": "Explain how noise-cancelling headphones work.", "task": "chat", "difficulty": "medium"}
+{"text": "Critically assess the evidence for and against the claim that minimum wage increases reduce employment, citing the main empirical studies and their methodological disputes.", "task": "chat", "difficulty": "hard"}
+{"text": "Explain the measurement problem in quantum mechanics and compare how Copenhagen, many-worlds and pilot-wave interpretations handle it, including their weaknesses.", "task": "chat", "difficulty": "hard"}
+{"text": "I'm a founder with 14 months of runway, flat revenue and two acquisition offers with different earn-out structures. Walk through how to evaluate them, including the risks in each clause type.", "task": "chat", "difficulty": "hard"}
+{"text": "Analyse the causes of the 2008 financial crisis across regulation, incentives, and market structure, and say which explanations you find weakest and why.", "task": "chat", "difficulty": "hard"}
+{"text": "Design a curriculum to take an experienced backend engineer to research-level competence in machine learning theory within a year, with milestones and reading.", "task": "chat", "difficulty": "hard"}
+{"text": "Steelman both sides of the debate over whether large language models understand language, then give your own position with reasons.", "task": "chat", "difficulty": "hard"}
+{"text": "My elderly father has early dementia, lives alone 300 km away, and refuses help. Talk me through the legal, financial and practical options in order of urgency.", "task": "chat", "difficulty": "hard"}
+{"text": "Compare the long-run economic effects of a carbon tax with a cap-and-trade scheme under uncertainty about abatement costs, using Weitzman's prices versus quantities argument.", "task": "chat", "difficulty": "hard"}
+{"text": "What would happen to Earth's climate, tides and life if the Moon were suddenly twice as far away? Reason through the physics step by step.", "task": "chat", "difficulty": "hard"}
+{"text": "Explain why the Riemann hypothesis matters for the distribution of primes, at the level of a strong undergraduate.", "task": "chat", "difficulty": "hard"}
+{"text": "How do I reverse a string in Python?", "task": "code", "difficulty": "easy"}
+{"text": "What's the git command to undo my last commit but keep the changes?", "task": "code", "difficulty": "easy"}
+{"text": "Write a bash one-liner that counts the lines in all .go files.", "task": "code", "difficulty": "easy"}
+{"text": "How do I center a div with CSS?", "task": "code", "difficulty": "easy"}
+{"text": "Convert this to an arrow function: function add(a, b) { return a + b; }", "task": "code", "difficulty": "easy"}
+{"text": "What does the -p flag do in mkdir?", "task": "code", "difficulty": "easy"}
+{"text": "How do I read a JSON file in Node.js?", "task": "code", "difficulty": "easy"}
+{"text": "SQL to get the 10 most recent orders from an orders table with a created_at column.", "task": "code", "difficulty": "easy"}
+{"text": "What is the difference between let and const in JavaScript?", "task": "code", "difficulty": "easy"}
+{"text": "Fix the syntax error: for i in range(10) print(i)", "task": "code", "difficulty": "easy"}
+{"text": "Write a Python function that parses an Apache access log and returns the top 10 IP addresses by request count, with tests.", "task": "code", "difficulty": "medium"}
+{"text": "I get 'TypeError: Cannot read properties of undefined (reading map)' in my React component when the API is slow. Here is the component. How do I fix it?", "task": "code", "difficulty": "medium"}
+{"text": "Write a GitHub Actions workflow that runs go test and golangci-lint on pull requests.", "task": "code", "difficulty": "medium"}
+{"text": "Refactor this 200 line Express handler into a service layer and a controller, and explain the split.", "task": "code", "difficulty": "medium"}
+{"text": "Write a Dockerfile for a Django app with Postgres, using a multi-stage build and a non-root user.", "task": "code", "difficulty": "medium"}
+{"text": "Implement an LRU cache in Go with Get and Put in O(1) and a capacity limit.", "task": "code", "difficulty": "medium"}
+{"text": "My SQL query with three joins takes 12 seconds. Here is the EXPLAIN output. What indexes should I add?", "task": "code", "difficulty": "medium"}
+{"text": "Write a Rust CLI that watches a directory and prints a line when a file changes.", "task": "code", "difficulty": "medium"}
+{"text": "Add pagination with cursor tokens to this REST endpoint that lists users.", "task": "code", "difficulty": "medium"}
+{"text": "Convert this callback-based Node.js code to async/await and handle errors properly.", "task": "code", "difficulty": "medium"}
+{"text": "Our Go service deadlocks under load about once a day. Here are goroutine dumps from two incidents. Find the lock ordering problem and propose a fix that keeps throughput.", "task": "code", "difficulty": "hard"}
+{"text": "Design and implement a lock-free multi-producer multi-consumer queue in C++ with correct memory ordering, and explain why each atomic operation uses the ordering it does.", "task": "code", "difficulty": "hard"}
+{"text": "Write a parser and type checker for a small functional language with let-polymorphism, using Hindley-Milner inference.", "task": "code", "difficulty": "hard"}
+{"text": "Our Kubernetes operator sometimes deletes the wrong StatefulSet during a rolling update. Here is the reconcile loop. Find the race and rewrite it to be idempotent.", "task": "code", "difficulty": "hard"}
+{"text": "Implement Raft leader election and log replication in Rust, with tests for network partitions.", "task": "code", "difficulty": "hard"}
+{"text": "Profile shows 40% of CPU in JSON encoding in our hot path. Redesign the serialization layer for zero allocations without breaking the public API, and show benchmarks.", "task": "code", "difficulty": "hard"}
+{"text": "Review this cryptographic code that implements AES-GCM with a custom nonce scheme and find the vulnerabilities.", "task": "code", "difficulty": "hard"}
+{"text": "Migrate a 300k line Python 2 monolith to Python 3 with zero downtime. Give the plan, the tooling, and how to handle bytes versus str at the boundaries.", "task": "code", "difficulty": "hard"}
+{"text": "Write a CUDA kernel for a fused attention forward pass with tiling in shared memory and explain the occupancy trade-offs.", "task": "code", "difficulty": "hard"}
+{"text": "This distributed transaction across three microservices sometimes leaves inconsistent state after a timeout. Redesign it with the saga pattern and show the compensation logic and failure cases.", "task": "code", "difficulty": "hard"}
+{"text": "What is 15% of 240?", "task": "math", "difficulty": "easy"}
+{"text": "Solve for x: 3x + 7 = 22", "task": "math", "difficulty": "easy"}
+{"text": "What is the square root of 144?", "task": "math", "difficulty": "easy"}
+{"text": "Convert 72 degrees Fahrenheit to Celsius.", "task": "math", "difficulty": "easy"}
+{"text": "If a shirt costs $40 and is 25% off, what is the sale price?", "task": "math", "difficulty": "easy"}
+{"text": "What is 2 to the power of 10?", "task": "math", "difficulty": "easy"}
+{"text": "How many minutes are in 3.5 hours?", "task": "math", "difficulty": "easy"}
+{"text": "What is the area of a circle with radius 3?", "task": "math", "difficulty": "easy"}
+{"text": "Simplify the fraction 18/24.", "task": "math", "difficulty": "easy"}
+{"text": "What is the average of 4, 8, 15, 16, 23 and 42?", "task": "math", "difficulty": "easy"}
+{"text": "A loan of $250,000 at 6% annual interest over 30 years. What is the monthly payment, and how much interest is paid in total?", "task": "math", "difficulty": "medium"}
+{"text": "Find the derivative of f(x) = x^2 * sin(x) * e^x.", "task": "math", "difficulty": "medium"}
+{"text": "Two trains leave stations 300 km apart toward each other at 80 km/h and 70 km/h. When and where do they meet?", "task": "math", "difficulty": "medium"}
+{"text": "What is the probability of getting at least two heads in five fair coin flips?", "task": "math", "difficulty": "medium"}
+{"text": "Solve the system: 2x + 3y - z = 5, x - y + 2z = 3, 3x + y + z = 10.", "task": "math", "difficulty": "medium"}
+{"text": "Compute the integral of x * ln(x) from 1 to e.", "task": "math", "difficulty": "medium"}
+{"text": "A sample of 40 has mean 52 and standard deviation 8. Give a 95% confidence interval for the population mean.", "task": "math", "difficulty": "medium"}
+{"text": "How many ways can 8 people sit at a round table if two of them refuse to sit together?", "task": "math", "difficulty": "medium"}
+{"text": "Find the eigenvalues and eigenvectors of the matrix [[4, 1], [2, 3]].", "task": "math", "difficulty": "medium"}
+{"text": "Solve the differential equation dy/dx = 3y with y(0) = 2.", "task": "math", "difficulty": "medium"}
+{"text": "Prove that there are infinitely many primes of the form 4k + 3.", "task": "math", "difficulty": "hard"}
+{"text": "Prove that every finite group of order p^2, with p prime, is abelian.", "task": "math", "difficulty": "hard"}
+{"text": "Find all real solutions of the functional equation f(x + y) = f(x) + f(y) + xy that are continuous.", "task": "math", "difficulty": "hard"}
+{"text": "Show that the series sum of 1/(n log n) diverges while the sum of 1/(n (log n)^2) converges, with rigorous proofs.", "task": "math", "difficulty": "hard"}
+{"text": "Derive the closed form of the expected number of steps for a random walk on a cycle of n vertices to visit every vertex.", "task": "math", "difficulty": "hard"}
+{"text": "Prove the Cauchy-Schwarz inequality for inner product spaces and give the condition for equality.", "task": "math", "difficulty": "hard"}
+{"text": "A stick is broken at two uniformly random points. What is the probability that the three pieces form a triangle? Prove it.", "task": "math", "difficulty": "hard"}
+{"text": "Evaluate the integral from 0 to infinity of sin(x)/x dx and justify every step.", "task": "math", "difficulty": "hard"}
+{"text": "Prove that the set of real numbers is uncountable using Cantor's diagonal argument, and explain why the argument fails for the rationals.", "task": "math", "difficulty": "hard"}
+{"text": "Solve this olympiad problem: find all positive integers n such that n^2 + 2^n is a perfect square.", "task": "math", "difficulty": "hard"}
+{"text": "Write a short thank-you note to my neighbour for watering my plants.", "task": "writing", "difficulty": "easy"}
+{"text": "Give me five name ideas for a coffee shop.", "task": "writing", "difficulty": "easy"}
+{"text": "Rewrite this sentence to sound more polite: Send me the report now.", "task": "writing", "difficulty": "easy"}
+{"text": "Write a one-line birthday message for a coworker.", "task": "writing", "difficulty": "easy"}
+{"text": "Fix the grammar: me and him goes to the store yesterday.", "task": "writing", "difficulty": "easy"}
+{"text": "Write a tweet announcing our new app version.", "task": "writing", "difficulty": "easy"}
+{"text": "Translate 'Where is the train station?' into Spanish.", "task": "writing", "difficulty": "easy"}
+{"text": "Suggest a title for a blog post about learning to cook.", "task": "writing", "difficulty": "easy"}
+{"text": "Write a two sentence out-of-office reply.", "task": "writing", "difficulty": "easy"}
+{"text": "Make this sound more casual: We regret to inform you that the meeting is cancelled.", "task": "writing", "difficulty": "easy"}
+{"text": "Write a cover letter for a junior data analyst role, highlighting my statistics degree and internship.", "task": "writing", "difficulty": "medium"}
+{"text": "Write a 500 word blog post on the benefits of standing desks, in a friendly tone.", "task": "writing", "difficulty": "medium"}
+{"text": "Draft an email to a client explaining that their project will be two weeks late and why, keeping the relationship positive.", "task": "writing", "difficulty": "medium"}
+{"text": "Write a short story of about 800 words about a lighthouse keeper who finds a message in a bottle.", "task": "writing", "difficulty": "medium"}
+{"text": "Edit this product description to be clearer and more persuasive, and keep it under 120 words.", "task": "writing", "difficulty": "medium"}
+{"text": "Write a wedding toast for my sister, funny but heartfelt, about three minutes long.", "task": "writing", "difficulty": "medium"}
+{"text": "Turn these meeting notes into a clear summary email for the team with action items.", "task": "writing", "difficulty": "medium"}
+{"text": "Write the About page for a small family-run bakery website.", "task": "writing", "difficulty": "medium"}
+{"text": "Rewrite this technical paragraph for a non-technical audience.", "task": "writing", "difficulty": "medium"}
+{"text": "Write a persuasive letter to the city council asking for a bike lane on Main Street.", "task": "writing", "difficulty": "medium"}
+{"text": "Write the opening chapter of a literary novel, about 3,000 words, with an unreliable narrator whose unreliability the reader only notices on a second read.", "task": "writing", "difficulty": "hard"}
+{"text": "Write a grant proposal for a three-year community health research project, with aims, methods, evaluation plan and budget justification, following NIH structure.", "task": "writing", "difficulty": "hard"}
+{"text": "Translate this legal contract from German into English, keeping the legal meaning exact and noting any terms that have no direct equivalent.", "task": "writing", "difficulty": "hard"}
+{"text": "Write a 2,000 word investigative feature on the decline of local newspapers, with a strong narrative arc, interviews woven in, and balanced viewpoints.", "task": "writing", "difficulty": "hard"}
+{"text": "Write a sonnet sequence of five Petrarchan sonnets that tells a story, with strict meter and rhyme.", "task": "writing", "difficulty": "hard"}
+{"text": "Ghostwrite a keynote speech for a CEO announcing layoffs and a strategic pivot, which must be honest, keep morale, and survive press scrutiny.", "task": "writing", "difficulty": "hard"}
+{"text": "Rewrite this 40 page technical specification into a user manual for non-experts while keeping every requirement traceable.", "task": "writing", "difficulty": "hard"}
+{"text": "Write a screenplay for a 10 minute short film with three characters and a twist, in proper screenplay format.", "task": "writing", "difficulty": "hard"}
+{"text": "Edit this academic paper for a top journal: tighten the argument, fix structure, and respond to these three reviewer comments.", "task": "writing", "difficulty": "hard"}
+{"text": "Write a persuasive op-ed arguing a position I disagree with, strong enough to change a sceptical reader's mind, then a rebuttal of equal strength.", "task": "writing", "difficulty": "hard"}
+{"text": "From this email, what date is the meeting? 'Hi all, let's meet on Thursday 14 March at 3pm in room 2.'", "task": "extraction", "difficulty": "easy"}
+{"text": "Extract the phone number from: Call us on (02) 9876 5432 between 9 and 5.", "task": "extraction", "difficulty": "easy"}
+{"text": "What is the total on this receipt? Milk 2.50, Bread 3.20, Eggs 4.80. Total 10.50", "task": "extraction", "difficulty": "easy"}
+{"text": "Pull out all the email addresses in this text.", "task": "extraction", "difficulty": "easy"}
+{"text": "Is this review positive or negative? 'Terrible service, the food was cold.'", "task": "extraction", "difficulty": "easy"}
+{"text": "List the names of the people mentioned in this paragraph.", "task": "extraction", "difficulty": "easy"}
+{"text": "From this address, give me the postcode: 12 High Street, Bristol BS1 4DJ.", "task": "extraction", "difficulty": "easy"}
+{"text": "What language is this sentence written in? 'Ich habe keine Zeit.'", "task": "extraction", "difficulty": "easy"}
+{"text": "Get the URL out of this message.", "task": "extraction", "difficulty": "easy"}
+{"text": "Which product did the customer order in this message?", "task": "extraction", "difficulty": "easy"}
+{"text": "Convert this invoice text into JSON with fields vendor, date, line_items (description, quantity, unit_price) and total.", "task": "extraction", "difficulty": "medium"}
+{"text": "Summarise this 3 page article in five bullet points.", "task": "extraction", "difficulty": "medium"}
+{"text": "Extract every action item, owner and due date from these meeting notes as a table.", "task": "extraction", "difficulty": "medium"}
+{"text": "Classify each of these 50 support tickets as billing, bug, feature request or account access.", "task": "extraction", "difficulty": "medium"}
+{"text": "From this CV, extract the candidate's employment history with company, title and dates.", "task": "extraction", "difficulty": "medium"}
+{"text": "Pull the key terms out of this lease: rent, deposit, term, notice period and break clause.", "task": "extraction", "difficulty": "medium"}
+{"text": "Turn this list of addresses into CSV with street, city, state and postcode columns.", "task": "extraction", "difficulty": "medium"}
+{"text": "Extract all drug names and dosages from this clinical note.", "task": "extraction", "difficulty": "medium"}
+{"text": "Summarise the main findings and limitations of this research abstract.", "task": "extraction", "difficulty": "medium"}
+{"text": "From these product reviews, list the most common complaints and how often each appears.", "task": "extraction", "difficulty": "medium"}
+{"text": "From these 40 pages of board minutes, build a timeline of every decision about the acquisition, who voted how, and where the minutes contradict each other.", "task": "extraction", "difficulty": "hard"}
+{"text": "Extract every obligation, deadline and penalty from this 60 page master services agreement into a structured schema, and flag clauses that conflict.", "task": "extraction", "difficulty": "hard"}
+{"text": "Reconcile these three bank statements against the ledger export and list every unmatched or duplicated transaction with your reasoning.", "task": "extraction", "difficulty": "hard"}
+{"text": "From this set of 200 scanned medical records with OCR errors, extract diagnoses, medications and dates, and mark the fields you are unsure of.", "task": "extraction", "difficulty": "hard"}
+{"text": "Build a knowledge graph of companies, people and ownership stakes from these 25 news articles, resolving aliases and conflicting reports.", "task": "extraction", "difficulty": "hard"}
+{"text": "Summarise this 120 page technical standard into a requirements checklist, keeping every normative MUST and SHALL with its section number.", "task": "extraction", "difficulty": "hard"}
+{"text": "Extract the full financial statements from this annual report PDF text into tables, and check that the balance sheet balances.", "task": "extraction", "difficulty": "hard"}
+{"text": "From these interview transcripts, code every statement against this qualitative research codebook and report inter-theme overlaps.", "task": "extraction", "difficulty": "hard"}
+{"text": "Parse these server logs from five services, correlate the request IDs, and reconstruct the sequence of events that led to the outage.", "task": "extraction", "difficulty": "hard"}
+{"text": "Compare these two versions of a 50 page contract and list every substantive change with its legal effect, ignoring formatting.", "task": "extraction", "difficulty": "hard"}

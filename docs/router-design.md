@@ -1,6 +1,6 @@
 # Smart model router (phase 6)
 
-Status: steps 6.1 and 6.2 are built (2026-10-29). Step 6.3 is design. Written on 2026-10-28, after phases 1 to 5.
+Status: steps 6.1, 6.2 and 6.3 are built (2026-10-29). The `llm` classifier is not built. Written on 2026-10-28, after phases 1 to 5.
 
 The router is a gateway in front of llama-swap. It serves a request on the local GPUs when a local model can do the job, and sends it to a frontier provider (Anthropic, OpenAI, OpenRouter and similar) when the request needs more context, more capability, or a feature that the local model lacks. Rules that the owner writes decide each request. A small local classifier can add labels, such as the task and its difficulty, for the rules to use.
 
@@ -142,6 +142,33 @@ The classifier adds `task` and `difficulty` labels. It is optional, and the rule
 | `llm` | Asks a small local model, such as a 1 to 2B instruct model, for the labels, constrained to a JSON schema. | One short generation, 100 to 500 ms, and VRAM for the model. |
 
 The classifier has a time limit of 300 ms. When it runs out, the labels are `unknown`, and the rules continue. A classifier error never fails a request.
+
+### The embedding classifier as built
+
+Step 6.3 built the `embedding` kind (`internal/router/classify.go`). The `llm` kind is not built.
+
+- Configuration: the `classifier` section of `profiles.yaml` takes `model`, `k`, `timeout_ms` and `no_starter`. With no `model`, the classifier uses the first embedding model in `models.json`. On the test host that model is `qwen3-embedding-0.6b-q8_0`, which llama-swap keeps loaded next to every other model.
+- Examples: 150 starter examples are built into the router (`internal/router/starter.jsonl`), 10 for each task and difficulty. The owner's examples are in `examples.jsonl` in the router's configuration directory, set with `PUT /router/examples`. They add to the starter set, and `no_starter: true` leaves the starter set out. An example with an unknown label, or more than 5,000 examples, stops the configuration from loading, and the router keeps the last good one.
+- Index: the router embeds every example in batches of 32 and keeps the unit vectors in memory. A build starts after a configuration change when a profile has a `task` or `difficulty` rule, and otherwise on the first classification. A failed build retries after 2, 5, 15 and then every 60 seconds. Until the index is ready, the labels are `unknown`.
+- A request: the classifier embeds the last user message that has text. A text over 1,200 characters keeps its first 800 and last 400 characters, because llama-server's default batch holds 512 tokens. The `k` nearest examples by cosine similarity vote, each with its similarity as the weight, and task and difficulty are voted on separately.
+- Output: explain shows the labels, the neighbours with their similarities, and the time. The decision log keeps the labels but no text. `POST /router/classify` takes `{"text"}` and returns the labels and the state of the index.
+
+The labels mean:
+
+| Label | Meaning |
+|---|---|
+| `chat` | Conversation, advice and general knowledge |
+| `code` | Write, read, debug or review code, shell commands, SQL or configuration |
+| `math` | Calculation, algebra, statistics and proofs |
+| `writing` | Compose, edit, rewrite or translate prose |
+| `extraction` | Pull facts, fields or a summary out of text that the user gives |
+| `easy` | One step and a short answer that a small model gets right |
+| `medium` | Several steps or a longer answer, with standard knowledge |
+| `hard` | Deep reasoning, many constraints, expert knowledge or a long design |
+
+### The evaluation tool
+
+`cmd/sibyl-eval` runs from the owner's computer against the box. It reads a labelled set (`tools/router-eval/requests.jsonl`, 60 requests that are not in the starter set). It sends each prompt to `POST /router/classify` and reports the accuracy and a confusion table for task and difficulty. For each profile, it asks `POST /router/explain` for the route and reports the local share and the estimated provider cost: the router's prompt token estimate times the input price, plus the request's `output_tokens` times the output price. Explain returns the price of a provider route for this. With `-send`, the tool sends the requests with an inference key, records the route that served each one, its usage, its cost and its latency, and writes the answers to `-out`. With `-judge <model>`, a model scores each answer from 1 to 10.
 
 Published work supports a learned router. LMSYS reports that its matrix factorization router reached 95% of GPT-4's quality on MT Bench with 26% of the calls going to GPT-4 ([RouteLLM](https://lmsys.org/blog/2024-07-01-routellm/)). The same kind of router can be pushed to the expensive model by text written for that purpose ([Rerouting LLM Routers](https://arxiv.org/pdf/2501.01818)). In Sibyl the budgets limit that cost, because a client's own requests can only spend that client's budget.
 

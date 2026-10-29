@@ -325,6 +325,45 @@ A new client has no spending limit. Set a budget on the Router screen, or with `
 
 Each response has an `X-Sibyl-Route` header that names the route, such as `local/qwen3-32b-q4_k_m`. A client can send `X-Sibyl-Route: local` to keep one request on the host.
 
+#### Route by task and difficulty
+
+A rule can test two labels of a request: `task` (chat, code, math, writing or extraction) and `difficulty` (easy, medium or hard). The classifier gives the labels on the host, so no prompt leaves it to be labelled. It embeds the last user message with the local embedding model, and the 7 most similar labelled examples vote. Sibyl ships 150 starter examples, 10 for each pair of labels. The classifier runs only for a profile that has a `task` or `difficulty` rule. When it fails or takes more than 300 ms, both labels are `unknown`, and the next rules decide.
+
+This rule sends hard code and maths to a provider and keeps the rest local:
+
+```yaml
+profiles:
+  auto:
+    local_model: <local model>
+    rules:
+      - name: secrets stay on the host
+        when: {sensitive: true}
+        route: local
+      - name: hard code and maths
+        when: {task: [code, math], difficulty: [hard]}
+        route: <provider>/<model>
+      - name: everything else
+        route: local
+    fallback: [local]
+```
+
+To see the labels of a text and its nearest examples, send it to the classifier:
+
+```bash
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
+  https://<address>:8443/system/router/classify -d '{"text":"Find the race in this Go code"}'
+```
+
+If the classifier labels your own requests wrongly, add examples of them. `PUT /system/router/examples` takes a JSON list of `{"text", "task", "difficulty"}` and replaces your list. Your examples add to the starter examples. To use only yours, set `classifier: {no_starter: true}` in the profiles. Other classifier settings are `model` (the embedding model, by default the first one installed), `k` (the number of voting examples, default 7) and `timeout_ms` (default 300).
+
+To compare profiles before you trust one, run `sibyl-eval` from a clone of the Sibyl repository. It sends a labelled request set to the classifier and to explain, so no request leaves the box. It prints the classifier's accuracy and, for each profile, the share of local requests and the estimated provider cost:
+
+```bash
+go run ./cmd/sibyl-eval -url https://<address>:8443 -api-key api.key -ca sibyl-ca.crt -profiles auto,<other profile>
+```
+
+The default set is `tools/router-eval/requests.jsonl`: 60 requests, 4 for each pair of labels, none of them in the starter examples. `-send -key inference.key -out answers.jsonl` also sends each request and keeps the answers for you to read. Provider requests then cost money. `-judge <model>` adds a score from 1 to 10 for each answer from that model.
+
 ### The sibyl console
 
 Run `sibyl` on the host, at the console or over SSH. It is a terminal interface with six screens. Press a number or Tab to change screens, and `q` to quit.

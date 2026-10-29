@@ -33,6 +33,10 @@ type Decision struct {
 	// Features and Rules are filled for a profile, for explain.
 	Features *Features    `json:"features,omitempty"`
 	Rules    []RuleResult `json:"rules,omitempty"`
+	// Classification is the classifier's result, when a rule needed it.
+	Classification *Classification `json:"classification,omitempty"`
+	// Price is the price of a provider route. Only explain fills it.
+	Price *Price `json:"price,omitempty"`
 	// LocalWait limits the wait for a local route when a next route exists.
 	LocalWait time.Duration `json:"-"`
 	// LocalModel is the profile's local model, the last resort of a client
@@ -87,6 +91,9 @@ type resolver struct {
 	// ready reports whether llama-swap has the local model loaded. It is
 	// called only when a rule tests local_ready.
 	ready func(model string) bool
+	// classify labels the text of a request. It is called only when a rule
+	// tests task or difficulty.
+	classify func(cc ClassifierConfig, text string) *Classification
 }
 
 // decide picks the route for a request that names model. f is the profile
@@ -132,6 +139,10 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 	}
 	if rs.ready != nil && p.usesLocalReady() {
 		f.LocalReady = rs.ready(p.LocalModel)
+	}
+	if rs.classify != nil && p.usesLabels() {
+		d.Classification = rs.classify(rs.cfg.Profiles.Classifier, f.query)
+		f.Task, f.Difficulty = d.Classification.Task, d.Classification.Difficulty
 	}
 	d.Features = &f
 
@@ -182,6 +193,15 @@ func profileName(model string) (string, bool) {
 		return p, true
 	}
 	return "", false
+}
+
+func (p Profile) usesLabels() bool {
+	for _, r := range p.Rules {
+		if len(r.When.Task) > 0 || len(r.When.Difficulty) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (p Profile) usesLocalReady() bool {

@@ -1,0 +1,61 @@
+# Held-out request set for sibyl-eval. None of these is in the starter examples.
+{"prompt": "What's the weather usually like in Lisbon in May?", "task": "chat", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "How do you say thank you in Japanese?", "task": "chat", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Is a tomato a fruit or a vegetable?", "task": "chat", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "hey, quick question: how long should I boil an egg for a runny yolk?", "task": "chat", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "How do I start running if I've never exercised? Give me a plan for the first two months.", "task": "chat", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "What are the pros and cons of electric cars for someone who drives 80 km a day?", "task": "chat", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Explain how the stock market works to someone who has never invested.", "task": "chat", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "My cat has started scratching the sofa. What can I do that actually works?", "task": "chat", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Evaluate whether universal basic income would increase or reduce labour force participation, weighing the Finnish and Kenyan trials and their limits.", "task": "chat", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Compare the strategic positions of Athens and Sparta at the start of the Peloponnesian War and argue which side made the decisive error.", "task": "chat", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Explain why general relativity and quantum field theory conflict, and what string theory and loop quantum gravity each propose, with their open problems.", "task": "chat", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "I have offers from a FAANG company and a Series B startup with equity. Model the expected value of each over five years under three scenarios and tell me what I am missing.", "task": "chat", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "How do I list all files including hidden ones in Linux?", "task": "code", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "What does git stash do?", "task": "code", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Write a Python list comprehension that squares the numbers 1 to 10.", "task": "code", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "How do I make an HTTP GET request with curl and show the headers?", "task": "code", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Write a Go HTTP middleware that logs the method, path, status and duration of each request.", "task": "code", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "My Python script uses 8 GB of RAM reading a 2 GB CSV. Rewrite it to stream the file and compute per-column averages.", "task": "code", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Write a SQL migration that splits a full_name column into first_name and last_name without losing data.", "task": "code", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Build a React hook that debounces a search input and cancels stale fetch requests.", "task": "code", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Our Postgres primary hits replication lag spikes of minutes during batch jobs. Here are the WAL stats and the job. Diagnose the cause and redesign the job.", "task": "code", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Implement a persistent B+ tree in Rust with crash-safe page writes and a write-ahead log, and explain the recovery procedure.", "task": "code", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "This TypeScript monorepo build takes 40 minutes. Design an incremental build and caching system across 60 packages with correct invalidation.", "task": "code", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Find the memory corruption in this C code that only shows up under -O2 with a specific input, and explain the undefined behaviour that causes it.", "task": "code", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "What is 7 times 8?", "task": "math", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Round 3.14159 to two decimal places.", "task": "math", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "How many centimetres are in 2.5 metres?", "task": "math", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "What is 20% of 85?", "task": "math", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "A rectangle has a perimeter of 54 and its length is twice its width. Find its area.", "task": "math", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "What is the expected value of the sum of two fair six-sided dice, and its variance?", "task": "math", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Find the limit as x approaches 0 of (1 - cos x) / x^2.", "task": "math", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "An investment grows from $5,000 to $8,000 in 6 years. What is the annual compound growth rate?", "task": "math", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Prove that the harmonic series diverges and that the alternating harmonic series converges to ln 2.", "task": "math", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Prove that a continuous function on a closed bounded interval attains its maximum.", "task": "math", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Show that there is no rational number whose square is 3, and generalise to all non-square integers.", "task": "math", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Find the number of spanning trees of the complete graph on n vertices and prove your answer.", "task": "math", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Write a short caption for a photo of my dog at the beach.", "task": "writing", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Rewrite this to be shorter: I am writing to let you know that I will not be able to attend.", "task": "writing", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Suggest three subject lines for a newsletter about spring gardening.", "task": "writing", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Write a polite reminder that rent is due on Friday.", "task": "writing", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Write a LinkedIn post announcing that I'm starting a new job, without sounding boastful.", "task": "writing", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Write a 600 word short story about a robot that learns to paint.", "task": "writing", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Draft a complaint letter to an airline about lost luggage, asking for compensation.", "task": "writing", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Rewrite this school newsletter paragraph so it is friendly and easy for parents to read.", "task": "writing", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Write a 3,000 word chapter of a mystery novel told from two alternating perspectives, planting a clue the reader can only spot on rereading.", "task": "writing", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Write a policy white paper on regulating facial recognition in public spaces, with an executive summary, options analysis and recommendations.", "task": "writing", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Translate this French poem into English verse, keeping the rhyme scheme and the tone, and explain the trade-offs you made.", "task": "writing", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Write a commencement speech that is funny, moving and original, avoiding every cliche of the genre, about 15 minutes long.", "task": "writing", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "What is the order number in this message? 'Your order #A-5521 has shipped.'", "task": "extraction", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Find the date in this sentence: The deadline moved to 3 June 2027.", "task": "extraction", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Which city is mentioned here? 'We landed in Oslo late last night.'", "task": "extraction", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Is this message spam or not? 'You have WON a free cruise, click here now!!!'", "task": "extraction", "difficulty": "easy", "output_tokens": 150}
+{"prompt": "Turn these 20 shipping notification emails into a table with carrier, tracking number and expected delivery date.", "task": "extraction", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Summarise this customer interview transcript into needs, pain points and quotes.", "task": "extraction", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "Extract the ingredients and quantities from this recipe into JSON.", "task": "extraction", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "From this job posting, list the required skills, the nice-to-have skills, the salary range and the location.", "task": "extraction", "difficulty": "medium", "output_tokens": 700}
+{"prompt": "From these 15 quarterly earnings call transcripts, extract every forward-looking guidance statement, track how it changed each quarter, and flag missed guidance.", "task": "extraction", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Reconstruct the chain of custody for each exhibit from these 300 pages of police reports, noting gaps and inconsistencies.", "task": "extraction", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "Extract every data processing activity from this 80 page privacy policy and map each to its GDPR lawful basis, flagging ones with none stated.", "task": "extraction", "difficulty": "hard", "output_tokens": 2000}
+{"prompt": "From these patent claims and prior art documents, map each claim element to where it appears in the prior art, and mark novel elements.", "task": "extraction", "difficulty": "hard", "output_tokens": 2000}

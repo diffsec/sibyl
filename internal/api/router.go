@@ -504,6 +504,18 @@ func (s *Server) putRouterProfiles(w http.ResponseWriter, r *http.Request) {
 // postRouterExplain asks the router how it would route a request. The
 // router does not send the request.
 func (s *Server) postRouterExplain(w http.ResponseWriter, r *http.Request) {
+	s.askRouter(w, r, "/sibyl/explain")
+}
+
+// postRouterClassify asks the router's classifier for the labels of a
+// text: {"text": "..."}.
+func (s *Server) postRouterClassify(w http.ResponseWriter, r *http.Request) {
+	s.askRouter(w, r, "/sibyl/classify")
+}
+
+// askRouter sends the request body to a router route that only the System
+// API key can call, and relays the answer.
+func (s *Server) askRouter(w http.ResponseWriter, r *http.Request, path string) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -511,7 +523,7 @@ func (s *Server) postRouterExplain(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.RouterURL+"/sibyl/explain", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.RouterURL+path, bytes.NewReader(body))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -527,6 +539,64 @@ func (s *Server) postRouterExplain(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, 8<<20))
+}
+
+// getRouterExamples returns the owner's classifier examples and the
+// number of starter examples.
+func (s *Server) getRouterExamples(w http.ResponseWriter, _ *http.Request) {
+	ex, err := readExamples(s.Paths.routerFile(router.ExamplesName))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"examples": ex, "starter": len(router.StarterExamples())})
+}
+
+// putRouterExamples replaces the owner's classifier examples with a JSON
+// list of {text, task, difficulty}.
+func (s *Server) putRouterExamples(w http.ResponseWriter, r *http.Request) {
+	var ex []router.Example
+	if err := readJSON(r, &ex); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var b bytes.Buffer
+	for _, e := range ex {
+		line, err := json.Marshal(e)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+	// The router's parser is the check, so both sides agree.
+	if _, err := router.ParseExamples(bytes.NewReader(b.Bytes())); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if err := os.MkdirAll(s.Paths.routerDir(), 0o750); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := hardware.WriteFileAtomic(s.Paths.routerFile(router.ExamplesName), b.Bytes(), 0o640); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.Log.Info("router examples set", "examples", len(ex))
+	s.getRouterExamples(w, r)
+}
+
+func readExamples(path string) ([]router.Example, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return []router.Example{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return router.ParseExamples(f)
 }
 
 // routerStats sums the decision log.

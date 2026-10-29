@@ -105,6 +105,8 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `PUT, DELETE /router/providers/{name}` | Add or change a provider after a check of its key, or delete it |
 | `PUT /router/profiles` | Replace the routing profiles after the router's checks |
 | `POST /router/explain` | The route for a request, with every rule, without sending it |
+| `POST /router/classify` | The classifier's task and difficulty labels for `{"text"}`, with the nearest examples |
+| `GET`, `PUT /router/examples` | The owner's classifier examples, a JSON list of `{text, task, difficulty}` |
 | `GET /router/catalog`, `GET /router/catalog/{id}?q=`, `POST /router/catalog/refresh` | The local models.dev index: providers, one provider's models with prices and limits, or a fetch now |
 | `GET /router/stats` | Requests per client and per route, spend per client, and the last decisions |
 
