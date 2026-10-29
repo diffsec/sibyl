@@ -38,6 +38,7 @@ func TestEditFormShowsContextEstimate(t *testing.T) {
 	// Typing a context size recomputes the description.
 	send := func(msg tea.Msg) { run(v, v.update(msg), 0) }
 	send(tea.KeyPressMsg{Code: tea.KeyTab}) // to the fit mode
+	send(tea.KeyPressMsg{Code: tea.KeyTab}) // to the parallel requests
 	send(tea.KeyPressMsg{Code: tea.KeyTab}) // to the context size
 	for _, r := range "32768" {
 		send(tea.KeyPressMsg{Code: r, Text: string(r)})

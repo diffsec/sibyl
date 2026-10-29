@@ -52,7 +52,7 @@ func TestRunWithoutSend(t *testing.T) {
 	_ = os.WriteFile(ca, certPEM(t, box), 0o600)
 
 	out := captureStdout(t, func() {
-		if err := run(box.URL, key, "", ca, set, "auto,cloud", "default", false, "", ""); err != nil {
+		if err := run(box.URL, key, "", ca, set, "auto,cloud", "", options{who: "default"}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -71,7 +71,7 @@ func TestRunWithoutSend(t *testing.T) {
 			t.Errorf("a run without -send called %s", p)
 		}
 	}
-	if err := run(box.URL, key, "", ca, set, "auto", "default", false, "judge-model", ""); err == nil {
+	if err := run(box.URL, key, "", ca, set, "auto", "", options{who: "default", judges: []string{"judge-model"}}); err == nil {
 		t.Error("-judge without -send was accepted")
 	}
 }

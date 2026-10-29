@@ -161,8 +161,12 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 				huh.NewOption("Quality: f16 cache, shorter context", ""),
 				huh.NewOption("Context: quantize the cache to keep the context", string(models.FitContext)),
 			).Value(&f.Fit),
+			optionalNumber("Parallel requests", "", true, &f.Parallel).Placeholder("llama.cpp default").
+				Description("Slots that answer at once. They share the context, so each is sure of the context divided by the slots."),
 			optionalNumber("Context size", "", true, &f.CtxSize).Placeholder("auto").
 				DescriptionFunc(func() string { return contextNote(m, f, hw, gpus) }, f),
+			huh.NewInput().Title("Tensor split").Placeholder(splitHint(m)).Value(&f.TensorSplit).
+				Description("The share of the layers on each GPU, such as 3,2. Empty splits by the memory that each GPU has left."),
 			huh.NewSelect[string]().Title("KV cache K type").Inline(true).Options(kv...).Value(&f.KVTypeK),
 			huh.NewSelect[string]().Title("KV cache V type").Inline(true).Options(kv...).Value(&f.KVTypeV),
 			huh.NewConfirm().Title("Embedding model").Value(&f.Embedding),

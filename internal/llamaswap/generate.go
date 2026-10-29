@@ -189,8 +189,18 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 			devs[i] = devPrefix + strconv.Itoa(i)
 		}
 		args = append(args, "--split-mode", "layer", "--device", strings.Join(devs, ","))
+		if len(s.TensorSplit) > 0 {
+			parts := make([]string, len(s.TensorSplit))
+			for i, v := range s.TensorSplit {
+				parts[i] = strconv.FormatFloat(v, 'f', -1, 64)
+			}
+			args = append(args, "--tensor-split", strings.Join(parts, ","))
+		}
 	} else {
 		args = append(args, "--split-mode", "none", "--device", devPrefix+strconv.Itoa(p.gpu))
+	}
+	if s.Parallel > 0 {
+		args = append(args, "--parallel", strconv.Itoa(s.Parallel))
 	}
 	args = append(args, s.KVCache.Flags()...)
 	if !s.Embedding {

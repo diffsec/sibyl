@@ -62,6 +62,7 @@ var typedFlags = []string{
 	"--spec-ngram-mod-n-min", "--spec-ngram-mod-n-max",
 	"-ctk", "--cache-type-k", "-ctv", "--cache-type-v",
 	"-c", "--ctx-size", "--embedding", "--embeddings",
+	"-np", "--parallel", "-ts", "--tensor-split",
 }
 
 func checkFloat(name string, v *float64, lo, hi float64) error {

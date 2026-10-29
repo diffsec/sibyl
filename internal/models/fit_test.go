@@ -38,7 +38,7 @@ func TestFitContext(t *testing.T) {
 		// The weights alone do not fit.
 		{"no room", FitQuality, 30 * gib, 20 * gib, 0, "", "", 4096, "", false, true},
 	} {
-		f := m.FitContext(c.mode, c.weights, c.vram, c.ctx, c.k, c.v)
+		f := m.FitContext(FitInput{Mode: c.mode, Weights: c.weights, VRAM: c.vram, Ctx: c.ctx, TypeK: c.k, TypeV: c.v})
 		want := c.wantCtx
 		if want == 0 {
 			// The largest multiple of 4096 that fits.
@@ -56,11 +56,47 @@ func TestFitContext(t *testing.T) {
 	// A small cache: the compute buffer dominates, so quantizing gives
 	// fewer tokens, and context mode keeps f16.
 	small := Meta{ContextLength: 1 << 20, KElems: 1024, VElems: 1024, MaxLayerKV: 2048, AttentionLayers: 1}
-	if f := small.FitContext(FitContext, 1*gib, 2*gib, 0, "", ""); f.TypeK != "" {
+	if f := small.FitContext(FitInput{Mode: FitContext, Weights: 1 * gib, VRAM: 2 * gib}); f.TypeK != "" {
 		t.Errorf("small model: %+v", f)
 	}
-	if f := m.FitContext(FitQuality, 1, 0, 0, "", ""); f.Auto || f.Ctx != 0 {
+	if f := m.FitContext(FitInput{Mode: FitQuality, Weights: 1}); f.Auto || f.Ctx != 0 {
 		t.Errorf("unknown VRAM: %+v", f)
+	}
+}
+
+func TestFitSlotsAndReserved(t *testing.T) {
+	m := fitMeta() // 1 MiB per token at f16, native 100,000
+	gib := int64(1 << 30)
+	per := m.BytesPerToken("", "")
+
+	// 200 GiB holds 100,000 tokens but not 2 x 100,000: two slots get the
+	// largest multiple of 4096 tokens each that fits.
+	f := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 200 * gib, Slots: 2})
+	budget := int64(FitMargin*float64(200*gib)) - 10*gib
+	wantPer := int(budget/per) / 2 / 4096 * 4096
+	if f.Ctx != 2*wantPer || f.SlotCtx != wantPer || f.Slots != 2 || !f.Fits {
+		t.Errorf("two slots: %+v, want %d per slot", f, wantPer)
+	}
+	if f := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 400 * gib, Slots: 2}); f.Ctx != 200_000 || f.SlotCtx != 100_000 {
+		t.Errorf("two native slots: %+v", f)
+	}
+
+	// Reserved memory comes off the budget.
+	free := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 60 * gib})
+	held := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 60 * gib, Reserved: 5 * gib})
+	if held.Ctx >= free.Ctx || held.Reserved != 5*gib {
+		t.Errorf("reserved: %d tokens, %d without", held.Ctx, free.Ctx)
+	}
+}
+
+func TestSplitFor(t *testing.T) {
+	gib := int64(1 << 30)
+	got := SplitFor([]int64{24 * gib, 24 * gib}, []int64{0, 4 * gib})
+	if got[0] <= got[1] || got[0]-got[1] != 4096 {
+		t.Errorf("split %v: GPU 1 must get 4 GiB less", got)
+	}
+	if got := SplitFor([]int64{gib}, []int64{2 * gib}); got[0] != 0 {
+		t.Errorf("a full GPU gets %v", got)
 	}
 }
 

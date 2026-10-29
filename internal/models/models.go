@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -183,9 +184,20 @@ type Settings struct {
 	// Preset is the sampling preset for the model's default use. The
 	// sampling fields above override its values.
 	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
+	// Parallel is the number of requests that llama-server runs at once
+	// (--parallel). The slots share the context. 0 leaves llama-server's
+	// default.
+	Parallel int `yaml:"parallel,omitempty" json:"parallel,omitempty"`
+	// TensorSplit is the share of the layers on each GPU of a spanning
+	// model (--tensor-split). Empty lets Sibyl split by the memory that
+	// each GPU has left.
+	TensorSplit []float64 `yaml:"tensor_split,omitempty" json:"tensor_split,omitempty"`
 	// Args are extra llama-server flags for anything the typed fields do not cover.
 	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
+
+// MaxParallel is the most parallel slots that a model can have.
+const MaxParallel = 64
 
 var (
 	safeArg     = regexp.MustCompile(`^[A-Za-z0-9_.,:=/+-]+$`)
@@ -211,6 +223,17 @@ func (s Settings) Validate(selected int) error {
 	}
 	if s.CtxSize < 0 {
 		return errors.New("ctx_size: must not be negative")
+	}
+	if s.Parallel < 0 || s.Parallel > MaxParallel {
+		return fmt.Errorf("parallel: must be 0 to %d", MaxParallel)
+	}
+	if len(s.TensorSplit) > selected {
+		return fmt.Errorf("tensor_split: %d values for %d selected GPUs", len(s.TensorSplit), selected)
+	}
+	for _, v := range s.TensorSplit {
+		if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+			return errors.New("tensor_split: values must be 0 or more")
+		}
 	}
 	if err := s.Sampling.Validate(); err != nil {
 		return err

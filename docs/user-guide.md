@@ -413,11 +413,13 @@ On the Models screen, select a model and press Enter. The settings apply as soon
 |---|---|
 | Layout | Span across all selected GPUs, or pin to one GPU. |
 | When VRAM is short | What an automatic context gives up. Quality (the default) keeps the KV cache at f16 and shortens the context. Context quantizes the KV cache only as far as it must, to `q8_0` and then `q4_0`, to keep the native context. |
-| Context size | The longest conversation in tokens. Empty lets Sibyl choose: the native context if it fits on the model's GPUs, else the largest multiple of 4,096 tokens that fits in 92% of their VRAM. The field shows what Sibyl chooses and its memory estimate. A number that you enter is kept even when it does not fit, and the field then says that llama.cpp keeps part of the model in system RAM, which is slower. |
+| Context size | The longest conversation in tokens. Empty lets Sibyl choose: the native context if it fits on the model's GPUs, else the largest multiple of 4,096 tokens that fits in 92% of their VRAM, less the memory of the embedding models on them. An embedding model with no context size gets 8,192 tokens. The field shows what Sibyl chooses and its memory estimate. A number that you enter is kept even when it does not fit, and the field then says that llama.cpp keeps part of the model in system RAM, which is slower. |
 | Embedding | Marks a model for embeddings. Open WebUI uses the first embedding model for document search. |
 | Hidden | Leaves the model out of the model lists. |
 | Preset | A sampling preset for the model's main use: `general`, `coding`, `agentic` or `writing`. See [Sampling presets](#sampling-presets). |
 | Sampling | Default temperature, top-k, top-p, min-p and penalties. An empty field shows in grey the value that applies: the preset's, the model file's recommendation, or llama.cpp's default. A value that you enter wins over the preset. A client can still override them per request. |
+| Parallel requests | The number of requests that the model answers at once. The requests share the context, so each one is sure of the context size divided by this number. Empty leaves llama.cpp's default. More slots serve more programs at the same time, and each one gets a shorter context. |
+| Tensor split | For a model that spans GPUs, the share of its layers on each GPU, such as `3,2`. Empty lets Sibyl split by the memory that each GPU has left after the embedding models. |
 | KV cache | The precision of the context memory. `q8_0` halves its size with little loss. A type that you choose here is kept, and an automatic context fits around it. |
 | Speculative decoding | Speeds up generation with a small draft model or with n-gram lookup. |
 

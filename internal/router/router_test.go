@@ -351,7 +351,9 @@ func TestLocalOnlyNeverLeaves(t *testing.T) {
 	}
 	for _, cond := range conds {
 		t.Run(cond, func(t *testing.T) {
-			h := newHarness(t, fmt.Sprintf(`profiles:
+			// No examples, so the labels stay unknown.
+			h := newHarness(t, fmt.Sprintf(`classifier: {no_starter: true}
+profiles:
   auto:
     local_model: small
     rules:

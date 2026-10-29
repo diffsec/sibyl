@@ -592,3 +592,86 @@ func TestAutoContextAndPreset(t *testing.T) {
 		t.Errorf("context mode config:\n%s", cfg)
 	}
 }
+
+// TestEmbeddingReserveSplitAndSlots checks that an embedding model gets a
+// short context, that its memory is kept off a spanning chat model's GPU,
+// that the chat model's layers split toward the other GPU, and that the
+// router sees one slot's share of the context.
+func TestEmbeddingReserveSplitAndSlots(t *testing.T) {
+	f := newFixture(t)
+	for _, addr := range []string{"0000:03:00.0", "0000:83:00.0"} {
+		write(t, filepath.Join(f.paths.SysfsRoot, "devices", addr, "mem_info_vram_total"), strconv.Itoa(24<<30))
+	}
+	llama := func(ctx int) string {
+		data, err := gguf.Encode(map[string]any{
+			"general.architecture": "llama", "llama.block_count": 32, "llama.context_length": ctx,
+			"llama.attention.head_count": 8, "llama.attention.head_count_kv": 8, "llama.attention.key_length": 128,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	if code, b := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[0,1],"layout":"span"}`, true); code != 200 {
+		t.Fatalf("hardware = %d %v", code, b)
+	}
+	write(t, filepath.Join(f.paths.Models, "fat.gguf"), llama(131072))
+	write(t, filepath.Join(f.paths.Models, "embed.gguf"), llama(32768))
+	if code, b := f.do(t, "PUT", "/models/embed", `{"embedding":true}`, true); code != 200 {
+		t.Fatalf("embed = %d %v", code, b)
+	}
+	if code, b := f.do(t, "PUT", "/models/fat", `{"parallel":2}`, true); code != 200 {
+		t.Fatalf("fat = %d %v", code, b)
+	}
+	cfg, err := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string]string{}
+	for _, l := range strings.Split(string(cfg), "\n") {
+		for _, id := range []string{"fat.gguf", "embed.gguf"} {
+			if strings.Contains(l, id) {
+				lines[id] = l
+			}
+		}
+	}
+	if !strings.Contains(lines["embed.gguf"], "--ctx-size 8192") {
+		t.Errorf("embedding command %q", lines["embed.gguf"])
+	}
+	fat := lines["fat.gguf"]
+	split := regexp.MustCompile(`--tensor-split (\d+),(\d+)`).FindStringSubmatch(fat)
+	if split == nil || !strings.Contains(fat, "--parallel 2") {
+		t.Fatalf("chat command %q", fat)
+	}
+	// The embedding model sits on the last GPU, so it gets fewer layers.
+	a, _ := strconv.Atoi(split[1])
+	b, _ := strconv.Atoi(split[2])
+	if a <= b {
+		t.Errorf("split %d,%d: the GPU with the embedding model must get less", a, b)
+	}
+	ctx, _ := strconv.Atoi(regexp.MustCompile(`--ctx-size (\d+)`).FindStringSubmatch(fat)[1])
+
+	raw, err := os.ReadFile(filepath.Join(f.paths.Config, "router", "models.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lms []router.LocalModel
+	_ = json.Unmarshal(raw, &lms)
+	for _, lm := range lms {
+		if lm.ID == "fat" && lm.Context != ctx/2 {
+			t.Errorf("router context %d, want half of %d", lm.Context, ctx)
+		}
+	}
+
+	_, body := f.doRaw(t, "GET", "/models")
+	var list []struct {
+		ID  string      `json:"id"`
+		Fit *models.Fit `json:"fit"`
+	}
+	_ = json.Unmarshal(body, &list)
+	for _, m := range list {
+		if m.ID == "fat" && (m.Fit == nil || m.Fit.Reserved <= 0 || m.Fit.Slots != 2 || m.Fit.SlotCtx != ctx/2) {
+			t.Errorf("fat fit %+v", m.Fit)
+		}
+	}
+}

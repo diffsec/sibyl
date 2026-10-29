@@ -282,10 +282,10 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 	}
 	hw, _ := s.hardware()
 	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
+	_, fits := s.effectiveAll(installed, settings, hw, gpus)
 	out := make([]modelView, len(installed))
 	for i, m := range installed {
-		_, fit := s.effective(m, settings[m.ID], hw, gpus)
-		out[i] = modelView{Model: m, Settings: settings[m.ID], Meta: s.modelMeta(m), Fit: fit}
+		out[i] = modelView{Model: m, Settings: settings[m.ID], Meta: s.modelMeta(m), Fit: fits[m.ID]}
 		if b, ok := s.readBenchmark(m.ID); ok {
 			out[i].Benchmark = &b
 		}
@@ -414,10 +414,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 	}
 
 	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
-	eff := make(map[string]models.Settings, len(installed))
-	for _, m := range installed {
-		eff[m.ID], _ = s.effective(m, settings[m.ID], hw, gpus)
-	}
+	eff, _ := s.effectiveAll(installed, settings, hw, gpus)
 	cfg, issues := llamaswap.Generate(hw, installed, eff)
 	body, err := llamaswap.Marshal(cfg)
 	if err != nil {
@@ -485,17 +482,84 @@ func (s *Server) respondApply(w http.ResponseWriter) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// effective returns the settings that a model runs with: the automatic
-// context fit and the preset's sampling, under the owner's own values. The
-// result is not saved: models.yaml keeps only what the owner chose.
-func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Config, gpus []gpu.GPU) (models.Settings, *models.Fit) {
+// effectiveAll returns the settings that each model runs with: the
+// automatic context fit and the preset's sampling, under the owner's own
+// values. The result is not saved: models.yaml keeps only what the owner
+// chose.
+//
+// Embedding models stay loaded next to every chat model, so their memory is
+// reserved on their GPUs first, and a chat model fits in what is left.
+func (s *Server) effectiveAll(installed []models.Model, settings map[string]models.Settings, hw hardware.Config,
+	gpus []gpu.GPU) (map[string]models.Settings, map[string]*models.Fit) {
+	eff := make(map[string]models.Settings, len(installed))
+	fits := map[string]*models.Fit{}
+	resident := map[int]int64{} // detected GPU index -> bytes
+	for _, m := range installed {
+		st := settings[m.ID]
+		if !st.Embedding {
+			continue
+		}
+		meta := s.modelMeta(m)
+		weights := m.Size
+		if meta != nil {
+			weights = meta.Weights(m.Size)
+			if st.CtxSize == 0 && meta.ContextLength > 0 {
+				st.CtxSize = min(meta.ContextLength, models.EmbeddingContext)
+			}
+		}
+		eff[m.ID] = st
+		used := hardware.ModelGPUs(st.Layout, true, hw, gpus)
+		if len(used) == 0 {
+			continue
+		}
+		total := weights
+		if meta != nil {
+			total += meta.ContextBytes(st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV)
+		}
+		for _, g := range used {
+			resident[g.Index] += total / int64(len(used))
+		}
+	}
+	for _, m := range installed {
+		if settings[m.ID].Embedding {
+			continue
+		}
+		st, fit := s.effective(m, settings[m.ID], hw, gpus, resident)
+		eff[m.ID] = st
+		if fit != nil {
+			fits[m.ID] = fit
+		}
+	}
+	return eff, fits
+}
+
+// effective returns the settings that a chat model runs with. resident is
+// the memory that the embedding models keep on each GPU.
+func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Config, gpus []gpu.GPU,
+	resident map[int]int64) (models.Settings, *models.Fit) {
 	meta := s.modelMeta(m)
 	st.Sampling = st.EffectiveSampling(meta)
-	if st.Embedding || meta == nil {
+	if meta == nil {
 		return st, nil
 	}
-	vram := hardware.VRAM(hardware.ModelGPUs(st.Layout, st.Embedding, hw, gpus))
-	fit := meta.FitContext(st.Fit, meta.Weights(m.Size), vram, st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV)
+	used := hardware.ModelGPUs(st.Layout, false, hw, gpus)
+	var reserved int64
+	sizes, held := make([]int64, len(used)), make([]int64, len(used))
+	for i, g := range used {
+		reserved += resident[g.Index]
+		sizes[i], held[i] = int64(g.VRAMTotal), resident[g.Index]
+	}
+	vram := hardware.VRAM(used)
+	// A fixed split puts each layer where the memory is, whatever loads
+	// first. llama.cpp splits by the free memory at load time otherwise.
+	if len(used) > 1 && len(st.TensorSplit) == 0 && vram > 0 {
+		st.TensorSplit = models.SplitFor(sizes, held)
+	}
+	fit := meta.FitContext(models.FitInput{
+		Mode: st.Fit, Weights: meta.Weights(m.Size), VRAM: vram, Reserved: reserved,
+		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
+	})
+	fit.TensorSplit = st.TensorSplit
 	if fit.Auto {
 		st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV = fit.Ctx, fit.TypeK, fit.TypeV
 	}

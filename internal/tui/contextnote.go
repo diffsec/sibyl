@@ -22,7 +22,13 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	vram := hardware.VRAM(used)
 	set, _ := strconv.Atoi(strings.TrimSpace(f.CtxSize))
 	weights := m.Meta.Weights(m.Size)
-	fit := m.Meta.FitContext(models.FitMode(f.Fit), weights, vram, max(set, 0), f.KVTypeK, f.KVTypeV)
+	var reserved int64
+	if m.Fit != nil {
+		reserved = m.Fit.Reserved
+	}
+	slots, _ := strconv.Atoi(strings.TrimSpace(f.Parallel))
+	fit := m.Meta.FitContext(models.FitInput{Mode: models.FitMode(f.Fit), Weights: weights, VRAM: vram,
+		Reserved: reserved, Ctx: max(set, 0), TypeK: f.KVTypeK, TypeV: f.KVTypeV, Slots: slots})
 	ctx, typeK, typeV := fit.Ctx, fit.TypeK, fit.TypeV
 	if ctx == 0 {
 		ctx = native
@@ -41,12 +47,20 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	default:
 		lines = append(lines, fmt.Sprintf("Empty uses the native context: %s tokens.", thousands(native)))
 	}
-	if ctx > native {
+	slots = max(slots, 1)
+	if slots > 1 {
+		lines = append(lines, fmt.Sprintf("%d slots share it: each request is sure of %s tokens.", slots, thousands(ctx/slots)))
+	}
+	if ctx/slots > native {
 		lines = append(lines, "This is over the native context, so answers can get worse.")
 	}
 	cost := m.Meta.ContextBytes(ctx, typeK, typeV)
-	total := cost + weights
-	line := fmt.Sprintf("At %s tokens: context about %s + weights %s = %s", thousands(ctx), gib(cost), gib(weights), gib(total))
+	total := cost + weights + reserved
+	line := fmt.Sprintf("At %s tokens: context about %s + weights %s", thousands(ctx), gib(cost), gib(weights))
+	if reserved > 0 {
+		line += fmt.Sprintf(" + embedding models %s", gib(reserved))
+	}
+	line += " = " + gib(total)
 	if vram > 0 {
 		line += fmt.Sprintf(" of %s VRAM on %d GPU(s).", gib(vram), len(used))
 	} else {
@@ -61,6 +75,19 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 			"A smaller context, a q8_0 or q4_0 KV cache, or more GPUs keeps it all on the GPUs.")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// splitHint is the placeholder of the tensor split field: the split that
+// Sibyl chose.
+func splitHint(m client.Model) string {
+	if m.Fit == nil || len(m.Fit.TensorSplit) == 0 {
+		return "auto"
+	}
+	parts := make([]string, len(m.Fit.TensorSplit))
+	for i, v := range m.Fit.TensorSplit {
+		parts[i] = strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return "auto: " + strings.Join(parts, ",")
 }
 
 // samplingHint is the placeholder of a sampling field: the value that

@@ -125,6 +125,8 @@ type Model struct {
 	Settings  models.Settings `json:"settings"`
 	Benchmark *Benchmark      `json:"benchmark,omitempty"`
 	Meta      *models.Meta    `json:"meta,omitempty"`
+	// Fit is what the System API chose for the context and the split.
+	Fit *models.Fit `json:"fit,omitempty"`
 }
 
 // BackendResult is one backend's llama-bench result.

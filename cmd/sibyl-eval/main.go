@@ -80,13 +80,18 @@ type Result struct {
 	CostUSD      float64 `json:"cost_usd,omitempty"`
 	Unpriced     bool    `json:"unpriced,omitempty"`
 	LatencyMS    int64   `json:"latency_ms,omitempty"`
-	Score        float64 `json:"score,omitempty"`
-	Error        string  `json:"error,omitempty"`
+	// Scores are the judges' scores from 1 to 10, by judge model. A
+	// judge that gave no number is left out.
+	Scores map[string]float64 `json:"scores,omitempty"`
+	Error  string             `json:"error,omitempty"`
 }
 
 type client struct {
 	base, apiKey, inferenceKey string
 	http                       *http.Client
+	// out, when set, gets each result as it ends, so a long run keeps
+	// what it did when it stops.
+	out *json.Encoder
 }
 
 func main() {
@@ -98,23 +103,37 @@ func main() {
 	profiles := flag.String("profiles", "auto", "comma-separated routing profiles to compare")
 	who := flag.String("client", "default", "the router client whose policy explain uses")
 	send := flag.Bool("send", false, "send the requests, which can cost money at providers")
-	judge := flag.String("judge", "", "with -send, a model that scores each answer from 1 to 10")
-	out := flag.String("out", "", "with -send, a JSON lines file for the answers")
+	maxTokens := flag.Int("max-tokens", 8192, "with -send, the answer limit; reasoning models spend part of it thinking")
+	judge := flag.String("judge", "", "with -send, comma-separated models that score each answer from 1 to 10")
+	out := flag.String("out", "", "a JSON lines file for the results, written as each one ends")
 	flag.Parse()
 
-	if err := run(*base, *apiKeyFile, *keyFile, *caFile, *set, *profiles, *who, *send, *judge, *out); err != nil {
+	o := options{who: *who, send: *send, maxTokens: *maxTokens}
+	if *judge != "" {
+		o.judges = strings.Split(*judge, ",")
+	}
+	if err := run(*base, *apiKeyFile, *keyFile, *caFile, *set, *profiles, *out, o); err != nil {
 		fmt.Fprintln(os.Stderr, "sibyl-eval:", err)
 		os.Exit(1)
 	}
 }
 
-func run(base, apiKeyFile, keyFile, caFile, set, profileList, who string, send bool, judge, out string) error {
+// options are the settings of one run.
+type options struct {
+	who       string
+	send      bool
+	maxTokens int
+	judges    []string
+}
+
+func run(base, apiKeyFile, keyFile, caFile, set, profileList, out string, o options) error {
 	if base == "" {
 		return errors.New("give the box's address with -url or SIBYL_URL")
 	}
-	if judge != "" && !send {
+	if len(o.judges) > 0 && !o.send {
 		return errors.New("-judge needs -send")
 	}
+	send := o.send
 	items, err := readSet(set)
 	if err != nil {
 		return err
@@ -132,22 +151,27 @@ func run(base, apiKeyFile, keyFile, caFile, set, profileList, who string, send b
 		return err
 	}
 	profiles := strings.Split(profileList, ",")
+	if out != "" {
+		f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		c.out = json.NewEncoder(f)
+	}
 
 	if err := c.reportClassifier(items); err != nil {
 		return err
 	}
 	var results []Result
 	for _, p := range profiles {
-		rs, err := c.runProfile(strings.TrimSpace(p), who, items, send, judge)
+		rs, err := c.runProfile(strings.TrimSpace(p), items, o)
 		if err != nil {
 			return err
 		}
 		results = append(results, rs...)
 	}
-	reportProfiles(profiles, results, send, judge != "")
-	if out != "" {
-		return writeResults(out, results)
-	}
+	reportProfiles(profiles, results, o)
 	return nil
 }
 
@@ -309,14 +333,14 @@ func printConfusion(name string, m map[[2]string]int) {
 	fmt.Println()
 }
 
-func (c *client) runProfile(p, who string, items []Item, send bool, judge string) ([]Result, error) {
+func (c *client) runProfile(p string, items []Item, o options) ([]Result, error) {
 	model := profileModel(p)
 	var out []Result
 	for _, it := range items {
 		r := Result{Profile: p, Prompt: it.Prompt, Task: it.Task, Difficulty: it.Difficulty}
 		var e explained
 		if _, err := c.post("/system/router/explain", c.apiKey,
-			map[string]any{"client": who, "request": chat(model, it.Prompt, it.OutputTokens)}, &e); err != nil {
+			map[string]any{"client": o.who, "request": chat(model, it.Prompt, it.OutputTokens)}, &e); err != nil {
 			return nil, err
 		}
 		r.Route = e.Route
@@ -328,10 +352,24 @@ func (c *client) runProfile(p, who string, items []Item, send bool, judge string
 		default:
 			r.CostUSD = (float64(e.Features.PromptTokens)*e.Price.Input + float64(it.OutputTokens)*e.Price.Output) / 1e6
 		}
-		if send {
-			c.send(&r, model, it, e.Price)
-			if judge != "" && r.Error == "" {
-				r.Score = c.score(judge, it.Prompt, r.Answer)
+		if o.send {
+			c.send(&r, model, it.Prompt, o.maxTokens, e.Price)
+			for _, j := range o.judges {
+				if r.Error != "" {
+					break
+				}
+				if v := c.score(j, it.Prompt, r.Answer); v > 0 {
+					if r.Scores == nil {
+						r.Scores = map[string]float64{}
+					}
+					r.Scores[j] = v
+				}
+			}
+			fmt.Fprintf(os.Stderr, "%s %d/%d %s %s %v\n", p, len(out)+1, len(items), r.Route, r.Error, r.Scores)
+		}
+		if c.out != nil {
+			if err := c.out.Encode(r); err != nil {
+				return nil, err
 			}
 		}
 		out = append(out, r)
@@ -341,12 +379,13 @@ func (c *client) runProfile(p, who string, items []Item, send bool, judge string
 
 // send sends one request and fills the answer, the route that served it,
 // the usage and the real cost.
-func (c *client) send(r *Result, model string, it Item, pr *price) {
+func (c *client) send(r *Result, model, prompt string, maxTokens int, pr *price) {
 	var resp struct {
 		Choices []struct {
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			Prompt     int `json:"prompt_tokens"`
@@ -354,7 +393,7 @@ func (c *client) send(r *Result, model string, it Item, pr *price) {
 		} `json:"usage"`
 	}
 	start := time.Now()
-	h, err := c.post("/v1/chat/completions", c.inferenceKey, chat(model, it.Prompt, it.OutputTokens), &resp)
+	h, err := c.post("/v1/chat/completions", c.inferenceKey, chat(model, prompt, maxTokens), &resp)
 	r.LatencyMS = time.Since(start).Milliseconds()
 	if err != nil {
 		r.Error = err.Error()
@@ -365,6 +404,9 @@ func (c *client) send(r *Result, model string, it Item, pr *price) {
 	}
 	if len(resp.Choices) > 0 {
 		r.Answer = resp.Choices[0].Message.Content
+		if strings.TrimSpace(r.Answer) == "" {
+			r.Error = "no answer: finish_reason " + resp.Choices[0].FinishReason
+		}
 	}
 	r.PromptTokens, r.Completion = resp.Usage.Prompt, resp.Usage.Completion
 	r.CostUSD, r.Unpriced = 0, false
@@ -379,8 +421,12 @@ func (c *client) send(r *Result, model string, it Item, pr *price) {
 
 var scoreRE = regexp.MustCompile(`\b(10|[1-9])\b`)
 
+// judgeTokens is the judge's limit. A reasoning judge thinks before the
+// number, and a few tokens give an empty answer.
+const judgeTokens = 1024
+
 // score asks the judge model for a score from 1 to 10, or 0 when it gives
-// none.
+// none. The last number of the answer counts.
 func (c *client) score(judge, prompt, answer string) float64 {
 	q := "Score the answer to the request from 1 (useless) to 10 (as good as an expert's). " +
 		"Judge correctness first, then completeness. Reply with the number only.\n\n<request>\n" + prompt +
@@ -392,28 +438,33 @@ func (c *client) score(judge, prompt, answer string) float64 {
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if _, err := c.post("/v1/chat/completions", c.inferenceKey, chat(judge, q, 16), &resp); err != nil || len(resp.Choices) == 0 {
+	if _, err := c.post("/v1/chat/completions", c.inferenceKey, chat(judge, q, judgeTokens), &resp); err != nil || len(resp.Choices) == 0 {
 		return 0
 	}
-	m := scoreRE.FindString(resp.Choices[0].Message.Content)
-	v, _ := strconv.ParseFloat(m, 64)
+	all := scoreRE.FindAllString(resp.Choices[0].Message.Content, -1)
+	if len(all) == 0 {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(all[len(all)-1], 64)
 	return v
 }
 
-func reportProfiles(profiles []string, results []Result, sent, judged bool) {
+func reportProfiles(profiles []string, results []Result, o options) {
+	sent := o.send
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	head := "profile\trequests\tlocal\tprovider\tcost USD\tunpriced"
 	if sent {
 		head += "\terrors\tp50 latency ms"
 	}
-	if judged {
-		head += "\tmean score"
+	for _, j := range o.judges {
+		head += "\tscore by " + j
 	}
 	_, _ = fmt.Fprintln(w, head)
 	for _, p := range profiles {
 		p = strings.TrimSpace(p)
-		var n, local, unpriced, errs, scored int
-		var cost, score float64
+		var n, local, unpriced, errs int
+		var cost float64
+		score, scored := map[string]float64{}, map[string]int{}
 		var lat []int64
 		for _, r := range results {
 			if r.Profile != p {
@@ -433,9 +484,9 @@ func reportProfiles(profiles []string, results []Result, sent, judged bool) {
 			if r.LatencyMS > 0 {
 				lat = append(lat, r.LatencyMS)
 			}
-			if r.Score > 0 {
-				score += r.Score
-				scored++
+			for j, v := range r.Scores {
+				score[j] += v
+				scored[j]++
 			}
 		}
 		line := fmt.Sprintf("%s\t%d\t%d (%.0f%%)\t%d\t%.4f\t%d", p, n, local, pct(local, n), n-local, cost, unpriced)
@@ -447,12 +498,12 @@ func reportProfiles(profiles []string, results []Result, sent, judged bool) {
 			}
 			line += fmt.Sprintf("\t%d\t%d", errs, p50)
 		}
-		if judged {
-			mean := 0.0
-			if scored > 0 {
-				mean = score / float64(scored)
+		for _, j := range o.judges {
+			if scored[j] == 0 {
+				line += "\t-"
+				continue
 			}
-			line += fmt.Sprintf("\t%.1f", mean)
+			line += fmt.Sprintf("\t%.2f (%d)", score[j]/float64(scored[j]), scored[j])
 		}
 		_, _ = fmt.Fprintln(w, line)
 	}
@@ -483,19 +534,6 @@ func reportProfiles(profiles []string, results []Result, sent, judged bool) {
 			fmt.Printf("  %s: %s %d\n", p, k, routes[p][k])
 		}
 	}
-}
-
-func writeResults(path string, results []Result) error {
-	var b bytes.Buffer
-	for _, r := range results {
-		line, err := json.Marshal(r)
-		if err != nil {
-			return err
-		}
-		b.Write(line)
-		b.WriteByte('\n')
-	}
-	return os.WriteFile(path, b.Bytes(), 0o600)
 }
 
 func pct(a, n int) float64 {

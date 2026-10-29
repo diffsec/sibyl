@@ -13,6 +13,8 @@ import (
 type settingsForm struct {
 	Layout          string
 	CtxSize         string
+	Parallel        string
+	TensorSplit     string // comma separated
 	Embedding       bool
 	Hidden          bool
 	Temperature     string
@@ -74,6 +76,14 @@ func formFromSettings(s models.Settings) settingsForm {
 	if s.CtxSize > 0 {
 		f.CtxSize = strconv.Itoa(s.CtxSize)
 	}
+	if s.Parallel > 0 {
+		f.Parallel = strconv.Itoa(s.Parallel)
+	}
+	split := make([]string, len(s.TensorSplit))
+	for i, v := range s.TensorSplit {
+		split[i] = strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	f.TensorSplit = strings.Join(split, ",")
 	return f
 }
 
@@ -117,6 +127,18 @@ func (f settingsForm) toSettings() (models.Settings, error) {
 		return s, e
 	} else if ctx != nil {
 		s.CtxSize = *ctx
+	}
+	if n, e := parseInt("parallel requests", f.Parallel); e != nil {
+		return s, e
+	} else if n != nil {
+		s.Parallel = *n
+	}
+	for _, part := range strings.FieldsFunc(f.TensorSplit, func(r rune) bool { return r == ',' || r == ' ' }) {
+		v, e := parseFloat("tensor split", part)
+		if e != nil {
+			return s, e
+		}
+		s.TensorSplit = append(s.TensorSplit, *v)
 	}
 	floats := []struct {
 		name string

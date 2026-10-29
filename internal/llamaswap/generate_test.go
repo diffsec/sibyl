@@ -189,3 +189,27 @@ func TestGenerateMissingDraftModel(t *testing.T) {
 		t.Errorf("speculative flags emitted with a missing draft model: %s", cfg.Models["big"].Cmd)
 	}
 }
+
+func TestGenerateParallelAndSplit(t *testing.T) {
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "small", Path: "small.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
+		"big":   {Parallel: 2, TensorSplit: []float64{3, 2}},
+		"small": {Layout: "gpu:0", TensorSplit: []float64{1, 1}},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	if cmd := cfg.Models["big"].Cmd; !strings.Contains(cmd, "--tensor-split 3,2") || !strings.Contains(cmd, "--parallel 2") {
+		t.Errorf("big cmd %s", cmd)
+	}
+	// One GPU has nothing to split.
+	if cmd := cfg.Models["small"].Cmd; strings.Contains(cmd, "--tensor-split") || strings.Contains(cmd, "--parallel") {
+		t.Errorf("small cmd %s", cmd)
+	}
+	for _, s := range []models.Settings{{Parallel: -1}, {Parallel: 65}, {TensorSplit: []float64{1, 1, 1}}, {TensorSplit: []float64{-1}},
+		{Args: []string{"--parallel", "4"}}, {Args: []string{"-ts", "1,1"}}} {
+		if err := s.Validate(2); err == nil {
+			t.Errorf("%+v was accepted", s)
+		}
+	}
+}
