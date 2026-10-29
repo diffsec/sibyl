@@ -176,19 +176,29 @@ The wizard walks through the setup screens in order. Each step tells you which k
 4. Open WebUI administrator. Press `o` and create the first Open WebUI account. Sign-up from the browser is off, so this is the only way to make the first account. Add more accounts later in Open WebUI, under Admin Panel, Users.
 5. First model. Press `/` and search Hugging Face. See [Download a model](#download-a-model).
 6. API keys for your programs. On the Router screen, press `n` for each program that will call Sibyl, such as a laptop or Home Assistant. The new key is shown once. Copy it into the program. See [The API keys](#the-api-keys).
-7. Done. The Status screen lists the addresses of the services as links. The last step also shows the SHA-256 fingerprint of the TLS certificate.
+7. Done. The Status screen lists the addresses of the services as links. The last step also shows the SHA-256 fingerprint of the Sibyl CA certificate.
 
 ### Trust the certificate
 
-Sibyl makes its own TLS certificate at the first boot, so browsers warn once. Before you accept the warning, compare the fingerprint that the browser shows with the fingerprint from the last wizard step. They must be the same.
+Sibyl has its own certificate authority (CA). The first boot makes the CA, and the CA issues the server's TLS certificate. Trust the CA once on each computer, and the browsers and programs stop warning. The trust stays valid when the address or the hostname changes, because Sibyl issues a new server certificate from the same CA.
 
-You can also copy the certificate and trust it on the second computer:
+1. Copy the CA certificate from the host:
 
 ```bash
 scp admin@<address>:/var/lib/sibyl-operator/ca.crt sibyl-ca.crt
 ```
 
-The certificate is valid for `sibyl.local`, `sibyl` and the IP address that the host had at the first boot.
+2. Make sure that it is the right one. The fingerprint must match the one from the last wizard step:
+
+```bash
+openssl x509 -in sibyl-ca.crt -noout -fingerprint -sha256
+```
+
+3. Add it to the trusted authorities. On macOS: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain sibyl-ca.crt`. On Fedora: copy it to `/etc/pki/ca-trust/source/anchors/` and run `sudo update-ca-trust`. On Debian and Ubuntu: copy it to `/usr/local/share/ca-certificates/sibyl-ca.crt` and run `sudo update-ca-certificates`. Firefox has its own list, under Settings, Privacy & Security, Certificates.
+
+The CA can vouch only for local names (`sibyl`, `localhost`, and names under `.local`, `.lan`, `.home.arpa` and `.internal`) and private addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` and `127.0.0.0/8`). Clients enforce these limits, so even a stolen CA key cannot vouch for a public site.
+
+The server certificate holds `sibyl.local`, `sibyl`, `localhost`, `<hostname>.local`, the hostname when it is a local name, and every private IPv4 address of the host. Sibyl issues a new one at boot, within seconds of an address or hostname change, and before it expires. A host from before 2026-10-29 had a self-signed certificate. Its first boot with this version replaces it, so trust the new `ca.crt` once.
 
 ### Arcane password
 

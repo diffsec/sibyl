@@ -1,0 +1,9 @@
+[Unit]
+Description=Sibyl TLS certificate for the current names and addresses
+After=network-online.target sibyl-firstboot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/tls-cert
+# The CA file can be new; the operators' copy follows it.
+ExecStartPost=/usr/libexec/sibyl/operator-export

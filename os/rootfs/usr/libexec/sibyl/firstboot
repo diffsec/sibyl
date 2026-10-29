@@ -7,7 +7,6 @@ set -euo pipefail
 ND_USER=sibyl
 ND_UID="$(id -u "$ND_USER")"
 STATE=/var/lib/sibyl
-TLS_DIR="$STATE/tls"
 
 as_nd() {
     runuser -u "$ND_USER" -- env XDG_RUNTIME_DIR="/run/user/$ND_UID" HOME="$STATE/home" "$@"
@@ -19,17 +18,8 @@ secret_exists() {
 
 ip_addr="$(ip -4 route get 1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") {print $(i + 1); exit}}')"
 
-if [ ! -s "$TLS_DIR/server.crt" ]; then
-    san="DNS:sibyl.local,DNS:sibyl"
-    [ -n "$ip_addr" ] && san="$san,IP:$ip_addr"
-    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -sha256 -days 825 -nodes \
-        -keyout "$TLS_DIR/server.key" -out "$TLS_DIR/server.crt" \
-        -subj "/O=Sibyl/CN=sibyl.local" \
-        -addext "subjectAltName=$san"
-    chown "$ND_USER:$ND_USER" "$TLS_DIR/server.key" "$TLS_DIR/server.crt"
-    chmod 0600 "$TLS_DIR/server.key"
-    chmod 0644 "$TLS_DIR/server.crt"
-fi
+# The local CA and the server certificate for the current addresses.
+/usr/libexec/sibyl/tls-cert
 
 if ! secret_exists sibyl-api-key; then
     printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-api-key - >/dev/null

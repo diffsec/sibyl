@@ -126,7 +126,7 @@ The rules keep root out of reach of the System API. Any process that runs as `si
 - `PUT /host/users/{name}` can also take keys from `https://github.com/<user>.keys`.
 - Deleting an operator also deletes its home directory.
 
-A network change runs inside a NetworkManager checkpoint. If no confirm arrives in 120 seconds (30 to 600 can be set), NetworkManager restores the old configuration by itself. A wrong address therefore cannot lock out a remote user. The user reconnects at the new address and calls `POST /host/network/confirm`, or presses `c` in the TUI. Only IPv4 on ethernet interfaces is supported. The TLS certificate keeps the address it was created with, so a client that connects by IP address must use a name in the certificate after a change.
+A network change runs inside a NetworkManager checkpoint. If no confirm arrives in 120 seconds (30 to 600 can be set), NetworkManager restores the old configuration by itself. A wrong address therefore cannot lock out a remote user. The user reconnects at the new address and calls `POST /host/network/confirm`, or presses `c` in the TUI. Only IPv4 on ethernet interfaces is supported. The NetworkManager dispatcher then starts `sibyl-tls.service`, which issues a new server certificate for the new address (see "TLS").
 
 `sibyl-hostd-state.timer` rewrites the state every 5 minutes, so accounts added by hand also show.
 
@@ -134,7 +134,7 @@ A network change runs inside a NetworkManager checkpoint. If no confirm arrives 
 
 The TUI (`cmd/sibyl-tui`, `internal/tui`) is a container image, `sibyl-tui`. It talks only to the System API, so it has no host privileges. Members of the `sibyl-operators` group run it with `sibyl`, with no sudo. The command starts the TUI in the caller's own rootless Podman, read-only with all capabilities dropped. The TUI connects through Caddy on `127.0.0.1:18443` and verifies the host certificate as `sibyl.local`.
 
-At each boot, `sibyl-operator-export.service` copies the API key and the certificate to `/var/lib/sibyl-operator/`, readable by `sibyl-operators` only. Membership gives full control of the System API, so add only trusted users: `sudo usermod -aG sibyl-operators <user>`.
+At each boot, `sibyl-operator-export.service` copies the System API key, the `default` inference key and the CA certificate to `/var/lib/sibyl-operator/`, readable by `sibyl-operators` only. Membership gives full control of the System API, so add only trusted users: `sudo usermod -aG sibyl-operators <user>`.
 
 | Screen | Purpose |
 |---|---|
@@ -356,10 +356,11 @@ The setup wizard configures the hardware and the services. It runs in the TUI in
 4. Choose the backend: HIP, Vulkan, or "benchmark". The benchmark runs a short `llama-bench` on both images with a small model and keeps the faster one.
 5. Set the network: hostname, DHCP or a static address.
 6. Set the Open WebUI admin account and import SSH public keys.
-7. Show the API key and the TLS certificate fingerprint.
-8. Optionally download a first model from the curated list, sized to the VRAM of the selected GPUs.
+7. Optionally download a first model from the curated list, sized to the VRAM of the selected GPUs.
+8. Make an API key for each program on the Router screen.
+9. Show where the keys are, and the fingerprint of the Sibyl CA certificate.
 
-`sibyl setup` starts the TUI in wizard mode (`internal/tui/wizard.go`). Each step opens the normal screen for it and says which key to press, and `]` and `[` move between steps. The last step shows the client URLs, where the API key is, and the SHA-256 fingerprint of the TLS certificate. The installer's last message and the live menu both point to `sibyl setup`. The benchmark choice in step 4 is the `b` key on the Models screen, and it needs an installed model.
+`sibyl setup` starts the TUI in wizard mode (`internal/tui/wizard.go`). Each step opens the normal screen for it and says which key to press, and `]` and `[` move between steps. The last step shows the client URLs, where the keys are, and the SHA-256 fingerprint of the Sibyl CA certificate. The installer's last message and the live menu both point to `sibyl setup`. The benchmark choice in step 4 is the `b` key on the Models screen, and it needs an installed model.
 
 The wizard writes `/var/lib/sibyl/config/hardware.yaml`. The System API reads that file and generates three outputs:
 
@@ -412,6 +413,7 @@ To update a host:
 - Caddy refuses Open WebUI's sign-up route on port 443. Open WebUI makes the first account the admin, so on a new install the first visitor on the LAN would get that role. The setup wizard creates the first admin through the System API instead.
 - The System API replaces Arcane's default `arcane` / `arcane-admin` password with a random one when Arcane first answers, and shows it on the Status screen until the owner changes it in Arcane.
 - `sibyl-hostd` refuses to change or delete an account in `wheel`, even one on its managed list. Pool creation refuses a disk with active swap, as it refuses a mounted disk.
+- TLS: the host has its own CA in `/var/lib/sibyl-ca` (root only). `/usr/libexec/sibyl/tls-cert` issues the server certificate from it for the current names and private IPv4 addresses, valid for 397 days. It runs at boot, from the NetworkManager dispatcher (`90-sibyl-tls`) on an address or hostname change, and daily (`sibyl-tls.timer`), and reissues only when something changed or the certificate expires within 30 days. The CA's name constraints limit it to local names and private ranges, and the server certificate leaves out any name or address outside them. Clients trust `ca.crt` once.
 - Every Quadlet container drops all capabilities, sets `NoNewPrivileges=true` and `ReadOnly=true`, and gets a tmpfs for `/tmp`. Writable state goes to named volumes only.
 - nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open.
 - SSH accepts keys only. Root login is off.

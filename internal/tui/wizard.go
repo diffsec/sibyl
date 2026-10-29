@@ -6,8 +6,8 @@ import "fmt"
 type Options struct {
 	// Wizard walks through the setup steps in order. It runs with sibyl setup.
 	Wizard bool
-	// Fingerprint is the SHA-256 fingerprint of the host's TLS certificate,
-	// which the last wizard step shows.
+	// Fingerprint is the SHA-256 fingerprint of the host's certificate
+	// authority, which the last wizard step shows.
 	Fingerprint string
 }
 
@@ -38,7 +38,8 @@ func (a *App) wizardHeader() string {
 			"  The Status screen (1) lists the addresses of Open WebUI, Arcane and the APIs as links.\n" +
 			"  Programs use a key from the Router screen (6), or the default key in\n" +
 			"  /var/lib/sibyl-operator/inference.key. api.key is for the System API only.\n" +
-			"  TLS certificate SHA-256: " + a.opts.Fingerprint + "\n" +
+			"  Sibyl CA certificate SHA-256: " + a.opts.Fingerprint + "\n" +
+			"  Trust /var/lib/sibyl-operator/ca.crt on your computers once; it stays valid when the address changes.\n" +
 			mutedSty.Render("  [ back · q quit · run sibyl setup again at any time") + "\n\n"
 	}
 	return titleSty.Render(head) + "  " + s.hint + "\n" + mutedSty.Render("  ] next step · [ back") + "\n\n"

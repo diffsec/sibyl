@@ -25,4 +25,6 @@ export_key() {
 export_key sibyl-api-key api.key
 export_key sibyl-inference-key inference.key
 
-install -o root -g sibyl-operators -m 0644 /var/lib/sibyl/tls/server.crt "$dir/ca.crt"
+# The host's CA, which clients trust once. The server certificate changes
+# with the addresses; the CA does not.
+install -o root -g sibyl-operators -m 0644 /var/lib/sibyl-ca/ca.crt "$dir/ca.crt"
