@@ -275,6 +275,10 @@ func TestProviderRoute(t *testing.T) {
 	if h.provider.count() != 1 {
 		t.Errorf("provider got %d requests, want 1", h.provider.count())
 	}
+	resp = h.post(t, "/v1/chat/completions", hybridKey, chatBody("nowhere/big", "hi"))
+	if resp.StatusCode != http.StatusNotFound || h.local.count() != 0 {
+		t.Errorf("unknown provider: status %d, local requests %d", resp.StatusCode, h.local.count())
+	}
 }
 
 func TestAutoRules(t *testing.T) {

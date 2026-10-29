@@ -95,6 +95,8 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 				d.Route = Route{Provider: p, Model: m}
 				return d, nil
 			}
+			// Local model IDs have no slash, so the name must be a provider's.
+			return d, refuse(http.StatusNotFound, "no provider %q: name a local model, <provider>/<model> or auto", p)
 		}
 		d.Route = Route{Model: model}
 		return d, nil

@@ -109,8 +109,6 @@ func run(log *slog.Logger) error {
 		log.Info("startup apply", "models", res.Models, "backend_changed", res.BackendChanged)
 	}
 
-	go s.SyncOpenWebUI()
-
 	srv := &http.Server{
 		Addr:              env("SIBYL_LISTEN", ":3001"),
 		Handler:           s.Handler(),
@@ -125,6 +123,8 @@ func run(log *slog.Logger) error {
 	if err := s.Downloads.Start(ctx); err != nil {
 		return err
 	}
+	// Open WebUI can take minutes to start after a boot or an update.
+	go s.SyncOpenWebUIAtStart(ctx, 15*time.Second, 60)
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", srv.Addr)

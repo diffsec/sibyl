@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/diffsec/sibyl/internal/router"
 )
@@ -163,5 +164,28 @@ func TestRouterStatsAndExplain(t *testing.T) {
 	code, b = f.do(t, "POST", "/router/explain", `{"client":"default","request":{"model":"auto"}}`, true)
 	if code != 200 || b["route"] != "local/a" || gotAuth != "Bearer "+token {
 		t.Errorf("explain = %d %v auth %q", code, b, gotAuth)
+	}
+}
+
+func TestSyncOpenWebUIAtStartRetries(t *testing.T) {
+	f := newFixture(t)
+	write(t, filepath.Join(f.paths.Config, "open-webui.key"), "good-key")
+	calls := 0
+	owuiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ENABLE_OPENAI_API":true,"OPENAI_API_BASE_URLS":["http://router:8080/v1"],"OPENAI_API_KEYS":["k"],"OPENAI_API_CONFIGS":{}}`))
+	}))
+	defer owuiSrv.Close()
+	f.server.OpenWebUI = &OpenWebUI{Base: owuiSrv.URL, URL: "http://router:8080/v1", Key: "k"}
+	f.server.SyncOpenWebUIAtStart(t.Context(), time.Millisecond, 5)
+	if calls != 2 {
+		t.Errorf("Open WebUI got %d calls, want 2: one failure, then one sync", calls)
+	}
+	if f.server.OpenWebUI.lastErr != "" {
+		t.Errorf("last error %q", f.server.OpenWebUI.lastErr)
 	}
 }

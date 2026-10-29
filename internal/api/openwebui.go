@@ -72,10 +72,14 @@ func (s *Server) embeddingModel() (string, error) {
 
 // SyncOpenWebUI points Open WebUI's model connection at the router, and its
 // document embeddings at the embedding model, if an admin key is stored. It
-// runs in the background after each configuration change.
-func (s *Server) SyncOpenWebUI() {
+// runs in the background after each configuration change. GET
+// /integrations/open-webui reports the result.
+func (s *Server) SyncOpenWebUI() { _ = s.syncOpenWebUI() }
+
+// syncOpenWebUI syncs, records the result, and returns the error.
+func (s *Server) syncOpenWebUI() error {
 	if s.OpenWebUI == nil {
-		return
+		return nil
 	}
 	o := s.OpenWebUI
 	o.syncMu.Lock()
@@ -90,6 +94,22 @@ func (s *Server) SyncOpenWebUI() {
 		s.Log.Warn("open webui sync", "err", err)
 	}
 	o.mu.Unlock()
+	return err
+}
+
+// SyncOpenWebUIAtStart syncs once Open WebUI answers. At boot the System
+// API often starts first, so it tries every interval, up to tries times.
+func (s *Server) SyncOpenWebUIAtStart(ctx context.Context, interval time.Duration, tries int) {
+	for i := 0; i < tries; i++ {
+		if s.syncOpenWebUI() == nil {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+	}
 }
 
 func (s *Server) syncOnce() (string, error) {
