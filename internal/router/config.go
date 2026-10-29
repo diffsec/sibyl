@@ -410,6 +410,8 @@ type Config struct {
 	Keys map[string]string
 	// Catalog is the models.dev index that the System API keeps.
 	Catalog catalog.Catalog
+	// CatalogErr is why catalog.json could not be read, if it could not.
+	CatalogErr error
 }
 
 // The file names in the configuration directory.
@@ -463,6 +465,8 @@ func LoadConfig(dir string) (*Config, error) {
 	// A broken catalog only costs prices, so it does not stop the router.
 	if cat, err := catalog.Load(filepath.Join(dir, CatalogName)); err == nil {
 		c.Catalog = cat
+	} else {
+		c.CatalogErr = err
 	}
 	if err := c.Clients.Validate(); err != nil {
 		return nil, err

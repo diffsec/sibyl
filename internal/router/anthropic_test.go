@@ -455,3 +455,26 @@ func TestCatalogPrices(t *testing.T) {
 		}
 	}
 }
+
+// TestBrokenCatalogKeepsPrices keeps the last index when catalog.json
+// cannot be read.
+func TestBrokenCatalogKeepsPrices(t *testing.T) {
+	h := newHarness(t, "")
+	good := `{"fetched":"2026-10-29T00:00:00Z","providers":{"cloud":{"id":"cloud","type":"openai","base_url":"https://x/v1",
+		"models":{"big":{"id":"big","cost":{"input":1,"output":2}}}}}}`
+	write(t, filepath.Join(h.dir, CatalogName), good)
+	if err := h.router.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := h.router.config().price(Route{"cloud", "big"}); !ok {
+		t.Fatal("no price from the catalog")
+	}
+	write(t, filepath.Join(h.dir, CatalogName), "{broken")
+	time.Sleep(10 * time.Millisecond)
+	if err := h.router.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if p, ok := h.router.config().price(Route{"cloud", "big"}); !ok || p.Output != 2 {
+		t.Errorf("price after a broken catalog: %v %+v", ok, p)
+	}
+}

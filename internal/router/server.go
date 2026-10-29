@@ -98,6 +98,11 @@ func (s *Server) Reload() error {
 		return err
 	}
 	s.mu.Lock()
+	// An unreadable catalog keeps the prices of the last good one.
+	if cfg.CatalogErr != nil && s.cfg != nil {
+		cfg.Catalog = s.cfg.Catalog
+		s.logger().Warn("models.dev index not read; keeping the last one", "err", cfg.CatalogErr)
+	}
 	s.cfg, s.stamp = cfg, stamp
 	s.mu.Unlock()
 	s.logger().Info("configuration loaded", "clients", len(cfg.Clients.Clients),

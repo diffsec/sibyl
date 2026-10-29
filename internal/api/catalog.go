@@ -66,6 +66,12 @@ func (s *Server) refreshCatalog(ctx context.Context) (catalog.Catalog, error) {
 	if err != nil {
 		return catalog.Catalog{}, err
 	}
+	// A download that lost most providers is more likely a broken or
+	// partial index than a real change, so the copy stays.
+	if cur, err := catalog.Load(s.catalogFile()); err == nil && len(cat.Providers) < len(cur.Providers)/2 {
+		return catalog.Catalog{}, fmt.Errorf("the new index has %d providers and the copy has %d: kept the copy",
+			len(cat.Providers), len(cur.Providers))
+	}
 	b, err := json.Marshal(cat)
 	if err != nil {
 		return catalog.Catalog{}, err

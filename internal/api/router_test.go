@@ -457,10 +457,36 @@ func TestCatalogFetch(t *testing.T) {
 
 	// A failed refresh keeps the copy and reports the error.
 	broken.Store(true)
+	defer broken.Store(false)
 	if code, _ := f.do(t, "POST", "/router/catalog/refresh", "", true); code != http.StatusBadGateway {
 		t.Errorf("failed refresh = %d", code)
 	}
 	if _, b := f.do(t, "GET", "/router/catalog", "", true); b["error"] == nil || len(b["providers"].([]any)) != 1 {
 		t.Errorf("after a failed refresh %v", b)
+	}
+}
+
+// TestCatalogShrinkRefused keeps the copy when a download lost most of
+// its providers.
+func TestCatalogShrinkRefused(t *testing.T) {
+	f := newFixture(t)
+	big := `{"a":{"npm":"@ai-sdk/openai-compatible","api":"https://a/v1","models":{}},
+		"b":{"npm":"@ai-sdk/openai-compatible","api":"https://b/v1","models":{}},
+		"c":{"npm":"@ai-sdk/openai-compatible","api":"https://c/v1","models":{}},
+		"d":{"npm":"@ai-sdk/openai-compatible","api":"https://d/v1","models":{}}}`
+	body := big
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	defer src.Close()
+	f.server.Catalog = &Catalog{URL: src.URL}
+	if code, b := f.do(t, "POST", "/router/catalog/refresh", "", true); code != 200 {
+		t.Fatalf("first refresh = %d %v", code, b)
+	}
+	body = `{"a":{"npm":"@ai-sdk/openai-compatible","api":"https://a/v1","models":{}}}`
+	code, b := f.do(t, "POST", "/router/catalog/refresh", "", true)
+	if code != http.StatusBadGateway || !strings.Contains(b["error"].(string), "kept the copy") {
+		t.Errorf("shrunk refresh = %d %v", code, b)
+	}
+	if _, b := f.do(t, "GET", "/router/catalog", "", true); len(b["providers"].([]any)) != 4 {
+		t.Errorf("copy changed: %v", b["providers"])
 	}
 }
