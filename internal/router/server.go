@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +45,8 @@ type Server struct {
 	HTTP   *http.Client
 	Log    *Log
 	Logger *slog.Logger
+	// Spend keeps the provider spend per client, for the budgets.
+	Spend *Spend
 
 	mu    sync.RWMutex
 	cfg   *Config
@@ -306,33 +309,16 @@ type cancelBody struct {
 
 func (b cancelBody) Close() error { err := b.ReadCloser.Close(); b.cancel(); return err }
 
-// try sends one request to a route. wait, when over 0, limits the time
-// until the response headers arrive.
-func (s *Server) try(ctx context.Context, cfg *Config, rt Route, path string, body []byte, accept string, wait time.Duration) (*http.Response, error) {
-	var target string
-	header := http.Header{"Content-Type": {"application/json"}}
-	if accept != "" {
-		header.Set("Accept", accept)
-	}
-	if rt.Local() {
-		target = s.LocalURL + "/v1" + path
-	} else {
-		p := cfg.Providers.Providers[rt.Provider]
-		target = strings.TrimSuffix(p.BaseURL, "/") + path
-		header.Set("Authorization", "Bearer "+cfg.Keys[rt.Provider])
-	}
+// try sends one request to a route. path is the endpoint after /v1, such
+// as /chat/completions. wait, when over 0, limits the time until the
+// response headers arrive.
+func (s *Server) try(ctx context.Context, cfg *Config, rt Route, path string, body []byte, in http.Header, wait time.Duration) (*http.Response, error) {
 	reqCtx, cancel := context.WithCancel(ctx)
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, target, bytes.NewReader(body))
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	req.Header = header
 	var timer *time.Timer
 	if wait > 0 {
 		timer = time.AfterFunc(wait, cancel)
 	}
-	resp, err := s.HTTP.Do(req)
+	resp, err := s.do(reqCtx, cfg, rt, path, body, in)
 	if timer != nil && !timer.Stop() {
 		if err == nil {
 			_ = resp.Body.Close()
@@ -348,6 +334,36 @@ func (s *Server) try(ctx context.Context, cfg *Config, rt Route, path string, bo
 	return resp, nil
 }
 
+// do sends one request in the API of the route's provider.
+func (s *Server) do(ctx context.Context, cfg *Config, rt Route, path string, body []byte, in http.Header) (*http.Response, error) {
+	var target string
+	header := http.Header{"Content-Type": {"application/json"}}
+	if a := in.Get("Accept"); a != "" {
+		header.Set("Accept", a)
+	}
+	switch p := cfg.Providers.Providers[rt.Provider]; {
+	case rt.Local():
+		target = s.LocalURL + "/v1" + path
+	case p.Type == ProviderAnthropic:
+		switch path {
+		case "/chat/completions":
+			return s.anthropicChatCall(ctx, cfg, rt, body)
+		case "/messages":
+			return s.anthropicPassthrough(ctx, cfg, rt, body, in)
+		}
+		return nil, refuse(http.StatusBadRequest, "%s has no %s endpoint", rt.Provider, path)
+	default:
+		target = p.URL() + path
+		header.Set("Authorization", "Bearer "+cfg.Keys[rt.Provider])
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header = header
+	return s.HTTP.Do(req)
+}
+
 // retryAfter reads a Retry-After header in seconds, up to 10 seconds.
 func retryAfter(h http.Header) time.Duration {
 	n, err := strconv.Atoi(strings.TrimSpace(h.Get("Retry-After")))
@@ -360,12 +376,19 @@ func retryAfter(h http.Header) time.Duration {
 func retryable(code int) bool { return code == http.StatusTooManyRequests || code >= 500 }
 
 // send tries the routes of d in order. It returns the first response that
-// is not a failure, or the last response or error. build makes the body
-// for a route.
-func (s *Server) send(r *http.Request, c Client, d Decision, path string, build func(Route) ([]byte, error)) (*http.Response, Route, error) {
+// is not a failure, or the last response or error. build makes the body and
+// the endpoint path for a route.
+func (s *Server) send(r *http.Request, c Client, d Decision, build func(Route) ([]byte, string, error)) (*http.Response, Route, error) {
 	cfg := s.config()
 	local := staysLocal(c, hint(r.Header, c))
 	attempts := d.Attempts()
+	// A client whose budget is spent can still use the profile's local
+	// model, even when the fallback list does not name it.
+	day, month := s.Spend.Spent(c.Name, time.Now())
+	spent := overBudget(c.Budget, day, month)
+	if spent != "" && d.LocalModel != "" && !slices.ContainsFunc(attempts, Route.Local) {
+		attempts = append(attempts, Route{Model: d.LocalModel})
+	}
 	var lastErr error
 	for i, rt := range attempts {
 		// The rules already keep a local-only request on the host. This
@@ -379,8 +402,16 @@ func (s *Server) send(r *http.Request, c Client, d Decision, path string, build 
 				lastErr = refuse(http.StatusNotFound, "no provider %q", rt.Provider)
 				continue
 			}
+			if spent != "" {
+				lastErr = refuse(http.StatusTooManyRequests, "client %q: %s", c.Name, spent)
+				continue
+			}
+			if _, priced := cfg.price(rt); c.Budget.set() && !priced {
+				lastErr = refuse(http.StatusTooManyRequests, "client %q has a budget, and %s has no price, so its cost cannot be counted", c.Name, rt)
+				continue
+			}
 		}
-		body, err := build(rt)
+		body, path, err := build(rt)
 		if err != nil {
 			return nil, rt, refuse(http.StatusBadRequest, "%v", err)
 		}
@@ -394,7 +425,7 @@ func (s *Server) send(r *http.Request, c Client, d Decision, path string, build 
 			tries = 2
 		}
 		for t := 0; t < tries; t++ {
-			resp, err := s.try(r.Context(), cfg, rt, path, body, r.Header.Get("Accept"), wait)
+			resp, err := s.try(r.Context(), cfg, rt, path, body, r.Header, wait)
 			switch {
 			case err != nil:
 				lastErr = err
@@ -436,12 +467,52 @@ func routeHeader(rt Route, d Decision) string {
 	return fmt.Sprintf("%s; profile=%q; rule=%q", rt, d.Profile, d.Rule)
 }
 
+// wireUsage holds the usage fields of both formats: the OpenAI chat format,
+// and the Anthropic Messages format, where message_start nests it under
+// "message".
+type wireUsage struct {
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+}
+
+type usageDoc struct {
+	Usage   *wireUsage `json:"usage"`
+	Message struct {
+		Usage *wireUsage `json:"usage"`
+	} `json:"message"`
+}
+
+// merge adds a usage report to u. Streams report usage in parts, and
+// Anthropic repeats some counts, so each field keeps its largest value.
+func (u *Usage) merge(w *wireUsage) {
+	if w == nil {
+		return
+	}
+	if w.InputTokens+w.OutputTokens+w.CacheReadInputTokens > 0 && w.PromptTokens == 0 {
+		// Anthropic: input_tokens excludes the cached tokens.
+		u.Prompt = max(u.Prompt, w.InputTokens+w.CacheReadInputTokens+w.CacheCreationInputTokens)
+		u.Completion = max(u.Completion, w.OutputTokens)
+	} else {
+		u.Prompt = max(u.Prompt, w.PromptTokens)
+		u.Completion = max(u.Completion, w.CompletionTokens)
+	}
+	u.CacheRead = max(u.CacheRead, w.PromptTokensDetails.CachedTokens, w.CacheReadInputTokens)
+	u.CacheWrite = max(u.CacheWrite, w.CacheCreationInputTokens)
+}
+
 // usageTap reads the token usage from a response as it is copied.
 type usageTap struct {
 	sse   bool
 	line  []byte
 	buf   bytes.Buffer
-	usage chatUsage
+	usage Usage
 }
 
 const maxTapBody = 8 << 20
@@ -461,11 +532,10 @@ func (u *usageTap) Write(p []byte) (int, error) {
 			continue
 		}
 		if data, ok := bytes.CutPrefix(u.line, []byte("data:")); ok && bytes.Contains(data, []byte(`"usage"`)) {
-			var ch struct {
-				Usage *chatUsage `json:"usage"`
-			}
-			if json.Unmarshal(bytes.TrimSpace(data), &ch) == nil && ch.Usage != nil {
-				u.usage = *ch.Usage
+			var d usageDoc
+			if json.Unmarshal(bytes.TrimSpace(data), &d) == nil {
+				u.usage.merge(d.Usage)
+				u.usage.merge(d.Message.Usage)
 			}
 		}
 		u.line = u.line[:0]
@@ -473,20 +543,19 @@ func (u *usageTap) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (u *usageTap) result() chatUsage {
+func (u *usageTap) result() Usage {
 	if !u.sse {
-		var r struct {
-			Usage chatUsage `json:"usage"`
+		var d usageDoc
+		if json.Unmarshal(u.buf.Bytes(), &d) == nil {
+			u.usage.merge(d.Usage)
 		}
-		_ = json.Unmarshal(u.buf.Bytes(), &r)
-		return r.Usage
 	}
 	return u.usage
 }
 
 // relay copies an upstream response to the client, flushing as it goes.
-func relay(w http.ResponseWriter, resp *http.Response, routeHdr string) (chatUsage, error) {
-	for _, h := range []string{"Content-Type", "Content-Length", "Cache-Control", "Retry-After"} {
+func relay(w http.ResponseWriter, resp *http.Response, routeHdr string) (Usage, error) {
+	for _, h := range []string{"Content-Type", "Content-Length", "Cache-Control", "Retry-After", "X-Sibyl-Dropped"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
 		}
@@ -514,10 +583,32 @@ func relay(w http.ResponseWriter, resp *http.Response, routeHdr string) (chatUsa
 	}
 }
 
+// record writes the decision log entry. For a provider route it adds the
+// cost to the client's spend.
 func (s *Server) record(e Entry, start time.Time) {
 	e.Time = start.UTC()
 	e.LatencyMS = time.Since(start).Milliseconds()
 	s.Log.Add(e)
+	if e.CostUSD > 0 {
+		if err := s.Spend.Add(e.Client, e.CostUSD, start); err != nil {
+			s.logger().Error("record the spend", "client", e.Client, "err", err)
+		}
+	}
+}
+
+// account fills the route, usage and cost of an entry.
+func (s *Server) account(e *Entry, rt Route, u Usage) {
+	e.Route = rt.String()
+	e.PromptTokens, e.CompletionTokens = u.Prompt, u.Completion
+	e.CacheReadTokens, e.CacheWriteTokens = u.CacheRead, u.CacheWrite
+	if rt.Local() {
+		return
+	}
+	if p, ok := s.config().price(rt); ok {
+		e.CostUSD = p.Cost(u)
+	} else {
+		e.Unpriced = true
+	}
 }
 
 func entryFor(c Client, endpoint string, d Decision) Entry {
@@ -550,15 +641,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e = entryFor(c, "chat", d)
-	resp, rt, err := s.send(r, c, d, "/chat/completions", func(rt Route) ([]byte, error) { return withModel(body, rt.Model) })
+	resp, rt, err := s.send(r, c, d, func(rt Route) ([]byte, string, error) {
+		b, err := withModel(body, rt.Model)
+		return b, "/chat/completions", err
+	})
 	if err != nil {
 		fail(err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	e.Route, e.Status = rt.String(), resp.StatusCode
+	e.Status = resp.StatusCode
 	u, err := relay(w, resp, routeHeader(rt, d))
-	e.PromptTokens, e.CompletionTokens = u.PromptTokens, u.CompletionTokens
+	s.account(&e, rt, u)
 	if err != nil {
 		e.Error = err.Error()
 	}
@@ -596,15 +690,18 @@ func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
 		fail(err)
 		return
 	}
-	resp, rt, err := s.send(r, c, d, "/embeddings", func(rt Route) ([]byte, error) { return withModel(body, rt.Model) })
+	resp, rt, err := s.send(r, c, d, func(rt Route) ([]byte, string, error) {
+		b, err := withModel(body, rt.Model)
+		return b, "/embeddings", err
+	})
 	if err != nil {
 		fail(err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	e.Route, e.Status = rt.String(), resp.StatusCode
+	e.Status = resp.StatusCode
 	u, err := relay(w, resp, routeHeader(rt, d))
-	e.PromptTokens = u.PromptTokens
+	s.account(&e, rt, u)
 	if err != nil {
 		e.Error = err.Error()
 	}
@@ -637,34 +734,53 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e = entryFor(c, "messages", d)
-	resp, rt, err := s.send(r, c, d, "/chat/completions", func(rt Route) ([]byte, error) {
-		return json.Marshal(req.toChat(rt.Model, rt.Local()))
+	cfg := s.config()
+	anthropicRoute := func(rt Route) bool {
+		return !rt.Local() && cfg.Providers.Providers[rt.Provider].Type == ProviderAnthropic
+	}
+	resp, rt, err := s.send(r, c, d, func(rt Route) ([]byte, string, error) {
+		// An anthropic route gets the client's request as it came.
+		if anthropicRoute(rt) {
+			return body, "/messages", nil
+		}
+		b, err := json.Marshal(req.toChat(rt.Model, rt.Local()))
+		return b, "/chat/completions", err
 	})
 	if err != nil {
 		fail(err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	e.Route, e.Status = rt.String(), resp.StatusCode
+	e.Status = resp.StatusCode
+	if anthropicRoute(rt) {
+		u, err := relay(w, resp, routeHeader(rt, d))
+		s.account(&e, rt, u)
+		if err != nil {
+			e.Error = err.Error()
+		}
+		s.record(e, start)
+		return
+	}
 	w.Header().Set("X-Sibyl-Route", routeHeader(rt, d))
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		e.Error = upstreamMessage(b)
+		e.Route = rt.String()
 		s.record(e, start)
 		msgError(w, resp.StatusCode, fmt.Sprintf("%s: %s", rt, e.Error))
 		return
 	}
-	var u chatUsage
+	var cu chatUsage
 	if req.Stream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(http.StatusOK)
-		u, err = streamMessages(w, resp.Body, req.Model)
+		cu, err = streamMessages(w, resp.Body, req.Model)
 	} else {
 		var b []byte
 		var out map[string]any
 		if b, err = io.ReadAll(io.LimitReader(resp.Body, maxTapBody)); err == nil {
-			out, u, err = toMessage(b, req.Model)
+			out, cu, err = toMessage(b, req.Model)
 		}
 		if err != nil {
 			fail(refuse(http.StatusBadGateway, "%v", err))
@@ -672,7 +788,7 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
-	e.PromptTokens, e.CompletionTokens = u.PromptTokens, u.CompletionTokens
+	s.account(&e, rt, Usage{Prompt: cu.PromptTokens, Completion: cu.CompletionTokens})
 	if err != nil {
 		e.Error = err.Error()
 	}

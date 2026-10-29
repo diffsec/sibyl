@@ -19,8 +19,14 @@ type Entry struct {
 	Status           int       `json:"status"`
 	PromptTokens     int       `json:"prompt_tokens,omitempty"`
 	CompletionTokens int       `json:"completion_tokens,omitempty"`
-	LatencyMS        int64     `json:"latency_ms"`
-	Error            string    `json:"error,omitempty"`
+	CacheReadTokens  int       `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int       `json:"cache_write_tokens,omitempty"`
+	// CostUSD is the provider cost from the price table. Unpriced is true
+	// for a provider route with no price, whose cost is not known.
+	CostUSD   float64 `json:"cost_usd,omitempty"`
+	Unpriced  bool    `json:"unpriced,omitempty"`
+	LatencyMS int64   `json:"latency_ms"`
+	Error     string  `json:"error,omitempty"`
 }
 
 // MaxLogSize is the size at which the decision log rotates. One old file,

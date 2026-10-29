@@ -79,6 +79,7 @@ func run(log *slog.Logger, addr string) error {
 			ExpectContinueTimeout: time.Second,
 		}},
 		Log:    &router.Log{Path: filepath.Join(env("SIBYL_ROUTER_LOG_DIR", "/log"), "decisions.jsonl")},
+		Spend:  &router.Spend{Path: filepath.Join(env("SIBYL_ROUTER_LOG_DIR", "/log"), "usage.json")},
 		Logger: log,
 	}
 	// A configuration error at startup is not fatal: with no configuration

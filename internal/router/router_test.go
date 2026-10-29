@@ -103,11 +103,12 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type harness struct {
-	srv      *httptest.Server
-	local    *fakeUpstream
-	provider *fakeUpstream
-	dir      string
-	router   *Server
+	srv       *httptest.Server
+	local     *fakeUpstream
+	provider  *fakeUpstream
+	anthropic *fakeAnthropic
+	dir       string
+	router    *Server
 }
 
 const (
@@ -129,7 +130,10 @@ func write(t *testing.T, path, body string) {
 
 func newHarness(t *testing.T, profiles string) *harness {
 	t.Helper()
-	h := &harness{local: &fakeUpstream{name: "local"}, provider: &fakeUpstream{name: "cloud"}, dir: t.TempDir()}
+	h := &harness{local: &fakeUpstream{name: "local"}, provider: &fakeUpstream{name: "cloud"},
+		anthropic: &fakeAnthropic{}, dir: t.TempDir()}
+	antSrv := httptest.NewTLSServer(h.anthropic)
+	t.Cleanup(antSrv.Close)
 	localSrv := httptest.NewServer(h.local)
 	t.Cleanup(localSrv.Close)
 	provSrv := httptest.NewTLSServer(h.provider)
@@ -149,8 +153,12 @@ func newHarness(t *testing.T, profiles string) *harness {
     type: openai
     base_url: %s/v1
     models: [big]
-`, provSrv.URL))
+  claude:
+    type: anthropic
+    base_url: %s
+`, provSrv.URL, antSrv.URL))
 	write(t, filepath.Join(h.dir, KeysDir, "cloud"), "provider-secret\n")
+	write(t, filepath.Join(h.dir, KeysDir, "claude"), "anthropic-secret\n")
 	write(t, filepath.Join(h.dir, ModelsName), `[{"id":"small","context":1000},{"id":"embed","embedding":true}]`)
 	if profiles != "" {
 		write(t, filepath.Join(h.dir, ProfilesName), profiles)
@@ -158,6 +166,7 @@ func newHarness(t *testing.T, profiles string) *harness {
 	h.router = &Server{
 		ConfigDir: h.dir, LocalURL: localSrv.URL, AdminKey: adminKey, OpenWebUIKey: owuiKey,
 		HTTP: provSrv.Client(), Log: &Log{Path: filepath.Join(h.dir, "decisions.jsonl")},
+		Spend:  &Spend{Path: filepath.Join(h.dir, "usage.json")},
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if err := h.router.Reload(); err != nil {
@@ -341,7 +350,7 @@ func TestLocalOnlyNeverLeaves(t *testing.T) {
 						"messages": []any{map[string]any{"role": "user", "content": "hi"}}}, "X-Sibyl-Route", hint)
 				}
 			}
-			if n := h.provider.count(); n != 0 {
+			if n := h.provider.count() + h.anthropic.count(); n != 0 {
 				t.Fatalf("the provider got %d requests from local-only clients", n)
 			}
 			// The same rule sends a hybrid client out, so the rule did match.
@@ -639,8 +648,15 @@ func TestValidate(t *testing.T) {
 		{"http provider", "https://", func() error {
 			return ProvidersFile{Providers: map[string]Provider{"p": {Type: ProviderOpenAI, BaseURL: "http://x"}}}.Validate()
 		}},
-		{"anthropic waits", "type must be", func() error {
-			return ProvidersFile{Providers: map[string]Provider{"p": {Type: "anthropic", BaseURL: "https://x"}}}.Validate()
+		{"unknown type", "type must be", func() error {
+			return ProvidersFile{Providers: map[string]Provider{"p": {Type: "gemini", BaseURL: "https://x"}}}.Validate()
+		}},
+		{"negative price", "negative", func() error {
+			return ProvidersFile{Providers: map[string]Provider{"p": {Type: ProviderAnthropic,
+				Prices: map[string]Price{"m": {Input: -1}}}}}.Validate()
+		}},
+		{"negative budget", "negative", func() error {
+			return ClientsFile{Clients: []Client{{Name: "a", Policy: Hybrid, KeySHA256: hash("k"), Budget: &Budget{DailyUSD: -1}}}}.Validate()
 		}},
 		{"reserved", "reserved", func() error {
 			return ProvidersFile{Providers: map[string]Provider{"local": {Type: ProviderOpenAI, BaseURL: "https://x"}}}.Validate()

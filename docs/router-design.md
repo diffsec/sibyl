@@ -1,6 +1,6 @@
 # Smart model router (phase 6)
 
-Status: step 6.1 is built (2026-10-29). Steps 6.2 and 6.3 are design. Written on 2026-10-28, after phases 1 to 5.
+Status: steps 6.1 and 6.2 are built (2026-10-29). Step 6.3 is design. Written on 2026-10-28, after phases 1 to 5.
 
 The router is a gateway in front of llama-swap. It serves a request on the local GPUs when a local model can do the job, and sends it to a frontier provider (Anthropic, OpenAI, OpenRouter and similar) when the request needs more context, more capability, or a feature that the local model lacks. Rules that the owner writes decide each request. A small local classifier can add labels, such as the task and its difficulty, for the rules to use.
 
@@ -146,13 +146,15 @@ Published work supports a learned router. LMSYS reports that its matrix factoriz
 
 ## Providers
 
-Each provider has a type, a base URL, a key, and a price table. Step 6.1 accepts only the type `openai`. The type `anthropic` comes with its adapter in step 6.2.
+Each provider has a type, a base URL, a key, and a price table. The type is `openai` or `anthropic`. An `anthropic` provider needs no base URL: the default is `https://api.anthropic.com`.
 
 ```yaml
 # /var/lib/sibyl/config/router/providers.yaml (keys are in separate 0600 files)
 providers:
   anthropic:
     type: anthropic
+    prices:                    # optional: overrides the built-in table
+      claude-sonnet-5-5: {input: 2, output: 10, cache_read: 0.20, cache_write: 2.5}
   openai:
     type: openai
     base_url: https://api.openai.com/v1
@@ -178,30 +180,52 @@ The Anthropic adapter uses the official Go SDK, `github.com/anthropics/anthropic
 | An image `data:` URL | An `image` content block |
 | `max_tokens` or `max_completion_tokens` | `max_tokens`, which the Messages API requires. The default is 16000, or 64000 for a streamed request. |
 | `reasoning_effort` | `output_config.effort` |
-| `temperature`, `top_p` | Dropped. API version `2026-10-21` rejects `temperature`, `top_p` and `top_k` on every model. The response carries a header that says which fields were dropped. |
+| `stop` | `stop_sequences` |
+| `tool_choice` and `parallel_tool_calls: false` | `tool_choice`, with `disable_parallel_tool_use` |
+| `temperature`, `top_p`, and any other field | Dropped. Current Claude models accept only the default sampling values, and API version `2026-10-21` rejects `temperature`, `top_p` and `top_k` on every model. The `X-Sibyl-Dropped` response header names each dropped field. |
+| An assistant `reasoning_content` in the response | The text of the `thinking` blocks, when the model returns any |
 
-A streamed response arrives as Messages API events. The adapter turns each text delta into an OpenAI `delta.content` chunk, and each tool input delta into a `tool_calls` arguments chunk. The final event's stop reason maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `length`, `tool_use` to `tool_calls`, and `refusal` to `content_filter`. Usage goes into the last chunk, as OpenAI clients expect with `stream_options.include_usage`.
+Consecutive turns of the same role merge into one, because the Messages API wants the roles to alternate. Several `tool` messages after one assistant turn therefore become one user turn with several `tool_result` blocks. The SDK sends API version `2023-06-01` and does not retry: the router retries and falls back itself.
+
+Thinking blocks do not survive the OpenAI chat format, so the next turn of a conversation goes back without them. Claude models with preserved thinking accept that: a history with no thinking block has no block to check. The reasoning of earlier turns is not replayed, which costs some quality in a long tool loop. A client that needs it uses the Messages endpoint, which passes the thinking blocks through.
+
+A streamed response arrives as Messages API events. The adapter turns each text delta into an OpenAI `delta.content` chunk, each thinking delta into `delta.reasoning_content`, and each tool input delta into a `tool_calls` arguments chunk. The final event's stop reason maps to `finish_reason`: `end_turn` to `stop`, `max_tokens` to `length`, `tool_use` to `tool_calls`, and `refusal` to `content_filter`. The usage goes into its own last chunk when the client sets `stream_options.include_usage`, and into the finish chunk otherwise, so the router can always count the cost. The adapter reads the first event before it answers, so a refused or overloaded request still reaches the fallback list.
 
 The adapter also sets these, because they cost nothing in quality:
 
 - Automatic prompt caching (`cache_control` at the top level), so a long system prompt or conversation is billed at the cache read price on the next turn.
-- The server-side refusal fallback on the models that support it, so a request that a safety classifier declines is answered by the fallback model in the same call.
+
+The design also named the server-side refusal fallback. It is not built: it needs the SDK's beta message types throughout the adapter, and only Claude Fable 5.1 supports it. A refusal comes back as `finish_reason: content_filter`.
 
 ### Anthropic Messages from clients
 
 The router also serves `POST /v1/messages`, so a tool that speaks only the Anthropic API can use Sibyl. The router reads the request into the same form as an OpenAI chat request, with the table above in reverse, and the rules see one form. The response goes back as Messages API events.
 
-- An `anthropic` route gets the client's request body unchanged, apart from the model name and the key. No field is lost in translation.
+- An `anthropic` route gets the client's request body unchanged, apart from the model name and the key. The client's `anthropic-version` and `anthropic-beta` headers go with it. No field is lost in translation, and the response goes back as the provider sent it.
 - A local route or an OpenAI-compatible route gets the translated request.
 - The client's `x-api-key` header carries the Sibyl client key. The router never passes it to a provider.
-- Thinking blocks in the request are dropped, and the response has none. Server tools, such as web search, have no input schema, so they are left out of the request.
+- On a local or OpenAI-compatible route, thinking blocks in the request are dropped, and the response has none. Server tools, such as web search, have no input schema, so they are left out of the request.
 - `POST /v1/messages/count_tokens` returns the router's own estimate, the same one that the rules use.
 
 ### Prices and budgets
 
-The router computes the cost of each provider request from the usage that the provider returns and a price table in `providers.yaml`. Sibyl ships a dated table for the Anthropic models, and the owner keeps it current. For example, on 2026-10-06 Anthropic listed Claude Sonnet 5.5 at $2 per million input tokens and $10 per million output tokens.
+The router computes the cost of each provider request from the usage that the provider returns and a price table. Prices are US dollars per million tokens: `input`, `output`, `cache_read` and `cache_write`. `long_above`, `long_input` and `long_output` set the prices of a prompt over a size, as Claude Haiku 5.5 has.
 
-A new client has no budget, so its provider spend has no limit until the admin sets one. The Router screen shows each client's spend, and a `hybrid` client with no budget is marked there. A client with a budget is checked before each provider request. When the budget is spent, the router uses the profile's local route, or returns 429 if the request cannot run locally. Usage totals per client and per day are kept in `/var/lib/sibyl/config/router/usage.json`.
+- A provider's `prices` in `providers.yaml` come first.
+- For the type `anthropic`, a built-in table follows (`AnthropicPrices` in `internal/router/price.go`). It holds the prices that Anthropic listed on 2026-10-29. For example, Claude Sonnet 5.5 is $2 per million input tokens and $10 per million output tokens. Where the list gave no cache price, a cache read is 0.1 times and a cache write 1.25 times the input price. The owner keeps the table current by overriding a price in `providers.yaml`.
+- A model with no price has an unknown cost. Its log entries carry `"unpriced": true`, and the Router screen counts them.
+
+Each decision log entry carries the cached tokens and `cost_usd`.
+
+A new client has no budget, so its provider spend has no limit until the admin sets one. The Router screen shows each client's spend, and a `hybrid` client with no budget is marked there. A budget is `{daily_usd, monthly_usd}`. A day and a month are UTC.
+
+A client with a budget is checked before each provider request:
+
+- When the budget is spent, the router skips every provider route. A request for a profile then runs on the profile's local model, even when the fallback list does not name it. A request that names a provider model gets 429.
+- A model with no price is skipped too, with 429 if nothing else is left, because its cost cannot be counted against the budget.
+- The check happens before the request, and the cost is known after it. Requests that run at the same time can therefore go over a budget by the cost of those requests.
+
+The router keeps the spend per client and per day in `/var/lib/sibyl/config/router/log/usage.json` for 62 days.
 
 ## Failures
 
@@ -214,7 +238,7 @@ A new client has no budget, so its provider spend has no limit until the admin s
 
 Every response carries `X-Sibyl-Route`, such as `anthropic/claude-sonnet-5-5; rule="too long for the local model"`.
 
-The decision log, `/var/lib/sibyl/config/router/log/decisions.jsonl`, records one line per request: time, client, requested model, route, rule, status, token counts and latency. Cost comes with the price tables in step 6.2. It never records message content. It rotates at 50 MB and keeps one old file.
+The decision log, `/var/lib/sibyl/config/router/log/decisions.jsonl`, records one line per request: time, client, requested model, route, rule, status, token counts, cost and latency. It never records message content. It rotates at 50 MB and keeps one old file.
 
 The System API reads the log for `GET /router/stats`, and the TUI's Router screen shows requests, routes, spend per client, and the last decisions.
 
@@ -232,7 +256,7 @@ The System API reads the log for `GET /router/stats`, and the TUI's Router scree
 | Step | Scope | Exit check |
 |---|---|---|
 | 6.1 (built) | Router service with client keys and policies, model names, the OpenAI-compatible adapter for OpenAI and OpenRouter, the Anthropic Messages endpoint for clients, typed rules, `explain`, the decision log. Caddy, Open WebUI and the Ollama shim move to the router. | With no provider, every existing client works unchanged. A `local-only` client's request never leaves the host: a packet capture on the host shows no connection to a provider. |
-| 6.2 | Anthropic adapter, price tables, budgets, fallbacks, the TUI Router screen. | A request longer than the local context goes to the configured provider with tool calls and streaming intact. A spent budget sends the next request to the local model. |
+| 6.2 (built) | Anthropic adapter, price tables, budgets, fallbacks, the TUI Router screen. | A request longer than the local context goes to the configured provider with tool calls and streaming intact. A spent budget sends the next request to the local model. |
 | 6.3 | Classifier, starter example set, and an evaluation script that replays a labelled request set and reports route, cost and quality per profile. | On the labelled set, the `auto` profile sends fewer requests to providers than an all-provider profile, at a quality that the owner accepts. |
 
 ## Decisions

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/diffsec/sibyl/internal/hardware"
 	"github.com/diffsec/sibyl/internal/models"
 	"github.com/diffsec/sibyl/internal/router"
@@ -108,10 +110,11 @@ func (s *Server) saveYAML(name string, v any) error {
 }
 
 type routerClientView struct {
-	Name      string        `json:"name"`
-	Policy    router.Policy `json:"policy"`
-	AllowHint bool          `json:"allow_hint"`
-	Builtin   bool          `json:"builtin"`
+	Name      string         `json:"name"`
+	Policy    router.Policy  `json:"policy"`
+	AllowHint bool           `json:"allow_hint"`
+	Builtin   bool           `json:"builtin"`
+	Budget    *router.Budget `json:"budget,omitempty"`
 }
 
 type routerProviderView struct {
@@ -134,14 +137,14 @@ func clientList(f router.ClientsFile) []routerClientView {
 		v := routerClientView{Name: name, Policy: router.LocalOnly, Builtin: true}
 		for _, c := range f.Clients {
 			if c.Name == name {
-				v.Policy, v.AllowHint = c.Policy, c.AllowHint
+				v.Policy, v.AllowHint, v.Budget = c.Policy, c.AllowHint, c.Budget
 			}
 		}
 		out = append(out, v)
 	}
 	for _, c := range f.Clients {
 		if !router.Builtin(c.Name) {
-			out = append(out, routerClientView{Name: c.Name, Policy: c.Policy, AllowHint: c.AllowHint})
+			out = append(out, routerClientView{Name: c.Name, Policy: c.Policy, AllowHint: c.AllowHint, Budget: c.Budget})
 		}
 	}
 	return out
@@ -163,8 +166,9 @@ func (s *Server) getRouter(w http.ResponseWriter, _ *http.Request) {
 }
 
 type clientRequest struct {
-	Policy    router.Policy `json:"policy"`
-	AllowHint bool          `json:"allow_hint"`
+	Policy    router.Policy  `json:"policy"`
+	AllowHint bool           `json:"allow_hint"`
+	Budget    *router.Budget `json:"budget,omitempty"`
 }
 
 // postRouterClient creates a client and returns its key. The key is shown
@@ -205,6 +209,7 @@ func (s *Server) postRouterClient(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Clients.Clients = append(c.Clients.Clients, router.Client{
 		Name: req.Name, KeySHA256: hex.EncodeToString(sum[:]), Policy: req.Policy, AllowHint: req.AllowHint,
+		Budget: req.Budget,
 	})
 	if err := s.saveClients(c.Clients); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
@@ -240,9 +245,11 @@ func (s *Server) putRouterClient(w http.ResponseWriter, r *http.Request) {
 	i := slices.IndexFunc(c.Clients.Clients, func(x router.Client) bool { return x.Name == name })
 	switch {
 	case i >= 0:
-		c.Clients.Clients[i].Policy, c.Clients.Clients[i].AllowHint = req.Policy, req.AllowHint
+		cl := &c.Clients.Clients[i]
+		cl.Policy, cl.AllowHint, cl.Budget = req.Policy, req.AllowHint, req.Budget
 	case router.Builtin(name):
-		c.Clients.Clients = append(c.Clients.Clients, router.Client{Name: name, Policy: req.Policy, AllowHint: req.AllowHint})
+		c.Clients.Clients = append(c.Clients.Clients, router.Client{Name: name, Policy: req.Policy,
+			AllowHint: req.AllowHint, Budget: req.Budget})
 	default:
 		writeError(w, http.StatusNotFound, fmt.Errorf("no client %q", name))
 		return
@@ -287,15 +294,23 @@ func (s *Server) deleteRouterClient(w http.ResponseWriter, r *http.Request) {
 func (s *Server) checkProviderKey(ctx context.Context, p router.Provider, key string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(p.BaseURL, "/")+"/models", nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
 	c := s.ProviderHTTP
 	if c == nil {
 		c = &http.Client{}
 	}
+	if p.Type == router.ProviderAnthropic {
+		client := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(p.URL()+"/"),
+			option.WithAPIKey(key), option.WithHTTPClient(c), option.WithMaxRetries(0))
+		if _, err := client.Models.List(ctx, anthropic.ModelListParams{Limit: anthropic.Int(1)}); err != nil {
+			return fmt.Errorf("the provider refused the key: %w", err)
+		}
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL()+"/models", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := c.Do(req)
 	if err != nil {
 		return fmt.Errorf("reach the provider: %w", err)
@@ -467,13 +482,49 @@ type routerStats struct {
 	ByClient map[string]int `json:"by_client"`
 	ByRoute  map[string]int `json:"by_route"`
 	Errors   int            `json:"errors"`
-	Last     []router.Entry `json:"last"`
+	// Unpriced counts provider requests whose cost is not known.
+	Unpriced int                    `json:"unpriced"`
+	Spend    map[string]clientSpend `json:"spend"`
+	Last     []router.Entry         `json:"last"`
+}
+
+// clientSpend is a client's provider spend in US dollars, in UTC.
+type clientSpend struct {
+	Today     float64 `json:"today_usd"`
+	ThisMonth float64 `json:"month_usd"`
+}
+
+func (p Paths) routerSpend() string { return filepath.Join(p.routerDir(), "log", "usage.json") }
+
+// spend reads usage.json, which the router writes.
+func (s *Server) spend() map[string]clientSpend {
+	out := map[string]clientSpend{}
+	b, err := os.ReadFile(s.Paths.routerSpend())
+	if err != nil {
+		return out
+	}
+	var f router.SpendFile
+	if json.Unmarshal(b, &f) != nil {
+		return out
+	}
+	clients := map[string]bool{}
+	for _, day := range f.Days {
+		for c := range day {
+			clients[c] = true
+		}
+	}
+	now := time.Now()
+	for c := range clients {
+		d, m := router.SpentIn(f.Days, c, now)
+		out[c] = clientSpend{Today: d, ThisMonth: m}
+	}
+	return out
 }
 
 // getRouterStats reads the decision log: totals per client and per route
 // since the log last rotated, and the last decisions.
 func (s *Server) getRouterStats(w http.ResponseWriter, _ *http.Request) {
-	st := routerStats{ByClient: map[string]int{}, ByRoute: map[string]int{}, Last: []router.Entry{}}
+	st := routerStats{ByClient: map[string]int{}, ByRoute: map[string]int{}, Last: []router.Entry{}, Spend: s.spend()}
 	f, err := os.Open(s.Paths.routerLog())
 	if errors.Is(err, os.ErrNotExist) {
 		writeJSON(w, http.StatusOK, st)
@@ -499,6 +550,9 @@ func (s *Server) getRouterStats(w http.ResponseWriter, _ *http.Request) {
 		}
 		if e.Status >= 400 || e.Error != "" {
 			st.Errors++
+		}
+		if e.Unpriced {
+			st.Unpriced++
 		}
 		st.Last = append(st.Last, e)
 		if len(st.Last) > keep {

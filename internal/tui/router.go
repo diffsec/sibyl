@@ -1,0 +1,475 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+
+	"github.com/diffsec/sibyl/internal/client"
+)
+
+type routerLoaded struct {
+	r   client.Router
+	st  client.RouterStats
+	err error
+}
+
+type routerDone struct {
+	what string
+	key  string // a new client's key
+	err  error
+}
+
+type routerTick struct{}
+
+// routerView manages the model router: its clients, their keys, policies
+// and budgets, and the providers. It shows the spend and the last
+// decisions. Profiles are edited through PUT /system/router/profiles.
+type routerView struct {
+	c      *client.Client
+	r      client.Router
+	st     client.RouterStats
+	err    error
+	cursor int // selected client
+	ticks  bool
+
+	form *huh.Form
+	mode string // new, edit, delete, provider, unprovider
+	// Form values.
+	name, policy, daily, monthly string
+	allowHint, confirm           bool
+	ptype, baseURL, apiKey, mods string
+	// key is a new client's key, shown until the next action.
+	key, keyFor string
+}
+
+func newRouterView(c *client.Client) *routerView { return &routerView{c: c} }
+
+func (v *routerView) fetch() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		r, err := v.c.Router(ctx)
+		if err != nil {
+			return routerLoaded{err: err}
+		}
+		st, err := v.c.RouterStats(ctx)
+		return routerLoaded{r, st, err}
+	}
+}
+
+func (v *routerView) activate() tea.Cmd {
+	if v.ticks {
+		return v.fetch()
+	}
+	v.ticks = true
+	return tea.Batch(v.fetch(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return routerTick{} }))
+}
+
+func (v *routerView) capturing() bool { return v.form != nil }
+
+func (v *routerView) help() string {
+	if v.form != nil {
+		return "enter next · shift+tab back · esc discard"
+	}
+	h := "n new client · e edit · p add or change provider · x delete provider · ↑/↓ select"
+	if c, ok := v.selected(); ok && !c.Builtin {
+		h += " · d delete client"
+	}
+	return h
+}
+
+func (v *routerView) selected() (client.RouterClient, bool) {
+	if v.cursor < 0 || v.cursor >= len(v.r.Clients) {
+		return client.RouterClient{}, false
+	}
+	return v.r.Clients[v.cursor], true
+}
+
+var clientNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+
+func validName(s string) error {
+	if !clientNameRE.MatchString(strings.TrimSpace(s)) {
+		return errors.New("1 to 32 lowercase letters, digits and dashes")
+	}
+	return nil
+}
+
+func validUSD(s string) error {
+	if s = strings.TrimSpace(s); s == "" {
+		return nil
+	}
+	if f, err := strconv.ParseFloat(s, 64); err != nil || f < 0 {
+		return errors.New("a dollar amount, such as 5 or 2.50, or empty for no limit")
+	}
+	return nil
+}
+
+func policyOptions() []huh.Option[string] {
+	return []huh.Option[string]{
+		huh.NewOption("local-only: requests never leave this host", "local-only"),
+		huh.NewOption("hybrid: the routing rules can send requests to a provider", "hybrid"),
+	}
+}
+
+func budgetFields(daily, monthly *string) []huh.Field {
+	return []huh.Field{
+		huh.NewInput().Title("Daily budget (US$)").Description("Provider spend per UTC day. Empty: no limit.").
+			Value(daily).Validate(validUSD),
+		huh.NewInput().Title("Monthly budget (US$)").Description("Provider spend per UTC month. Empty: no limit.").
+			Value(monthly).Validate(validUSD),
+	}
+}
+
+func (v *routerView) newForm() tea.Cmd {
+	v.mode, v.name, v.policy, v.daily, v.monthly = "new", "", "local-only", "", ""
+	fields := append([]huh.Field{
+		huh.NewInput().Title("Client name").Description("For example laptop or home-assistant.").
+			Value(&v.name).Validate(validName),
+		huh.NewSelect[string]().Title("Policy").Options(policyOptions()...).Value(&v.policy),
+	}, budgetFields(&v.daily, &v.monthly)...)
+	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func usd(f float64) string {
+	if f == 0 {
+		return ""
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
+}
+
+func (v *routerView) editForm(c client.RouterClient) tea.Cmd {
+	v.mode, v.name, v.policy, v.allowHint = "edit", c.Name, c.Policy, c.AllowHint
+	v.daily, v.monthly = "", ""
+	if c.Budget != nil {
+		v.daily, v.monthly = usd(c.Budget.DailyUSD), usd(c.Budget.MonthlyUSD)
+	}
+	fields := append([]huh.Field{
+		huh.NewNote().Title("Client " + c.Name),
+		huh.NewSelect[string]().Title("Policy").Options(policyOptions()...).Value(&v.policy),
+		huh.NewConfirm().Title("Allow the cloud hint").
+			Description("Lets the client send X-Sibyl-Route: cloud to ask for a provider.").
+			Affirmative("Allow").Negative("No").Value(&v.allowHint),
+	}, budgetFields(&v.daily, &v.monthly)...)
+	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *routerView) deleteForm(name string) tea.Cmd {
+	v.mode, v.name, v.confirm = "delete", name, false
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title("Delete client " + name + "?").
+			Description("Its key stops working at once.").
+			Affirmative("Delete").Negative("Keep").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *routerView) providerForm() tea.Cmd {
+	v.mode, v.name, v.ptype, v.baseURL, v.apiKey, v.mods = "provider", "", "openai", "", "", ""
+	known := map[string]client.RouterProvider{}
+	for _, p := range v.r.Providers {
+		known[p.Name] = p
+	}
+	v.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Title("Provider name").
+				Description("Clients name its models as <provider>/<model>. A known name changes that provider.").
+				Value(&v.name).Validate(func(s string) error {
+				if s == "local" || s == "auto" {
+					return errors.New("local and auto are reserved")
+				}
+				return validName(s)
+			}),
+			huh.NewSelect[string]().Title("API").Options(
+				huh.NewOption("OpenAI-compatible: OpenAI, OpenRouter and similar", "openai"),
+				huh.NewOption("Anthropic Messages API", "anthropic"),
+			).Value(&v.ptype),
+		),
+		huh.NewGroup(
+			huh.NewInput().Title("Base URL").DescriptionFunc(func() string {
+				if v.ptype == "anthropic" {
+					return "Empty for https://api.anthropic.com."
+				}
+				return "Up to the endpoint path, such as https://api.openai.com/v1 or https://openrouter.ai/api/v1."
+			}, &v.ptype).Value(&v.baseURL),
+			huh.NewInput().Title("API key").DescriptionFunc(func() string {
+				if _, ok := known[strings.TrimSpace(v.name)]; ok {
+					return "Empty keeps the stored key. Sibyl checks a new key with the provider."
+				}
+				return "Sibyl checks the key with the provider before it stores it."
+			}, &v.name).EchoMode(huh.EchoModePassword).Value(&v.apiKey),
+			huh.NewInput().Title("Models to list").
+				Description("Optional, separated by spaces. GET /v1/models lists them for hybrid clients.").
+				Value(&v.mods),
+		),
+	).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *routerView) unproviderForm() tea.Cmd {
+	var opts []huh.Option[string]
+	for _, p := range v.r.Providers {
+		opts = append(opts, huh.NewOption(p.Name+"  "+p.Type, p.Name))
+	}
+	if len(opts) == 0 {
+		return note(false, "there are no providers")
+	}
+	v.mode, v.name, v.confirm = "unprovider", opts[0].Value, false
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().Title("Provider to delete").Options(opts...).Value(&v.name),
+		huh.NewConfirm().Title("Delete it?").Description("Its key is deleted too. A profile that names it must change first.").
+			Affirmative("Delete").Negative("Keep").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+// budget reads the budget fields. It returns nil when both are empty.
+func (v *routerView) budget() *client.RouterBudget {
+	d, _ := strconv.ParseFloat(strings.TrimSpace(v.daily), 64)
+	m, _ := strconv.ParseFloat(strings.TrimSpace(v.monthly), 64)
+	if d <= 0 && m <= 0 {
+		return nil
+	}
+	return &client.RouterBudget{DailyUSD: d, MonthlyUSD: m}
+}
+
+func (v *routerView) submit() tea.Cmd {
+	run := func(what string, fn func(context.Context) (string, error)) tea.Cmd {
+		v.key, v.keyFor = "", ""
+		return tea.Batch(note(true, "%s…", what), func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			key, err := fn(ctx)
+			return routerDone{what, key, err}
+		})
+	}
+	name, b := strings.TrimSpace(v.name), v.budget()
+	switch v.mode {
+	case "new":
+		policy := v.policy
+		return run("create client "+name, func(ctx context.Context) (string, error) {
+			nc, err := v.c.CreateRouterClient(ctx, name, policy, b)
+			return nc.Key, err
+		})
+	case "edit":
+		policy, hint := v.policy, v.allowHint
+		return run("change client "+name, func(ctx context.Context) (string, error) {
+			return "", v.c.SetRouterClient(ctx, name, policy, hint, b)
+		})
+	case "delete":
+		if !v.confirm {
+			return note(false, "%s kept", name)
+		}
+		return run("delete client "+name, func(ctx context.Context) (string, error) {
+			return "", v.c.DeleteRouterClient(ctx, name)
+		})
+	case "provider":
+		p := client.ProviderRequest{Type: v.ptype, BaseURL: strings.TrimSpace(v.baseURL),
+			APIKey: strings.TrimSpace(v.apiKey), Models: strings.Fields(v.mods)}
+		v.apiKey = ""
+		return run("set provider "+name+" (checking the key)", func(ctx context.Context) (string, error) {
+			return "", v.c.SetRouterProvider(ctx, name, p)
+		})
+	case "unprovider":
+		if !v.confirm {
+			return note(false, "%s kept", name)
+		}
+		return run("delete provider "+name, func(ctx context.Context) (string, error) {
+			return "", v.c.DeleteRouterProvider(ctx, name)
+		})
+	}
+	return nil
+}
+
+func (v *routerView) update(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case routerTick:
+		return tea.Batch(v.fetch(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return routerTick{} }))
+	case routerLoaded:
+		v.err = msg.err
+		if msg.err == nil || len(msg.r.Clients) > 0 {
+			v.r, v.st = msg.r, msg.st
+		}
+		if v.cursor >= len(v.r.Clients) {
+			v.cursor = 0
+		}
+		return nil
+	case routerDone:
+		if msg.err != nil {
+			return tea.Batch(note(false, "%s: %v", msg.what, msg.err), v.fetch())
+		}
+		if msg.key != "" {
+			v.key, v.keyFor = msg.key, strings.TrimPrefix(msg.what, "create client ")
+		}
+		return tea.Batch(note(true, "%s: done", msg.what), v.fetch())
+	case tea.KeyPressMsg:
+		if v.form == nil {
+			return v.keyPress(msg.String())
+		}
+		if msg.String() == "esc" {
+			v.form, v.apiKey = nil, ""
+			return note(false, "changes discarded")
+		}
+	}
+	if v.form == nil {
+		return nil
+	}
+	m, cmd := v.form.Update(msg)
+	v.form = m.(*huh.Form)
+	switch v.form.State {
+	case huh.StateCompleted:
+		v.form = nil
+		return tea.Batch(cmd, v.submit())
+	case huh.StateAborted:
+		v.form, v.apiKey = nil, ""
+	}
+	return cmd
+}
+
+func (v *routerView) keyPress(k string) tea.Cmd {
+	c, ok := v.selected()
+	switch k {
+	case "up":
+		if v.cursor > 0 {
+			v.cursor--
+		}
+	case "down", "j":
+		if v.cursor < len(v.r.Clients)-1 {
+			v.cursor++
+		}
+	case "n":
+		return v.newForm()
+	case "e":
+		if ok {
+			return v.editForm(c)
+		}
+	case "d":
+		if ok && !c.Builtin {
+			return v.deleteForm(c.Name)
+		}
+	case "p":
+		return v.providerForm()
+	case "x":
+		return v.unproviderForm()
+	}
+	return nil
+}
+
+func money(f float64) string { return fmt.Sprintf("$%.2f", f) }
+
+// budgetText shows a client's spend against its budget.
+func budgetText(c client.RouterClient, s client.RouterSpend) string {
+	day, month := money(s.Today)+" today", money(s.Month)+" this month"
+	if c.Budget == nil {
+		if c.Policy == "hybrid" {
+			return day + ", " + month + "  " + badSty.Render("no budget")
+		}
+		return mutedSty.Render("stays on this host")
+	}
+	if c.Budget.DailyUSD > 0 {
+		day += " of " + money(c.Budget.DailyUSD)
+	}
+	if c.Budget.MonthlyUSD > 0 {
+		month += " of " + money(c.Budget.MonthlyUSD)
+	}
+	return day + ", " + month
+}
+
+func (v *routerView) render(int) string {
+	if v.form != nil {
+		return v.form.View()
+	}
+	var b strings.Builder
+	if v.err != nil {
+		b.WriteString(badSty.Render("API error: "+v.err.Error()) + "\n\n")
+	}
+
+	b.WriteString(titleSty.Render("Clients") + "\n")
+	for i, c := range v.r.Clients {
+		policy := mutedSty.Render(c.Policy)
+		if c.Policy == "hybrid" {
+			policy = selSty.Render(c.Policy)
+		}
+		line := fmt.Sprintf("%-16s %-10s %5d req  %s", c.Name, policy, v.st.ByClient[c.Name], budgetText(c, v.st.Spend[c.Name]))
+		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
+	}
+	if v.key != "" {
+		b.WriteString(badSty.Render("  Key for "+v.keyFor+". Copy it now, it is not shown again:") + "\n")
+		b.WriteString("    " + selSty.Render(v.key) + "\n")
+	}
+
+	b.WriteString("\n" + titleSty.Render("Providers") + "\n")
+	if len(v.r.Providers) == 0 {
+		b.WriteString(mutedSty.Render("  none · every request stays on this host · press p to add one") + "\n")
+	}
+	for _, p := range v.r.Providers {
+		key := goodSty.Render("key set")
+		if !p.KeySet {
+			key = badSty.Render("no key")
+		}
+		url := p.BaseURL
+		if url == "" {
+			url = "default URL"
+		}
+		fmt.Fprintf(&b, "  %-14s %-9s %s  %s\n", p.Name, p.Type, key, mutedSty.Render(url))
+		if len(p.Models) > 0 {
+			b.WriteString(mutedSty.Render("      "+strings.Join(p.Models, " ")) + "\n")
+		}
+	}
+
+	b.WriteString("\n" + titleSty.Render("Profiles") + "\n")
+	names := make([]string, 0, len(v.r.Profiles.Profiles))
+	for n := range v.r.Profiles.Profiles {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		b.WriteString(mutedSty.Render("  none · set them with PUT /system/router/profiles") + "\n")
+	}
+	for _, n := range names {
+		p := v.r.Profiles.Profiles[n]
+		model := n
+		if n != "auto" {
+			model = "auto:" + n
+		}
+		var routes []string
+		for _, r := range p.Rules {
+			routes = append(routes, r.Route)
+		}
+		fmt.Fprintf(&b, "  %-14s local %s · %d rules → %s\n", model, p.LocalModel, len(p.Rules), strings.Join(routes, ", "))
+	}
+
+	fmt.Fprintf(&b, "\n%s  %d requests, %d errors", titleSty.Render("Last decisions"), v.st.Requests, v.st.Errors)
+	if v.st.Unpriced > 0 {
+		b.WriteString(badSty.Render(fmt.Sprintf(", %d with no price", v.st.Unpriced)))
+	}
+	b.WriteString("\n")
+	for i, e := range v.st.Last {
+		if i == 8 {
+			break
+		}
+		route := e.Route
+		if route == "" {
+			route = "refused"
+		}
+		line := fmt.Sprintf("  %s %-12s %-40s %3d", e.Time.Local().Format("15:04:05"), e.Client, route, e.Status)
+		if e.CostUSD > 0 {
+			line += fmt.Sprintf("  $%.4f", e.CostUSD)
+		}
+		if e.Rule != "" {
+			line += "  " + mutedSty.Render(e.Rule)
+		}
+		b.WriteString(line + "\n")
+	}
+	return b.String()
+}

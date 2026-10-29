@@ -33,6 +33,9 @@ type Decision struct {
 	Rules    []RuleResult `json:"rules,omitempty"`
 	// LocalWait limits the wait for a local route when a next route exists.
 	LocalWait time.Duration `json:"-"`
+	// LocalModel is the profile's local model, the last resort of a client
+	// whose budget is spent.
+	LocalModel string `json:"-"`
 }
 
 // Attempts returns the routes in the order that the router tries them.
@@ -106,7 +109,7 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 	if !ok {
 		return d, refuse(http.StatusNotFound, "no routing profile %q", name)
 	}
-	d.Profile = name
+	d.Profile, d.LocalModel = name, p.LocalModel
 	f.Client, f.Policy, f.Hint = rs.client.Name, rs.client.Policy, rs.hint
 	if lm, ok := rs.cfg.localModel(p.LocalModel); ok {
 		f.LocalContext = lm.Context

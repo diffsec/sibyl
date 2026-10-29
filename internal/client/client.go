@@ -360,3 +360,136 @@ func (c *Client) ClearHuggingFaceToken(ctx context.Context) (HuggingFace, error)
 	var h HuggingFace
 	return h, c.do(ctx, http.MethodDelete, "/integrations/huggingface", nil, &h)
 }
+
+// RouterBudget limits a client's provider spend, in US dollars per UTC day
+// and month. Zero means no limit.
+type RouterBudget struct {
+	DailyUSD   float64 `json:"daily_usd,omitempty"`
+	MonthlyUSD float64 `json:"monthly_usd,omitempty"`
+}
+
+// RouterClient is one inference client of the model router.
+type RouterClient struct {
+	Name      string        `json:"name"`
+	Policy    string        `json:"policy"`
+	AllowHint bool          `json:"allow_hint"`
+	Builtin   bool          `json:"builtin"`
+	Budget    *RouterBudget `json:"budget,omitempty"`
+}
+
+// RouterProvider is one provider of the model router.
+type RouterProvider struct {
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	BaseURL string   `json:"base_url,omitempty"`
+	Models  []string `json:"models,omitempty"`
+	KeySet  bool     `json:"key_set"`
+}
+
+// RouterRule is one rule of a routing profile.
+type RouterRule struct {
+	Name  string `json:"name"`
+	Route string `json:"route"`
+}
+
+// RouterProfile is one routing profile.
+type RouterProfile struct {
+	LocalModel string       `json:"local_model"`
+	Rules      []RouterRule `json:"rules"`
+	Fallback   []string     `json:"fallback"`
+}
+
+// Router is the GET /router response.
+type Router struct {
+	Clients   []RouterClient   `json:"clients"`
+	Providers []RouterProvider `json:"providers"`
+	Profiles  struct {
+		Profiles map[string]RouterProfile `json:"profiles"`
+	} `json:"profiles"`
+}
+
+// RouterEntry is one line of the router's decision log.
+type RouterEntry struct {
+	Time      time.Time `json:"time"`
+	Client    string    `json:"client"`
+	Requested string    `json:"requested"`
+	Route     string    `json:"route"`
+	Rule      string    `json:"rule"`
+	Status    int       `json:"status"`
+	CostUSD   float64   `json:"cost_usd"`
+	Error     string    `json:"error"`
+}
+
+// RouterSpend is a client's provider spend in US dollars.
+type RouterSpend struct {
+	Today float64 `json:"today_usd"`
+	Month float64 `json:"month_usd"`
+}
+
+// RouterStats is the GET /router/stats response.
+type RouterStats struct {
+	Requests int                    `json:"requests"`
+	ByClient map[string]int         `json:"by_client"`
+	ByRoute  map[string]int         `json:"by_route"`
+	Errors   int                    `json:"errors"`
+	Unpriced int                    `json:"unpriced"`
+	Spend    map[string]RouterSpend `json:"spend"`
+	Last     []RouterEntry          `json:"last"`
+}
+
+// NewRouterClient is a created client with its key, which is shown once.
+type NewRouterClient struct {
+	Name   string `json:"name"`
+	Policy string `json:"policy"`
+	Key    string `json:"key"`
+}
+
+// ProviderRequest adds or changes a provider. An empty APIKey keeps the
+// stored key.
+type ProviderRequest struct {
+	Type    string   `json:"type"`
+	BaseURL string   `json:"base_url,omitempty"`
+	APIKey  string   `json:"api_key,omitempty"`
+	Models  []string `json:"models,omitempty"`
+}
+
+// Router returns the router's clients, providers and profiles.
+func (c *Client) Router(ctx context.Context) (Router, error) {
+	var r Router
+	return r, c.do(ctx, http.MethodGet, "/router", nil, &r)
+}
+
+// RouterStats returns the totals and the last decisions of the router.
+func (c *Client) RouterStats(ctx context.Context) (RouterStats, error) {
+	var r RouterStats
+	return r, c.do(ctx, http.MethodGet, "/router/stats", nil, &r)
+}
+
+// CreateRouterClient creates a client and returns its key.
+func (c *Client) CreateRouterClient(ctx context.Context, name, policy string, budget *RouterBudget) (NewRouterClient, error) {
+	var r NewRouterClient
+	in := map[string]any{"name": name, "policy": policy, "budget": budget}
+	return r, c.do(ctx, http.MethodPost, "/router/clients", in, &r)
+}
+
+// SetRouterClient sets a client's policy and budget. A nil budget removes it.
+func (c *Client) SetRouterClient(ctx context.Context, name, policy string, allowHint bool, budget *RouterBudget) error {
+	in := map[string]any{"policy": policy, "allow_hint": allowHint, "budget": budget}
+	return c.do(ctx, http.MethodPut, "/router/clients/"+url.PathEscape(name), in, nil)
+}
+
+// DeleteRouterClient deletes a client, which revokes its key.
+func (c *Client) DeleteRouterClient(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/router/clients/"+url.PathEscape(name), nil, nil)
+}
+
+// SetRouterProvider adds or changes a provider. The API checks the key
+// with the provider first.
+func (c *Client) SetRouterProvider(ctx context.Context, name string, p ProviderRequest) error {
+	return c.do(ctx, http.MethodPut, "/router/providers/"+url.PathEscape(name), p, nil)
+}
+
+// DeleteRouterProvider deletes a provider and its key.
+func (c *Client) DeleteRouterProvider(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/router/providers/"+url.PathEscape(name), nil, nil)
+}

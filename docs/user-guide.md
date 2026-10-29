@@ -254,7 +254,7 @@ Each key belongs to a client. A client has one of two policies:
 
 Two clients exist from the start: `default`, which owns the first key, and `open-webui`. Both are `local-only`.
 
-The System API manages the router at `https://<address>:8443/system/router`. These examples use the first key in `$KEY`.
+The Router screen of the `sibyl` console (key `6`) creates clients, sets their policies and budgets, and adds providers. The System API does the same at `https://<address>:8443/system/router`. These examples use the first key in `$KEY`.
 
 Create a client. The answer holds the new key. Copy it, because Sibyl stores only its hash and cannot show it again:
 
@@ -263,7 +263,7 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: app
   https://<address>:8443/system/router/clients -d '{"name":"laptop","policy":"local-only"}'
 ```
 
-Add a provider. Sibyl checks the key with the provider before it stores it. OpenAI, OpenRouter and other services with an OpenAI-compatible API work in this release:
+Add a provider. Sibyl checks the key with the provider before it stores it. The type `openai` covers OpenAI, OpenRouter and other services with an OpenAI-compatible API. The type `anthropic` is the Anthropic API, and needs no base URL:
 
 ```bash
 curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
@@ -280,13 +280,13 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: app
 
 A `hybrid` client can then ask for `<provider>/<model>`, such as `openrouter/<model>`, or for `auto`. The model `auto` runs the rules of the `auto` profile, which you set with `PUT /system/router/profiles`. [router-design.md](router-design.md) lists the rule conditions. `POST /system/router/explain` shows the route for a request without sending it, and `GET /system/router/stats` shows the requests per client and per route.
 
-A new client has no spending limit at a provider. Watch the stats, and set a limit at the provider.
+A new client has no spending limit. Set a budget on the Router screen, or with `"budget":{"daily_usd":5,"monthly_usd":50}` in the client's `PUT`. A `PUT` without `budget` removes the budget. When a budget is spent, `auto` requests run on the local model, and requests for a provider model get 429. Sibyl knows the Anthropic prices. For any other provider, add `"prices"` to the provider, or a client with a budget cannot use it.
 
 Each response has an `X-Sibyl-Route` header that names the route, such as `local/qwen3-32b-q4_k_m`. A client can send `X-Sibyl-Route: local` to keep one request on the host.
 
 ### The sibyl console
 
-Run `sibyl` on the host, at the console or over SSH. It is a terminal interface with five screens. Press a number or Tab to change screens, and `q` to quit.
+Run `sibyl` on the host, at the console or over SSH. It is a terminal interface with six screens. Press a number or Tab to change screens, and `q` to quit.
 
 | Key | Screen | What you can do |
 |---|---|---|
@@ -295,6 +295,7 @@ Run `sibyl` on the host, at the console or over SSH. It is a terminal interface 
 | `3` | Models | `enter` edits a model's settings. `b` runs the benchmark. `d` deletes the model. |
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `c` cancels a download, `R` retries one. |
 | `5` | Host | `h` hostname, `n` network, `a` add operator, `k` keys, `d` delete operator, `p` new model pool, `x` detach pool. |
+| `6` | Router | `n` new client, `e` edit its policy and budget, `d` delete a client, `p` add or change a provider, `x` delete a provider. It shows the spend per client and the last decisions. |
 
 The bottom line of each screen lists its keys.
 

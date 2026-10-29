@@ -62,6 +62,8 @@ type Client struct {
 	// AllowHint lets the client ask for a provider with the X-Sibyl-Route
 	// request header.
 	AllowHint bool `yaml:"allow_hint,omitempty" json:"allow_hint,omitempty"`
+	// Budget limits the client's provider spend. Nil means no limit.
+	Budget *Budget `yaml:"budget,omitempty" json:"budget,omitempty"`
 }
 
 // ClientsFile is clients.yaml.
@@ -85,6 +87,9 @@ func (f ClientsFile) Validate() error {
 		if c.Policy != LocalOnly && c.Policy != Hybrid {
 			return fmt.Errorf("client %q: policy must be %s or %s", c.Name, LocalOnly, Hybrid)
 		}
+		if b := c.Budget; b != nil && (b.DailyUSD < 0 || b.MonthlyUSD < 0) {
+			return fmt.Errorf("client %q: a budget must not be negative", c.Name)
+		}
 		switch {
 		case Builtin(c.Name) && c.KeySHA256 != "":
 			return fmt.Errorf("client %q: the key of a built-in client is a Podman secret", c.Name)
@@ -98,19 +103,40 @@ func (f ClientsFile) Validate() error {
 // ProviderType is the API that a provider speaks.
 type ProviderType string
 
-// ProviderOpenAI is any provider with an OpenAI-compatible API, such as
-// OpenAI and OpenRouter. The Anthropic adapter comes in step 6.2.
-const ProviderOpenAI ProviderType = "openai"
+// The provider types.
+const (
+	// ProviderOpenAI is any provider with an OpenAI-compatible API, such as
+	// OpenAI and OpenRouter.
+	ProviderOpenAI ProviderType = "openai"
+	// ProviderAnthropic is the Anthropic Messages API.
+	ProviderAnthropic ProviderType = "anthropic"
+)
+
+// AnthropicBaseURL is the default base URL of the type anthropic.
+const AnthropicBaseURL = "https://api.anthropic.com"
 
 // Provider is one frontier model provider. Its key is the file
 // keys/<name> in the configuration directory.
 type Provider struct {
 	Type ProviderType `yaml:"type" json:"type"`
-	// BaseURL ends before the endpoint path, such as https://api.openai.com/v1.
-	BaseURL string `yaml:"base_url" json:"base_url"`
+	// BaseURL ends before the endpoint path, such as
+	// https://api.openai.com/v1. For the type anthropic it is the host, and
+	// the default is https://api.anthropic.com.
+	BaseURL string `yaml:"base_url,omitempty" json:"base_url,omitempty"`
 	// Models are the model names that GET /v1/models lists for this
 	// provider. A client can name any other model of the provider too.
 	Models []string `yaml:"models,omitempty" json:"models,omitempty"`
+	// Prices by model name. For the type anthropic they override the
+	// built-in prices.
+	Prices map[string]Price `yaml:"prices,omitempty" json:"prices,omitempty"`
+}
+
+// URL returns the base URL, with the default for the type.
+func (p Provider) URL() string {
+	if p.BaseURL == "" && p.Type == ProviderAnthropic {
+		return AnthropicBaseURL
+	}
+	return strings.TrimSuffix(p.BaseURL, "/")
 }
 
 // ProvidersFile is providers.yaml.
@@ -130,11 +156,16 @@ func (f ProvidersFile) Validate() error {
 		if reserved[name] {
 			return fmt.Errorf("provider %q: the name is reserved", name)
 		}
-		if p.Type != ProviderOpenAI {
-			return fmt.Errorf("provider %q: type must be %s", name, ProviderOpenAI)
+		if p.Type != ProviderOpenAI && p.Type != ProviderAnthropic {
+			return fmt.Errorf("provider %q: type must be %s or %s", name, ProviderOpenAI, ProviderAnthropic)
 		}
-		if !strings.HasPrefix(p.BaseURL, "https://") {
+		if !strings.HasPrefix(p.URL(), "https://") {
 			return fmt.Errorf("provider %q: base_url must start with https://", name)
+		}
+		for m, pr := range p.Prices {
+			if err := pr.validate(); err != nil {
+				return fmt.Errorf("provider %q price of %q: %w", name, m, err)
+			}
 		}
 		for _, m := range p.Models {
 			if m == "" || strings.ContainsAny(m, " \t\r\n") {

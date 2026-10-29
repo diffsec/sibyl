@@ -100,11 +100,11 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `GET /host/requests/{id}` | The result of a host request that took longer than 45 seconds |
 | `GET, POST /pools`, `DELETE /pools/{name}` | Model pools and candidate disks, make a pool, or detach one |
 | `GET /router` | Router clients, providers and profiles |
-| `POST /router/clients`, `PUT, DELETE /router/clients/{name}` | Create a client and show its key once, change its policy, or delete it |
+| `POST /router/clients`, `PUT, DELETE /router/clients/{name}` | Create a client and show its key once, change its policy and budget, or delete it |
 | `PUT, DELETE /router/providers/{name}` | Add or change a provider after a check of its key, or delete it |
 | `PUT /router/profiles` | Replace the routing profiles after the router's checks |
 | `POST /router/explain` | The route for a request, with every rule, without sending it |
-| `GET /router/stats` | Requests per client and per route, and the last decisions |
+| `GET /router/stats` | Requests per client and per route, spend per client, and the last decisions |
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
 

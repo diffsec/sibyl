@@ -189,3 +189,75 @@ func TestSyncOpenWebUIAtStartRetries(t *testing.T) {
 		t.Errorf("last error %q", f.server.OpenWebUI.lastErr)
 	}
 }
+
+func TestRouterAnthropicProviderAndBudget(t *testing.T) {
+	f := newFixture(t)
+	var gotKey, gotVersion string
+	provider := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey, gotVersion = r.Header.Get("X-Api-Key"), r.Header.Get("Anthropic-Version")
+		if r.URL.Path != "/v1/models" || gotKey != "good" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"has_more":false,"first_id":null,"last_id":null}`))
+	}))
+	defer provider.Close()
+	f.server.ProviderHTTP = provider.Client()
+
+	body := func(key string) string {
+		return fmt.Sprintf(`{"type":"anthropic","base_url":%q,"api_key":%q,"prices":{"claude-x":{"input":1,"output":2}}}`, provider.URL, key)
+	}
+	if code, b := f.do(t, "PUT", "/router/providers/claude", body("bad"), true); code != http.StatusUnprocessableEntity ||
+		!strings.Contains(b["error"].(string), "refused the key") {
+		t.Errorf("bad key = %d %v", code, b)
+	}
+	if code, b := f.do(t, "PUT", "/router/providers/claude", body("good"), true); code != 200 {
+		t.Fatalf("good key = %d %v", code, b)
+	}
+	if gotVersion == "" {
+		t.Error("the key check sent no anthropic-version")
+	}
+
+	if code, b := f.do(t, "POST", "/router/clients", `{"name":"laptop","policy":"hybrid","budget":{"daily_usd":2,"monthly_usd":20}}`, true); code != http.StatusCreated {
+		t.Fatalf("create = %d %v", code, b)
+	}
+	if code, b := f.do(t, "PUT", "/router/clients/open-webui", `{"policy":"hybrid","budget":{"daily_usd":1}}`, true); code != 200 {
+		t.Fatalf("open-webui budget = %d %v", code, b)
+	}
+	if code, _ := f.do(t, "PUT", "/router/clients/laptop", `{"policy":"hybrid","budget":{"daily_usd":-1}}`, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("negative budget = %d, want 422", code)
+	}
+	cfg, err := router.LoadConfig(filepath.Join(f.paths.Config, "router"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Providers.Providers["claude"].Prices["claude-x"].Output != 2 || cfg.Keys["claude"] != "good" {
+		t.Errorf("providers %+v", cfg.Providers)
+	}
+	budgets := map[string]float64{}
+	for _, c := range cfg.Clients.Clients {
+		if c.Budget != nil {
+			budgets[c.Name] = c.Budget.DailyUSD
+		}
+	}
+	if budgets["laptop"] != 2 || budgets["open-webui"] != 1 {
+		t.Errorf("budgets %v", budgets)
+	}
+
+	logDir := filepath.Join(f.paths.Config, "router", "log")
+	sp := &router.Spend{Path: filepath.Join(logDir, "usage.json")}
+	mkdir(t, logDir)
+	if err := sp.Add("laptop", 0.75, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(logDir, "decisions.jsonl"), `{"client":"laptop","route":"x/y","status":200,"unpriced":true}`+"\n")
+	code, b := f.do(t, "GET", "/router/stats", "", true)
+	spend, _ := b["spend"].(map[string]any)
+	laptop, _ := spend["laptop"].(map[string]any)
+	if code != 200 || laptop["today_usd"] != 0.75 || laptop["month_usd"] != 0.75 || b["unpriced"] != float64(1) {
+		t.Errorf("stats = %d %v", code, b)
+	}
+}
