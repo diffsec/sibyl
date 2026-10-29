@@ -300,7 +300,9 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: a
   https://<address>:8443/system/router/clients -d '{"name":"laptop","policy":"local-only"}'
 ```
 
-Add a provider. Sibyl checks the key with the provider before it stores it. The type `openai` covers OpenAI, OpenRouter and other services with an OpenAI-compatible API. The type `anthropic` is the Anthropic API, and needs no base URL:
+Add a provider. On the Router screen, press `p` and pick the provider from the models.dev index, which Sibyl keeps on the host and updates daily. Sibyl fills in the API and the base URL, and lists the provider's models with their context size and price, so you can choose the models to list. "Other" takes any OpenAI-compatible URL by hand. Sibyl checks the key with the provider before it stores it.
+
+With the System API, give the fields yourself. The type `openai` covers OpenAI, OpenRouter and other services with an OpenAI-compatible API. The type `anthropic` is the Anthropic API, and needs no base URL:
 
 ```bash
 curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
@@ -316,6 +318,8 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: a
 ```
 
 A `hybrid` client can then ask for `<provider>/<model>`, such as `openrouter/<model>`, or for `auto`. The model `auto` runs the rules of the `auto` profile, which you set with `PUT /system/router/profiles`. [router-design.md](router-design.md) lists the rule conditions. `POST /system/router/explain` shows the route for a request without sending it, and `GET /system/router/stats` shows the requests per client and per route.
+
+Sibyl prices each provider request from the models.dev index, so budgets work for most providers without a price of your own. A price in the provider's `prices` overrides the index. A model that the index does not list for that provider has no price.
 
 A new client has no spending limit. Set a budget on the Router screen, or with `"budget":{"daily_usd":5,"monthly_usd":50}` in the client's `PUT`. A `PUT` without `budget` removes the budget. When a budget is spent, `auto` requests run on the local model, and requests for a provider model get 429. Sibyl knows the Anthropic prices. For any other provider, add `"prices"` to the provider, or a client with a budget cannot use it.
 

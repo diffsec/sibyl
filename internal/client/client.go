@@ -466,6 +466,8 @@ type ProviderRequest struct {
 	BaseURL string   `json:"base_url,omitempty"`
 	APIKey  string   `json:"api_key,omitempty"`
 	Models  []string `json:"models,omitempty"`
+	// Catalog is the provider's models.dev ID, for prices.
+	Catalog string `json:"catalog,omitempty"`
 }
 
 // Router returns the router's clients, providers and profiles.
@@ -513,4 +515,53 @@ func (c *Client) SetRouterProvider(ctx context.Context, name string, p ProviderR
 // DeleteRouterProvider deletes a provider and its key.
 func (c *Client) DeleteRouterProvider(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/router/providers/"+url.PathEscape(name), nil, nil)
+}
+
+// CatalogProvider is one models.dev provider that the router can use.
+type CatalogProvider struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	BaseURL string   `json:"base_url"`
+	Doc     string   `json:"doc"`
+	Env     []string `json:"env"`
+	Models  int      `json:"models"`
+}
+
+// Catalog is the GET /router/catalog response.
+type Catalog struct {
+	Fetched   string            `json:"fetched"`
+	Enabled   bool              `json:"enabled"`
+	Error     string            `json:"error"`
+	Providers []CatalogProvider `json:"providers"`
+}
+
+// CatalogModel is one model of a models.dev provider.
+type CatalogModel struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Context  int    `json:"context"`
+	ToolCall bool   `json:"tool_call"`
+	Cost     *struct {
+		Input  float64 `json:"input"`
+		Output float64 `json:"output"`
+	} `json:"cost"`
+}
+
+// CatalogModels is the GET /router/catalog/{id} response.
+type CatalogModels struct {
+	CatalogProvider
+	Models []CatalogModel `json:"models"`
+}
+
+// Catalog returns the providers of the local models.dev index.
+func (c *Client) Catalog(ctx context.Context) (Catalog, error) {
+	var r Catalog
+	return r, c.do(ctx, http.MethodGet, "/router/catalog", nil, &r)
+}
+
+// CatalogProvider returns one models.dev provider with its models.
+func (c *Client) CatalogProvider(ctx context.Context, id string) (CatalogModels, error) {
+	var r CatalogModels
+	return r, c.do(ctx, http.MethodGet, "/router/catalog/"+url.PathEscape(id), nil, &r)
 }

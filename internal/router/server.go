@@ -69,7 +69,7 @@ func (s *Server) config() *Config {
 // change shows without reading them.
 func stampOf(dir string) string {
 	var b strings.Builder
-	names := []string{ClientsName, ProvidersName, ProfilesName, ModelsName}
+	names := []string{ClientsName, ProvidersName, ProfilesName, ModelsName, CatalogName}
 	if es, err := os.ReadDir(filepath.Join(dir, KeysDir)); err == nil {
 		for _, e := range es {
 			names = append(names, filepath.Join(KeysDir, e.Name()))

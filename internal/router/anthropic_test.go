@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/diffsec/sibyl/internal/catalog"
 )
 
 // fakeAnthropic is a minimal Messages API. It records each request.
@@ -417,4 +419,39 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestCatalogPrices covers the price order: providers.yaml, then the
+// models.dev index under the provider's catalog ID, then the built-in table.
+func TestCatalogPrices(t *testing.T) {
+	cat := catalog.Catalog{Providers: map[string]catalog.Provider{
+		"orcarouter": {ID: "orcarouter", Models: map[string]catalog.Model{
+			"deepseek/v4": {ID: "deepseek/v4", Cost: &catalog.Cost{Input: 0.15, Output: 0.6}},
+		}},
+		"anthropic": {ID: "anthropic", Models: map[string]catalog.Model{
+			"claude-sonnet-5-5": {ID: "claude-sonnet-5-5", Cost: &catalog.Cost{Input: 3, Output: 15}},
+		}},
+	}}
+	cfg := &Config{Catalog: cat, Providers: ProvidersFile{Providers: map[string]Provider{
+		"orca":   {Type: ProviderOpenAI, BaseURL: "https://x/v1", Catalog: "orcarouter"},
+		"mine":   {Type: ProviderOpenAI, BaseURL: "https://x/v1", Catalog: "orcarouter", Prices: map[string]Price{"deepseek/v4": {Input: 9, Output: 9}}},
+		"claude": {Type: ProviderAnthropic, Catalog: "anthropic"},
+		"bare":   {Type: ProviderAnthropic},
+	}}}
+	for _, c := range []struct {
+		rt   Route
+		in   float64
+		have bool
+	}{
+		{Route{"orca", "deepseek/v4"}, 0.15, true},      // models.dev
+		{Route{"mine", "deepseek/v4"}, 9, true},         // providers.yaml first
+		{Route{"claude", "claude-sonnet-5-5"}, 3, true}, // models.dev before the built-in table
+		{Route{"bare", "claude-sonnet-5-5"}, 2, true},   // built-in: "bare" is not in the index
+		{Route{"orca", "deepseek/deepseek-v4.1-flash"}, 0, false},
+	} {
+		p, ok := cfg.price(c.rt)
+		if ok != c.have || p.Input != c.in {
+			t.Errorf("%s: %v %+v, want %v %v", c.rt, ok, p, c.have, c.in)
+		}
+	}
 }

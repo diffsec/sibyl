@@ -30,6 +30,22 @@ type routerDone struct {
 
 type routerTick struct{}
 
+// catalogLoaded carries the models.dev provider list for the picker.
+type catalogLoaded struct {
+	cat client.Catalog
+	err error
+}
+
+// catalogModelsLoaded carries one provider's models for the picker.
+type catalogModelsLoaded struct {
+	p   client.CatalogModels
+	err error
+}
+
+// customProvider is the picker's choice for a provider that models.dev
+// does not list.
+const customProvider = "\x00custom"
+
 // routerView manages the model router: its clients, their keys, policies
 // and budgets, and the providers. It shows the spend and the last
 // decisions. Profiles are edited through PUT /system/router/profiles.
@@ -42,11 +58,15 @@ type routerView struct {
 	ticks  bool
 
 	form *huh.Form
-	mode string // new, edit, delete, rekey, provider, unprovider
+	mode string // new, edit, delete, rekey, pick, catalog, provider, unprovider
 	// Form values.
 	name, policy, daily, monthly string
 	allowHint, confirm           bool
 	ptype, baseURL, apiKey, mods string
+	// The models.dev picker: the chosen provider and models.
+	pick     string
+	catModel []string
+	catProv  client.CatalogModels
 	// key is a new client's key, shown until the next action.
 	key, keyFor string
 }
@@ -184,6 +204,106 @@ func (v *routerView) rekeyForm(name string) tea.Cmd {
 	return v.form.Init()
 }
 
+// loadCatalog starts the models.dev picker.
+func (v *routerView) loadCatalog() tea.Cmd {
+	return call(v.c.Catalog, func(c client.Catalog, err error) tea.Msg { return catalogLoaded{c, err} })
+}
+
+// pickForm lists the models.dev providers that the router can use.
+func (v *routerView) pickForm(cat client.Catalog) tea.Cmd {
+	if len(cat.Providers) == 0 {
+		return v.providerForm()
+	}
+	opts := []huh.Option[string]{huh.NewOption("Other: enter the API and the base URL", customProvider)}
+	for _, p := range cat.Providers {
+		api := "OpenAI API"
+		if p.Type == "anthropic" {
+			api = "Anthropic API"
+		}
+		opts = append(opts, huh.NewOption(fmt.Sprintf("%s (%s) · %d models · %s", p.Name, p.ID, p.Models, api), p.ID))
+	}
+	v.mode, v.pick = "pick", customProvider
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().Title("Provider").
+			Description(fmt.Sprintf("From the models.dev index of %s. Press / to search.", strings.SplitN(cat.Fetched, "T", 2)[0])).
+			Options(opts...).Height(14).Value(&v.pick),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+// providerName turns a models.dev ID into a provider name for the router.
+func providerName(id string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(id) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	n := strings.Trim(b.String(), "-")
+	if len(n) > 32 {
+		n = strings.Trim(n[:32], "-")
+	}
+	return n
+}
+
+func modelLabel(m client.CatalogModel) string {
+	l := m.ID
+	if m.Context > 0 {
+		l += fmt.Sprintf("  %dk ctx", m.Context/1000)
+	}
+	if m.Cost != nil {
+		l += fmt.Sprintf("  $%g/$%g per M", m.Cost.Input, m.Cost.Output)
+	} else {
+		l += "  no price"
+	}
+	if !m.ToolCall {
+		l += "  no tools"
+	}
+	return l
+}
+
+// catalogForm sets up a provider from models.dev: the name, the key, and
+// the models to list. The API and base URL come from the index.
+func (v *routerView) catalogForm(p client.CatalogModels) tea.Cmd {
+	v.mode, v.catProv = "catalog", p
+	v.name, v.apiKey, v.catModel = providerName(p.ID), "", nil
+	for _, rp := range v.r.Providers {
+		if rp.Name == v.name {
+			v.catModel = append(v.catModel, rp.Models...)
+		}
+	}
+	var opts []huh.Option[string]
+	for _, m := range p.Models {
+		opts = append(opts, huh.NewOption(modelLabel(m), m.ID))
+	}
+	keyNote := "Sibyl checks the key with the provider before it stores it."
+	if len(p.Env) > 0 {
+		keyNote = "The key that tools read from " + strings.Join(p.Env, " or ") + ". " + keyNote
+	}
+	// The provider details go in a description: a note as the first field
+	// leaves the form blank until the first key.
+	about := p.Name + " · " + p.BaseURL
+	if p.Doc != "" {
+		about += " · " + p.Doc
+	}
+	fields := []huh.Field{
+		huh.NewInput().Title("Provider name").
+			Description(about + "\nClients name its models as <provider>/<model>.").
+			Value(&v.name).Validate(validName),
+		huh.NewInput().Title("API key").Description(keyNote).EchoMode(huh.EchoModePassword).Value(&v.apiKey),
+	}
+	if len(opts) > 0 {
+		fields = append(fields, huh.NewMultiSelect[string]().Title("Models to list").
+			Description("GET /v1/models lists them for hybrid clients. Press / to search, space to choose.").
+			Options(opts...).Filterable(true).Height(12).Value(&v.catModel))
+	}
+	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
+	return v.form.Init()
+}
+
 func (v *routerView) providerForm() tea.Cmd {
 	v.mode, v.name, v.ptype, v.baseURL, v.apiKey, v.mods = "provider", "", "openai", "", "", ""
 	known := map[string]client.RouterProvider{}
@@ -291,6 +411,21 @@ func (v *routerView) submit() tea.Cmd {
 		return run("delete client "+name, func(ctx context.Context) (string, error) {
 			return "", v.c.DeleteRouterClient(ctx, name)
 		})
+	case "pick":
+		if v.pick == customProvider {
+			return v.providerForm()
+		}
+		id := v.pick
+		return tea.Batch(note(true, "loading the models of %s…", id),
+			call(func(ctx context.Context) (client.CatalogModels, error) { return v.c.CatalogProvider(ctx, id) },
+				func(p client.CatalogModels, err error) tea.Msg { return catalogModelsLoaded{p, err} }))
+	case "catalog":
+		p := client.ProviderRequest{Type: v.catProv.Type, BaseURL: v.catProv.BaseURL,
+			APIKey: strings.TrimSpace(v.apiKey), Models: v.catModel, Catalog: v.catProv.ID}
+		v.apiKey = ""
+		return run("set provider "+name+" (checking the key)", func(ctx context.Context) (string, error) {
+			return "", v.c.SetRouterProvider(ctx, name, p)
+		})
 	case "provider":
 		p := client.ProviderRequest{Type: v.ptype, BaseURL: strings.TrimSpace(v.baseURL),
 			APIKey: strings.TrimSpace(v.apiKey), Models: strings.Fields(v.mods)}
@@ -322,6 +457,17 @@ func (v *routerView) update(msg tea.Msg) tea.Cmd {
 			v.cursor = 0
 		}
 		return nil
+	case catalogLoaded:
+		if msg.err != nil {
+			// With no index, the picker falls back to the manual form.
+			return tea.Batch(note(false, "models.dev index: %v", msg.err), v.providerForm())
+		}
+		return v.pickForm(msg.cat)
+	case catalogModelsLoaded:
+		if msg.err != nil {
+			return note(false, "models of %s: %v", v.pick, msg.err)
+		}
+		return v.catalogForm(msg.p)
 	case routerDone:
 		if msg.err != nil {
 			return tea.Batch(note(false, "%s: %v", msg.what, msg.err), v.fetch())
@@ -380,7 +526,7 @@ func (v *routerView) keyPress(k string) tea.Cmd {
 			return v.rekeyForm(c.Name)
 		}
 	case "p":
-		return v.providerForm()
+		return v.loadCatalog()
 	case "x":
 		return v.unproviderForm()
 	}

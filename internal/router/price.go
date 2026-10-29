@@ -9,6 +9,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/diffsec/sibyl/internal/catalog"
 )
 
 // Price is what a provider charges for a model, in US dollars per million
@@ -58,7 +60,8 @@ var AnthropicPrices = map[string]Price{
 }
 
 // price returns the price of a model of a provider: the provider's own
-// table first, then the built-in table of its type.
+// table first, then the models.dev index, then the built-in table of its
+// type.
 func (c *Config) price(rt Route) (Price, bool) {
 	p, ok := c.Providers.Providers[rt.Provider]
 	if !ok {
@@ -67,11 +70,29 @@ func (c *Config) price(rt Route) (Price, bool) {
 	if pr, ok := p.Prices[rt.Model]; ok {
 		return pr, true
 	}
+	id := p.Catalog
+	if id == "" {
+		id = rt.Provider
+	}
+	if m, ok := c.Catalog.Model(id, rt.Model); ok && m.Cost != nil {
+		return FromCatalog(*m.Cost), true
+	}
 	if p.Type == ProviderAnthropic {
 		pr, ok := AnthropicPrices[rt.Model]
 		return pr, ok
 	}
 	return Price{}, false
+}
+
+// FromCatalog turns a models.dev price into a Price. The first context
+// tier becomes the long-prompt price.
+func FromCatalog(c catalog.Cost) Price {
+	p := Price{Input: c.Input, Output: c.Output, CacheRead: c.CacheRead, CacheWrite: c.CacheWrite}
+	if len(c.Tiers) > 0 {
+		t := c.Tiers[0]
+		p.LongAbove, p.LongInput, p.LongOutput = t.Above, t.Input, t.Output
+	}
+	return p
 }
 
 // Usage is the token use of one request. Prompt counts every input token,

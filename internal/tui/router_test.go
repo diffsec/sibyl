@@ -135,3 +135,43 @@ func TestRouterBudgetParse(t *testing.T) {
 		}
 	}
 }
+
+func TestProviderPicker(t *testing.T) {
+	v := newRouterView(nil)
+	v.update(routerFixture())
+	cmd := v.update(catalogLoaded{cat: client.Catalog{Fetched: "2026-10-29T03:00:00Z", Providers: []client.CatalogProvider{
+		{ID: "orcarouter", Name: "OrcaRouter", Type: "openai", BaseURL: "https://api.orcarouter.ai/v1", Models: 117},
+		{ID: "anthropic", Name: "Anthropic", Type: "anthropic", Models: 17},
+	}}})
+	_ = cmd
+	out := ansi.ReplaceAllString(v.render(160), "")
+	for _, want := range []string{"Other: enter the API", "OrcaRouter (orcarouter) · 117 models · OpenAI API", "2026-10-29"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("picker lacks %q:\n%s", want, out)
+		}
+	}
+	price := struct {
+		Input  float64 `json:"input"`
+		Output float64 `json:"output"`
+	}{0.15, 0.6}
+	v.update(catalogModelsLoaded{p: client.CatalogModels{
+		CatalogProvider: client.CatalogProvider{ID: "orcarouter", Name: "OrcaRouter", Type: "openai",
+			BaseURL: "https://api.orcarouter.ai/v1", Env: []string{"ORCAROUTER_API_KEY"}},
+		Models: []client.CatalogModel{{ID: "deepseek/deepseek-v4-flash", Context: 1048576, ToolCall: true, Cost: &price}},
+	}})
+	out = ansi.ReplaceAllString(v.render(160), "")
+	for _, want := range []string{"https://api.orcarouter.ai/v1", "ORCAROUTER_API_KEY", "deepseek/deepseek-v4-flash  1048k ctx  $0.15/$0.6 per M"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("model form lacks %q:\n%s", want, out)
+		}
+	}
+	// The existing provider's listed models start chosen.
+	if v.name != "orcarouter" || len(v.catModel) != 1 || v.catModel[0] != "deepseek/deepseek-v4.1-flash-1017" {
+		t.Errorf("name %q models %v", v.name, v.catModel)
+	}
+	for in, want := range map[string]string{"llama.cpp": "llama-cpp", "Some_Provider": "some-provider", "-x-": "x"} {
+		if got := providerName(in); got != want {
+			t.Errorf("providerName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

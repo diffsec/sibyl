@@ -14,6 +14,7 @@ import (
 
 	"github.com/diffsec/sibyl/internal/api"
 	"github.com/diffsec/sibyl/internal/arcane"
+	"github.com/diffsec/sibyl/internal/catalog"
 	"github.com/diffsec/sibyl/internal/download"
 	"github.com/diffsec/sibyl/internal/hardware"
 	"github.com/diffsec/sibyl/internal/hf"
@@ -86,6 +87,13 @@ func run(log *slog.Logger) error {
 		URL:     s.RouterURL + "/v1",
 		OldURLs: []string{llamaSwap + "/v1"},
 	}
+	// The models.dev index, for prices and provider setup. An empty
+	// SIBYL_MODELS_DEV_URL turns the daily fetch off.
+	modelsDev, set := os.LookupEnv("SIBYL_MODELS_DEV_URL")
+	if !set {
+		modelsDev = catalog.DefaultURL
+	}
+	s.Catalog = &api.Catalog{URL: modelsDev}
 	s.Arcane = &api.Arcane{Client: arcane.New(env("SIBYL_ARCANE_URL", "http://arcane:3552"))}
 	// The router key of the client "open-webui". Without it, Open WebUI
 	// keeps its current connection.
@@ -130,6 +138,7 @@ func run(log *slog.Logger) error {
 	// Open WebUI can take minutes to start after a boot or an update.
 	go s.SyncOpenWebUIAtStart(ctx, 15*time.Second, 60)
 	go s.SecureArcaneAtStart(ctx, 10*time.Second, 90)
+	go s.KeepCatalog(ctx)
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", srv.Addr)

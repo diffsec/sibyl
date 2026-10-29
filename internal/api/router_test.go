@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -392,5 +393,74 @@ func TestRouterClientNewKey(t *testing.T) {
 	}
 	if code, _ := f.do(t, "POST", "/router/clients/nobody/key", "", true); code != http.StatusNotFound {
 		t.Errorf("unknown client = %d, want 404", code)
+	}
+}
+
+func TestCatalogFetch(t *testing.T) {
+	f := newFixture(t)
+	var fetches atomic.Int32
+	var broken atomic.Bool
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fetches.Add(1)
+		if broken.Load() {
+			http.NotFound(w, nil)
+			return
+		}
+		_, _ = w.Write([]byte(`{"orcarouter":{"id":"orcarouter","name":"OrcaRouter","npm":"@ai-sdk/openai-compatible",
+			"api":"https://api.orcarouter.ai/v1","env":["ORCAROUTER_API_KEY"],"models":{
+			"deepseek/a":{"id":"deepseek/a","name":"A","cost":{"input":1,"output":2}},
+			"qwen/b":{"id":"qwen/b","name":"B"}}}}`))
+	}))
+	defer src.Close()
+	f.server.Catalog = &Catalog{URL: src.URL}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { f.server.KeepCatalog(ctx); close(done) }()
+	for i := 0; i < 200 && fetches.Load() == 0; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	code, b := f.do(t, "GET", "/router/catalog", "", true)
+	ps, _ := b["providers"].([]any)
+	if code != 200 || len(ps) != 1 || ps[0].(map[string]any)["base_url"] != "https://api.orcarouter.ai/v1" || b["fetched"] == nil {
+		t.Fatalf("catalog = %d %v", code, b)
+	}
+	code, b = f.do(t, "GET", "/router/catalog/orcarouter?q=deepseek", "", true)
+	if ms, _ := b["models"].([]any); code != 200 || len(ms) != 1 {
+		t.Errorf("filtered models = %d %v", code, b)
+	}
+	if code, _ := f.do(t, "GET", "/router/catalog/nobody", "", true); code != 404 {
+		t.Errorf("unknown provider = %d", code)
+	}
+
+	// A fresh copy is not fetched again at the next start.
+	n := fetches.Load()
+	ctx, cancel = context.WithCancel(t.Context())
+	done = make(chan struct{})
+	go func() { f.server.KeepCatalog(ctx); close(done) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	if fetches.Load() != n {
+		t.Error("a fresh copy was fetched again")
+	}
+
+	// The router reads the copy for prices.
+	cfg, err := router.LoadConfig(filepath.Join(f.paths.Config, "router"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := cfg.Catalog.Model("orcarouter", "deepseek/a"); !ok || m.Cost.Output != 2 {
+		t.Errorf("router catalog %+v", m)
+	}
+
+	// A failed refresh keeps the copy and reports the error.
+	broken.Store(true)
+	if code, _ := f.do(t, "POST", "/router/catalog/refresh", "", true); code != http.StatusBadGateway {
+		t.Errorf("failed refresh = %d", code)
+	}
+	if _, b := f.do(t, "GET", "/router/catalog", "", true); b["error"] == nil || len(b["providers"].([]any)) != 1 {
+		t.Errorf("after a failed refresh %v", b)
 	}
 }

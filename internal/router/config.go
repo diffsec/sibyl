@@ -18,6 +18,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/diffsec/sibyl/internal/catalog"
 )
 
 // Policy decides whether a client's requests can leave the host.
@@ -126,9 +128,12 @@ type Provider struct {
 	// Models are the model names that GET /v1/models lists for this
 	// provider. A client can name any other model of the provider too.
 	Models []string `yaml:"models,omitempty" json:"models,omitempty"`
-	// Prices by model name. For the type anthropic they override the
-	// built-in prices.
+	// Prices by model name. They override the models.dev prices and the
+	// built-in Anthropic prices.
 	Prices map[string]Price `yaml:"prices,omitempty" json:"prices,omitempty"`
+	// Catalog is the provider's ID in the models.dev index, for prices.
+	// Empty means the provider's own name.
+	Catalog string `yaml:"catalog,omitempty" json:"catalog,omitempty"`
 }
 
 // URL returns the base URL, with the default for the type.
@@ -403,6 +408,8 @@ type Config struct {
 	Models    []LocalModel
 	// Keys are the provider keys by provider name.
 	Keys map[string]string
+	// Catalog is the models.dev index that the System API keeps.
+	Catalog catalog.Catalog
 }
 
 // The file names in the configuration directory.
@@ -411,6 +418,7 @@ const (
 	ProvidersName = "providers.yaml"
 	ProfilesName  = "profiles.yaml"
 	ModelsName    = "models.json"
+	CatalogName   = catalog.FileName
 	KeysDir       = "keys"
 )
 
@@ -451,6 +459,10 @@ func LoadConfig(dir string) (*Config, error) {
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	// A broken catalog only costs prices, so it does not stop the router.
+	if cat, err := catalog.Load(filepath.Join(dir, CatalogName)); err == nil {
+		c.Catalog = cat
 	}
 	if err := c.Clients.Validate(); err != nil {
 		return nil, err

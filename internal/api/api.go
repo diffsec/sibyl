@@ -59,6 +59,7 @@ type Server struct {
 	Ollama    *ollama.Shim
 	OpenWebUI *OpenWebUI
 	Arcane    *Arcane
+	Catalog   *Catalog
 	// GitHubBase is https://github.com, or a test server.
 	GitHubBase string
 	// RouterURL is the model router, such as http://router:8080.
@@ -162,6 +163,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("PUT /router/profiles", s.putRouterProfiles)
 	auth.HandleFunc("POST /router/explain", s.postRouterExplain)
 	auth.HandleFunc("GET /router/stats", s.getRouterStats)
+	auth.HandleFunc("GET /router/catalog", s.getCatalog)
+	auth.HandleFunc("GET /router/catalog/{id}", s.getCatalogProvider)
+	auth.HandleFunc("POST /router/catalog/refresh", s.postCatalogRefresh)
 	// The Ollama shim is for inference clients, so it takes router client
 	// keys, not the System API key. The router checks them.
 	if s.Ollama != nil {
