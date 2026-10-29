@@ -178,6 +178,16 @@ The figures below come from `qwen3-embedding-0.6b-q8_0` on the test host, with t
 | Prefix, k 5 (the default) | 59 (98%) | 55 (92%) | 59 (98%) |
 | Prefix, k 11 | 58 (97%) | 50 (83%) | 59 (98%) |
 
+On the box, through the deployed router (`sha-2999ed5-amd`), `sibyl-eval` gave the same counts: task 59, difficulty 55. One classification took 12 ms at the median and 14 ms at the 95th percentile. For three profiles over the 60 requests, explain gave these routes:
+
+| Profile | Local | Provider |
+|---|---|---|
+| `auto`: provider only for prompts over the local context | 60 | 0 |
+| `auto` plus a rule that sends `difficulty: [hard]` to a provider | 41 | 19 |
+| Every request to a provider | 0 | 60 |
+
+The set holds 20 hard requests. The label rule sent 19 of them, and no easy or medium request, to the provider. The answers were not sent or scored, so the quality side of the step 6.3 check is still open. It needs a `-send -judge` run, which costs money at the provider.
+
 ### The evaluation tool
 
 `cmd/sibyl-eval` runs from the owner's computer against the box. It reads a labelled set (`tools/router-eval/requests.jsonl`, 60 requests that are not in the starter set). It sends each prompt to `POST /router/classify` and reports the accuracy and a confusion table for task and difficulty. For each profile, it asks `POST /router/explain` for the route and reports the local share and the estimated provider cost: the router's prompt token estimate times the input price, plus the request's `output_tokens` times the output price. Explain returns the price of a provider route for this. With `-send`, the tool sends the requests with an inference key, records the route that served each one, its usage, its cost and its latency, and writes the answers to `-out`. With `-judge <model>`, a model scores each answer from 1 to 10.
