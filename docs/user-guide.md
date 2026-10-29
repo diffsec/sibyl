@@ -51,9 +51,12 @@ The installer is an ISO file. It is published as an OCI artifact on GitHub's con
 
 ```bash
 DIGEST="$(oras resolve ghcr.io/diffsec/sibyl-iso:latest-amd)"
-cosign verify --key https://raw.githubusercontent.com/diffsec/sibyl/main/os/rootfs/etc/pki/containers/sibyl-cosign.pub \
+cosign verify --new-bundle-format=false \
+  --key https://raw.githubusercontent.com/diffsec/sibyl/main/os/rootfs/etc/pki/containers/sibyl-cosign.pub \
   "ghcr.io/diffsec/sibyl-iso@$DIGEST"
 ```
+
+The key signature uses cosign's older format, because podman and bootc read only that format. cosign 3 needs `--new-bundle-format=false` to find it, and prints that the flag is deprecated. ISOs built before 2026-10-29 have no key signature.
 
 3. Download that ISO. `oras` checks each file against the digest that the signature covers:
 
