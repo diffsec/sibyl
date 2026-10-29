@@ -115,6 +115,14 @@ func TestClassifierVotesOfNearestExamples(t *testing.T) {
 	if !c.status().Ready {
 		t.Error("an unchanged configuration dropped the index")
 	}
+	none := ""
+	cfg.Profiles.Classifier.Prefix = &none
+	c.update(cfg)
+	if c.status().Ready {
+		t.Error("a new prefix kept the old index")
+	}
+	c.start()
+	waitReady(t, c)
 	cfg.Examples = append(cfg.Examples, Example{"translate this to french", "writing", "easy"})
 	c.update(cfg)
 	if c.status().Ready {
@@ -162,8 +170,10 @@ func TestClip(t *testing.T) {
 	}
 }
 
+// The test embedding counts words, so the prefix is off.
 const labelProfiles = `classifier:
   k: 3
+  prefix: ""
   no_starter: true
 profiles:
   auto:
@@ -249,7 +259,8 @@ func TestBadExamplesKeepLastConfig(t *testing.T) {
 }
 
 func TestValidateClassifier(t *testing.T) {
-	for _, c := range []ClassifierConfig{{K: -1}, {K: 51}, {TimeoutMS: -5}, {Model: "cloud/big"}} {
+	long := strings.Repeat("x", 1001)
+	for _, c := range []ClassifierConfig{{K: -1}, {K: 51}, {TimeoutMS: -5}, {Model: "cloud/big"}, {Prefix: &long}} {
 		if err := (ProfilesFile{Classifier: c}).Validate(ProvidersFile{}); err == nil {
 			t.Errorf("%+v was accepted", c)
 		}

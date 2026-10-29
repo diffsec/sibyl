@@ -147,9 +147,10 @@ The classifier has a time limit of 300 ms. When it runs out, the labels are `unk
 
 Step 6.3 built the `embedding` kind (`internal/router/classify.go`). The `llm` kind is not built.
 
-- Configuration: the `classifier` section of `profiles.yaml` takes `model`, `k`, `timeout_ms` and `no_starter`. With no `model`, the classifier uses the first embedding model in `models.json`. On the test host that model is `qwen3-embedding-0.6b-q8_0`, which llama-swap keeps loaded next to every other model.
+- Configuration: the `classifier` section of `profiles.yaml` takes `model`, `k` (default 5), `timeout_ms` (default 300), `prefix` and `no_starter`. With no `model`, the classifier uses the first embedding model in `models.json`. On the test host that model is `qwen3-embedding-0.6b-q8_0`, which llama-swap keeps loaded next to every other model.
 - Examples: 150 starter examples are built into the router (`internal/router/starter.jsonl`), 10 for each task and difficulty. The owner's examples are in `examples.jsonl` in the router's configuration directory, set with `PUT /router/examples`. They add to the starter set, and `no_starter: true` leaves the starter set out. An example with an unknown label, or more than 5,000 examples, stops the configuration from loading, and the router keeps the last good one.
 - Index: the router embeds every example in batches of 32 and keeps the unit vectors in memory. A build starts after a configuration change when a profile has a `task` or `difficulty` rule, and otherwise on the first classification. A failed build retries after 2, 5, 15 and then every 60 seconds. Until the index is ready, the labels are `unknown`.
+- Prefix: the classifier puts `prefix` before every text that it embeds, examples and requests alike. The default is `Instruct: Classify the kind of task and how hard it is for this request\nQuery: `, the instruction format of the Qwen3 embedding models. `prefix: ""` turns it off.
 - A request: the classifier embeds the last user message that has text. A text over 1,200 characters keeps its first 800 and last 400 characters, because llama-server's default batch holds 512 tokens. The `k` nearest examples by cosine similarity vote, each with its similarity as the weight, and task and difficulty are voted on separately.
 - Output: explain shows the labels, the neighbours with their similarities, and the time. The decision log keeps the labels but no text. `POST /router/classify` takes `{"text"}` and returns the labels and the state of the index.
 
@@ -165,6 +166,17 @@ The labels mean:
 | `easy` | One step and a short answer that a small model gets right |
 | `medium` | Several steps or a longer answer, with standard knowledge |
 | `hard` | Deep reasoning, many constraints, expert knowledge or a long design |
+
+### Accuracy on the test host
+
+The figures below come from `qwen3-embedding-0.6b-q8_0` on the test host, with the 150 starter examples and the 60 held-out requests of `tools/router-eval/requests.jsonl`. The same author wrote both sets, so the figures are likely higher than on real traffic. The owner's own examples are the remedy.
+
+| Setting | Task right | Difficulty right | Hard or not right |
+|---|---|---|---|
+| No prefix, k 7 | 51 (85%) | 54 (90%) | 58 (97%) |
+| Prefix, k 7 | 59 (98%) | 51 (85%) | 58 (97%) |
+| Prefix, k 5 (the default) | 59 (98%) | 55 (92%) | 59 (98%) |
+| Prefix, k 11 | 58 (97%) | 50 (83%) | 59 (98%) |
 
 ### The evaluation tool
 

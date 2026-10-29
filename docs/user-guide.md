@@ -327,7 +327,7 @@ Each response has an `X-Sibyl-Route` header that names the route, such as `local
 
 #### Route by task and difficulty
 
-A rule can test two labels of a request: `task` (chat, code, math, writing or extraction) and `difficulty` (easy, medium or hard). The classifier gives the labels on the host, so no prompt leaves it to be labelled. It embeds the last user message with the local embedding model, and the 7 most similar labelled examples vote. Sibyl ships 150 starter examples, 10 for each pair of labels. The classifier runs only for a profile that has a `task` or `difficulty` rule. When it fails or takes more than 300 ms, both labels are `unknown`, and the next rules decide.
+A rule can test two labels of a request: `task` (chat, code, math, writing or extraction) and `difficulty` (easy, medium or hard). The classifier gives the labels on the host, so no prompt leaves it to be labelled. It embeds the last user message with the local embedding model, and the 5 most similar labelled examples vote. Sibyl ships 150 starter examples, 10 for each pair of labels. The classifier runs only for a profile that has a `task` or `difficulty` rule. When it fails or takes more than 300 ms, both labels are `unknown`, and the next rules decide.
 
 This rule sends hard code and maths to a provider and keeps the rest local:
 
@@ -354,7 +354,7 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: a
   https://<address>:8443/system/router/classify -d '{"text":"Find the race in this Go code"}'
 ```
 
-If the classifier labels your own requests wrongly, add examples of them. `PUT /system/router/examples` takes a JSON list of `{"text", "task", "difficulty"}` and replaces your list. Your examples add to the starter examples. To use only yours, set `classifier: {no_starter: true}` in the profiles. Other classifier settings are `model` (the embedding model, by default the first one installed), `k` (the number of voting examples, default 7) and `timeout_ms` (default 300).
+If the classifier labels your own requests wrongly, add examples of them. `PUT /system/router/examples` takes a JSON list of `{"text", "task", "difficulty"}` and replaces your list. Your examples add to the starter examples. To use only yours, set `classifier: {no_starter: true}` in the profiles. Other classifier settings are `model` (the embedding model, by default the first one installed), `k` (the number of voting examples, default 5), `timeout_ms` (default 300) and `prefix`. The prefix goes before every text that the classifier embeds. The default is the instruction format of the Qwen3 embedding models. For another embedding model, set the prefix that its model card gives, or `""` for none.
 
 To compare profiles before you trust one, run `sibyl-eval` from a clone of the Sibyl repository. It sends a labelled request set to the classifier and to explain, so no request leaves the box. It prints the classifier's accuracy and, for each profile, the share of local requests and the estimated provider cost:
 
