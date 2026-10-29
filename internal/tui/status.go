@@ -19,6 +19,7 @@ type statusMsg struct {
 	status client.Status
 	gpus   []gpu.GPU
 	owui   client.OpenWebUI
+	arcane client.Arcane
 	host   hostd.State
 	err    error
 }
@@ -61,8 +62,9 @@ func (v *statusView) fetch() tea.Cmd {
 		}
 		// The addresses are extra: a missing host state does not hide the rest.
 		h, _ := v.c.Host(ctx)
+		a, _ := v.c.Arcane(ctx)
 		o, err := v.c.OpenWebUI(ctx)
-		return statusMsg{status: s, gpus: g, owui: o, host: h, err: err}
+		return statusMsg{status: s, gpus: g, owui: o, arcane: a, host: h, err: err}
 	}
 }
 
@@ -218,6 +220,10 @@ func (v *statusView) render(int) string {
 
 	b.WriteString(titleSty.Render("Addresses") + "\n")
 	b.WriteString(renderLinks(v.data.host) + "\n")
+	if a := v.data.arcane; a.Password != "" {
+		b.WriteString("  " + badSty.Render("Arcane login: "+a.User+" / "+a.Password+
+			". Sibyl set this password; change it in Arcane, and this line goes away.") + "\n\n")
+	}
 	b.WriteString(titleSty.Render("GPUs") + "\n")
 	for _, g := range v.data.gpus {
 		used := ""

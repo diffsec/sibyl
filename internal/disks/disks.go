@@ -68,6 +68,8 @@ func Parse(data []byte, bootDisks []string, minSize int64) ([]Disk, error) {
 			disk.Reason = fmt.Sprintf("smaller than %d GiB", minSize>>30)
 		case len(disk.Mounted) > 0:
 			disk.Reason = "in use: mounted at " + strings.Join(disk.Mounted, ", ")
+		case len(swaps(d)) > 0:
+			disk.Reason = "in use as swap: " + strings.Join(swaps(d), ", ")
 		case holder(d) != "":
 			disk.Reason = "in use by " + holder(d)
 		}
@@ -87,6 +89,21 @@ func mounts(d lsblkDev) []string {
 		m = append(m, mounts(c)...)
 	}
 	return m
+}
+
+// swaps lists the active swap devices on a disk and its partitions. zram
+// devices are skipped before this, so only swap on the disk counts.
+func swaps(d lsblkDev) []string {
+	var s []string
+	for _, p := range d.Mountpoints {
+		if p != nil && *p == "[SWAP]" {
+			s = append(s, d.Path)
+		}
+	}
+	for _, c := range d.Children {
+		s = append(s, swaps(c)...)
+	}
+	return s
 }
 
 // holder returns the first device on top of a disk or its partitions that

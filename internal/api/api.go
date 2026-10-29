@@ -58,6 +58,7 @@ type Server struct {
 	Downloads *download.Manager
 	Ollama    *ollama.Shim
 	OpenWebUI *OpenWebUI
+	Arcane    *Arcane
 	// GitHubBase is https://github.com, or a test server.
 	GitHubBase string
 	// RouterURL is the model router, such as http://router:8080.
@@ -150,6 +151,7 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /downloads/{id}", s.getDownload)
 	auth.HandleFunc("DELETE /downloads/{id}", s.cancelDownload)
 	auth.HandleFunc("POST /downloads/{id}/retry", s.retryDownload)
+	auth.HandleFunc("GET /integrations/arcane", s.getArcane)
 	auth.HandleFunc("GET /router", s.getRouter)
 	auth.HandleFunc("POST /router/clients", s.postRouterClient)
 	auth.HandleFunc("PUT /router/clients/{name}", s.putRouterClient)

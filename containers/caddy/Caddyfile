@@ -20,6 +20,13 @@
 # Open WebUI
 :10443 {
 	import tls_nd
+	# Open WebUI makes the first account to sign up the admin, so a fresh
+	# install would give the LAN that role. Sign-up is refused here: the
+	# setup wizard creates the first admin through the System API, which
+	# reaches open-webui:8080 inside the sibyl network. Later accounts are
+	# added by the admin (ENABLE_SIGNUP=false).
+	@signup path /api/v1/auths/signup*
+	respond @signup `{"detail":"Sign-up is off. Run sibyl setup on the host to create the first admin."}` 403
 	reverse_proxy open-webui:8080
 }
 

@@ -438,10 +438,15 @@ jobs:
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # Keyless and with the project key, as the images are, so the ISO can
+      # be checked against the same public key: cosign verify --key
+      # sibyl-cosign.pub ghcr.io/diffsec/sibyl-iso@<digest>.
       - name: Sign the ISO
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
-        run: cosign sign --yes "ghcr.io/diffsec/sibyl-iso@${DIGEST}"
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: scripts/ci/sign.sh ghcr.io/diffsec/sibyl-iso "$DIGEST"
 
   # The offline update bundle: every image for one tag, as OCI archives, with
   # a manifest that the project key signs. sibyl-update checks it on the host.

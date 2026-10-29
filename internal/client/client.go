@@ -361,6 +361,21 @@ func (c *Client) ClearHuggingFaceToken(ctx context.Context) (HuggingFace, error)
 	return h, c.do(ctx, http.MethodDelete, "/integrations/huggingface", nil, &h)
 }
 
+// Arcane is the GET /integrations/arcane response.
+type Arcane struct {
+	User string `json:"user"`
+	// Password is the password that Sibyl set, until the owner changes it.
+	Password string `json:"password,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// Arcane returns the Arcane login that Sibyl set, if the owner has not
+// changed it yet.
+func (c *Client) Arcane(ctx context.Context) (Arcane, error) {
+	var a Arcane
+	return a, c.do(ctx, http.MethodGet, "/integrations/arcane", nil, &a)
+}
+
 // RouterBudget limits a client's provider spend, in US dollars per UTC day
 // and month. Zero means no limit.
 type RouterBudget struct {

@@ -247,6 +247,12 @@ func (a *Agent) setUser(ctx context.Context, u User) (string, error) {
 	switch {
 	case exists && !slices.Contains(managed, u.Name):
 		return "", fmt.Errorf("account %s exists and Sibyl did not create it: change it with usermod as an administrator", u.Name)
+	case exists:
+		if err := a.notAdmin(ctx, u.Name); err != nil {
+			return "", err
+		}
+	}
+	switch {
 	case !exists:
 		if _, err := a.Run(ctx, "", "useradd", "--create-home", "--user-group", "--groups", OperatorGroup,
 			"--shell", "/bin/bash", "--comment", "Sibyl operator", u.Name); err != nil {
@@ -292,6 +298,9 @@ func (a *Agent) deleteUser(ctx context.Context, name string) (string, error) {
 	if _, exists, err := a.lookup(ctx, name); err != nil {
 		return "", err
 	} else if exists {
+		if err := a.notAdmin(ctx, name); err != nil {
+			return "", err
+		}
 		if _, err := a.Run(ctx, "", "userdel", "--remove", name); err != nil {
 			return "", err
 		}
@@ -301,6 +310,21 @@ func (a *Agent) deleteUser(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 	return "deleted operator " + name + " and its home directory", nil
+}
+
+// notAdmin refuses an account in wheel. The managed list alone is not
+// enough: an administrator can add a Sibyl operator to wheel, or make an
+// admin account with the name of a deleted operator. A failed lookup
+// refuses too.
+func (a *Agent) notAdmin(ctx context.Context, name string) error {
+	out, err := a.Run(ctx, "", "id", "-nG", name)
+	if err != nil {
+		return fmt.Errorf("read the groups of %s: %w", name, err)
+	}
+	if slices.Contains(strings.Fields(out), "wheel") {
+		return fmt.Errorf("account %s is an administrator (in wheel), so Sibyl does not change it", name)
+	}
+	return nil
 }
 
 // lookup returns the passwd fields of one account.

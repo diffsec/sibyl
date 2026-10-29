@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diffsec/sibyl/internal/arcane"
 	"github.com/diffsec/sibyl/internal/router"
 )
 
@@ -259,5 +260,61 @@ func TestRouterAnthropicProviderAndBudget(t *testing.T) {
 	laptop, _ := spend["laptop"].(map[string]any)
 	if code != 200 || laptop["today_usd"] != 0.75 || laptop["month_usd"] != 0.75 || b["unpriced"] != float64(1) {
 		t.Errorf("stats = %d %v", code, b)
+	}
+}
+
+func TestArcaneDefaultPasswordReplaced(t *testing.T) {
+	f := newFixture(t)
+	password := "arcane-admin"
+	logins := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var b map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&b)
+		switch r.URL.Path {
+		case "/api/auth/login":
+			logins++
+			if b["password"] != password {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"token":"t"}}`))
+		case "/api/auth/password":
+			password = b["newPassword"]
+			_, _ = w.Write([]byte(`{"data":{"message":"ok"}}`))
+		}
+	}))
+	defer srv.Close()
+	f.server.Arcane = &Arcane{Client: arcane.New(srv.URL)}
+	f.server.SecureArcaneAtStart(t.Context(), time.Millisecond, 3)
+	if password == "arcane-admin" || len(password) < 16 {
+		t.Fatalf("password %q", password)
+	}
+	code, b := f.do(t, "GET", "/integrations/arcane", "", true)
+	if code != 200 || b["password"] != password || b["user"] != "arcane" {
+		t.Fatalf("status = %d %v", code, b)
+	}
+	// A second start finds the default refused and changes nothing.
+	before := password
+	f.server.SecureArcaneAtStart(t.Context(), time.Millisecond, 3)
+	if password != before {
+		t.Error("the password changed again")
+	}
+	// The owner changes the password in Arcane: the stored one goes away.
+	password = "owner-chose-this"
+	f.server.Arcane.checked = time.Time{}
+	if _, b := f.do(t, "GET", "/integrations/arcane", "", true); b["password"] != nil {
+		t.Errorf("stale password shown: %v", b)
+	}
+	if _, err := os.Stat(filepath.Join(f.paths.Config, "arcane-password")); !os.IsNotExist(err) {
+		t.Error("the password file was kept")
+	}
+	// Polls within a minute do not sign in again.
+	n := logins
+	write(t, filepath.Join(f.paths.Config, "arcane-password"), "owner-chose-this")
+	f.server.Arcane.checked = time.Time{}
+	f.do(t, "GET", "/integrations/arcane", "", true)
+	f.do(t, "GET", "/integrations/arcane", "", true)
+	if logins != n+1 {
+		t.Errorf("%d logins for two polls, want 1", logins-n)
 	}
 }

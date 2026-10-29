@@ -10,6 +10,8 @@ const lsblkJSON = `{"blockdevices":[
  {"name":"sdb","path":"/dev/sdb","size":2000398934016,"model":"WDC","serial":"WD-1","type":"disk","tran":"sata","rm":false,"ro":false,"mountpoints":[],
   "children":[{"name":"sdb1","path":"/dev/sdb1","size":2000398934016,"type":"part","rm":false,"ro":false,"mountpoints":["/var/mnt/models-1"]}]},
  {"name":"sdc","path":"/dev/sdc","size":32000000000,"model":"Small","serial":"S","type":"disk","tran":"sata","rm":false,"ro":false,"mountpoints":[]},
+ {"name":"sdd","path":"/dev/sdd","size":2000398934016,"model":"WDC","serial":"WD-2","type":"disk","tran":"sata","rm":false,"ro":false,"mountpoints":[],
+  "children":[{"name":"sdd2","path":"/dev/sdd2","size":17179869184,"type":"part","rm":false,"ro":false,"mountpoints":["[SWAP]"]}]},
  {"name":"zram0","path":"/dev/zram0","size":8589934592,"type":"disk","rm":false,"ro":false,"mountpoints":["[SWAP]"]}
 ]}`
 
@@ -23,6 +25,7 @@ func TestParseDisks(t *testing.T) {
 		"/dev/sda":     "the running system boots from it",
 		"/dev/sdb":     "in use: mounted at /var/mnt/models-1",
 		"/dev/sdc":     "smaller than 64 GiB",
+		"/dev/sdd":     "in use as swap: /dev/sdd2",
 	}
 	if len(disks) != len(want) {
 		t.Fatalf("disks %+v", disks)

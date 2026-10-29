@@ -350,6 +350,28 @@ func TestUnmanagedUsersAreRefused(t *testing.T) {
 	}
 }
 
+// TestManagedAdminIsRefused covers an operator that an administrator later
+// put in wheel: the managed list does not let hostd change it.
+func TestManagedAdminIsRefused(t *testing.T) {
+	ta := newAgent(t)
+	if r := ta.submit(t, "1", SetUser, `{"name":"ops","keys":["`+edKey+`"]}`); !r.OK {
+		t.Fatalf("create %+v", r)
+	}
+	ta.host.answers["id -nG ops"] = "ops wheel sibyl-operators\n"
+	ta.host.calls = nil
+	if r := ta.submit(t, "2", SetUser, `{"name":"ops","keys":["`+edKey+`"]}`); r.OK || !strings.Contains(r.Error, "administrator") || ta.host.ran("runuser") {
+		t.Fatalf("set %+v, calls %v", r, ta.host.calls)
+	}
+	if r := ta.submit(t, "3", DeleteUser, `{"name":"ops"}`); r.OK || ta.host.ran("userdel") {
+		t.Fatalf("delete %+v, calls %v", r, ta.host.calls)
+	}
+	// A failed group lookup refuses too.
+	ta.host.fail["id -nG ops"] = errors.New("id failed")
+	if r := ta.submit(t, "4", DeleteUser, `{"name":"ops"}`); r.OK || ta.host.ran("userdel") {
+		t.Fatalf("delete with no groups %+v", r)
+	}
+}
+
 func TestBadQueueNames(t *testing.T) {
 	ta := newAgent(t)
 	if err := os.WriteFile(filepath.Join(ta.Queue, "x.hostname.json"), []byte(`{"hostname":"a"}`), 0o640); err != nil {

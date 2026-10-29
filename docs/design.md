@@ -407,6 +407,10 @@ To update a host:
 - The private key is in the `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` repository secrets, with an offline backup held by the maintainer. A new key needs a new public key in the image, and a host must have that image before images signed with the new key reach it.
 - `/usr/lib/bootc/install/50-sibyl.toml` sets `enforce-container-sigpolicy`, so every install records a verified image reference and `bootc upgrade` checks the policy. A host installed before this change needs `bootc switch --enforce-container-sigpolicy <image>` once.
 - If signing ever breaks, running containers keep running. To pull an unsigned image on purpose, an administrator changes the `ghcr.io/diffsec` entry in `/etc/containers/policy.json` on that host.
+- The ISO carries the same two signatures as the images, so `cosign verify --key sibyl-cosign.pub` checks it.
+- Caddy refuses Open WebUI's sign-up route on port 443. Open WebUI makes the first account the admin, so on a new install the first visitor on the LAN would get that role. The setup wizard creates the first admin through the System API instead.
+- The System API replaces Arcane's default `arcane` / `arcane-admin` password with a random one when Arcane first answers, and shows it on the Status screen until the owner changes it in Arcane.
+- `sibyl-hostd` refuses to change or delete an account in `wheel`, even one on its managed list. Pool creation refuses a disk with active swap, as it refuses a mounted disk.
 - Every Quadlet container drops all capabilities, sets `NoNewPrivileges=true` and `ReadOnly=true`, and gets a tmpfs for `/tmp`. Writable state goes to named volumes only.
 - nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open.
 - SSH accepts keys only. Root login is off.

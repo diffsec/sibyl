@@ -46,15 +46,23 @@ A backend is the GPU code that llama.cpp uses. Sibyl can measure which backend i
 
 The installer is an ISO file. It is published as an OCI artifact on GitHub's container registry, because it is too large for a GitHub release.
 
-1. Install `oras` on the second computer. See [oras.land](https://oras.land/docs/installation).
-2. Download the ISO for your variant. This example is for `amd`:
+1. Install `oras` and `cosign` on the second computer. See [oras.land](https://oras.land/docs/installation) and [docs.sigstore.dev](https://docs.sigstore.dev/cosign/system_config/installation/).
+2. Find the ISO for your variant, and check its signature with the Sibyl public key. `cosign` must print `The signatures were verified against the specified public key`. This example is for `amd`:
+
+```bash
+DIGEST="$(oras resolve ghcr.io/diffsec/sibyl-iso:latest-amd)"
+cosign verify --key https://raw.githubusercontent.com/diffsec/sibyl/main/os/rootfs/etc/pki/containers/sibyl-cosign.pub \
+  "ghcr.io/diffsec/sibyl-iso@$DIGEST"
+```
+
+3. Download that ISO. `oras` checks each file against the digest that the signature covers:
 
 ```bash
 mkdir sibyl-iso && cd sibyl-iso
-oras pull ghcr.io/diffsec/sibyl-iso:latest-amd
+oras pull "ghcr.io/diffsec/sibyl-iso@$DIGEST"
 ```
 
-3. Make sure that the file is complete. The command must print `OK`. On Linux, use `sha256sum -c SHA256SUMS` instead:
+4. Make sure that the file is complete. The command must print `OK`. On Linux, use `sha256sum -c SHA256SUMS` instead:
 
 ```bash
 shasum -a 256 -c SHA256SUMS
@@ -62,7 +70,7 @@ shasum -a 256 -c SHA256SUMS
 
 The ISO file name contains the build tag, such as `sibyl-sha-339b7a4-amd.iso`. The examples below write it as `sibyl-*.iso`.
 
-4. Write the ISO to the USB stick. This erases the stick.
+5. Write the ISO to the USB stick. This erases the stick.
 
 On Linux, find the stick with `lsblk`, then write the ISO. Replace `/dev/sdX` with the stick, not with a disk that you need:
 
@@ -162,7 +170,7 @@ The wizard walks through the setup screens in order. Each step tells you which k
 1. GPUs, backend and layout. Press `e`. Choose the GPUs for inference, the backend, and the default layout. "Span" splits one model across all the selected GPUs. "Pin" runs one model on each GPU, so several models can stay loaded at once. If you are not sure, keep the default backend and measure later with the benchmark.
 2. Hostname and network. Press `h` for the hostname and `n` for the network. A network change rolls back by itself after 120 seconds unless you confirm it. Reconnect at the new address and press `c` to keep it.
 3. Operator accounts. Press `a` to add a person who can run `sibyl` over SSH. Operators cannot use `sudo`.
-4. Open WebUI administrator. Press `o` and create the first Open WebUI account. Do this now: until an account exists, anyone on your network who opens Open WebUI first can create the administrator account.
+4. Open WebUI administrator. Press `o` and create the first Open WebUI account. Sign-up from the browser is off, so this is the only way to make the first account. Add more accounts later in Open WebUI, under Admin Panel, Users.
 5. First model. Press `/` and search Hugging Face. See [Download a model](#download-a-model).
 6. Done. The Status screen lists the addresses of the services as links. The last step also shows the SHA-256 fingerprint of the TLS certificate.
 
@@ -180,7 +188,7 @@ The certificate is valid for `sibyl.local`, `sibyl` and the IP address that the 
 
 ### Arcane password
 
-Open `https://<address>:9443/` and log in to Arcane with the user `arcane` and the password `arcane-admin`. Arcane makes you choose a new password at once. Do this right after the install, because Arcane controls every container on the host.
+A new Arcane install has the login `arcane` / `arcane-admin`. The System API replaces that password with a random one within about 10 seconds of the first start of Arcane. The Status screen of `sibyl` shows the new password. Log in to Arcane at `https://<address>:9443/` with the user `arcane` and that password, and choose your own password. The line on the Status screen then goes away.
 
 ## Use Sibyl
 
