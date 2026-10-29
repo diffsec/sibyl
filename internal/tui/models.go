@@ -92,12 +92,6 @@ func optionalNumber(title, desc string, whole bool, value *string) *huh.Input {
 		Value(value).Validate(numberCheck(whole))
 }
 
-// samplingNumber is a sampling field whose placeholder shows the value that
-// applies when it is empty: the model file's, or llama.cpp's own.
-func samplingNumber(title, desc string, whole bool, value *string, file *float64, llamaDefault string) *huh.Input {
-	return optionalNumber(title, desc, whole, value).Placeholder(samplingHint(file, llamaDefault))
-}
-
 // editForm builds the settings form for one model.
 func (v *modelsView) editForm(m client.Model) tea.Cmd {
 	v.editing = m.ID
@@ -139,12 +133,35 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 		fileTopK = &k
 	}
 	hw, gpus := v.hw, v.gpus
+	presetOpts := []huh.Option[string]{huh.NewOption("None", "")}
+	for _, p := range models.Presets {
+		presetOpts = append(presetOpts, huh.NewOption(p, p))
+	}
+	// sampleField shows, in grey, the value that applies when the field is
+	// empty: the preset's, else the model file's, else llama.cpp's.
+	sampleField := func(title, desc string, whole bool, value *string, pick func(models.Sampling) *float64,
+		file *float64, llamaDefault string) *huh.Input {
+		return optionalNumber(title, desc, whole, value).PlaceholderFunc(func() string {
+			if f.Preset == "" {
+				return samplingHint(file, llamaDefault)
+			}
+			ps, err := models.PresetSampling(f.Preset, m.Meta)
+			if err != nil {
+				return samplingHint(file, llamaDefault)
+			}
+			return presetHint(f.Preset, pick(ps))
+		}, &f.Preset)
+	}
 
 	v.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewNote().Title(m.ID).Description(head),
 			huh.NewSelect[string]().Title("Layout").Inline(true).Options(layouts...).Value(&f.Layout),
-			optionalNumber("Context size", "", true, &f.CtxSize).Placeholder("native").
+			huh.NewSelect[string]().Title("When VRAM is short").Inline(true).Options(
+				huh.NewOption("Quality: f16 cache, shorter context", ""),
+				huh.NewOption("Context: quantize the cache to keep the context", string(models.FitContext)),
+			).Value(&f.Fit),
+			optionalNumber("Context size", "", true, &f.CtxSize).Placeholder("auto").
 				DescriptionFunc(func() string { return contextNote(m, f, hw, gpus) }, f),
 			huh.NewSelect[string]().Title("KV cache K type").Inline(true).Options(kv...).Value(&f.KVTypeK),
 			huh.NewSelect[string]().Title("KV cache V type").Inline(true).Options(kv...).Value(&f.KVTypeV),
@@ -152,10 +169,12 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			huh.NewConfirm().Title("Hide from the model list").Value(&f.Hidden),
 		).Title("Model"),
 		huh.NewGroup(
-			samplingNumber("Temperature", "0 to 5", false, &f.Temperature, fileSampling.Temperature, "0.8"),
-			samplingNumber("Top K", "0 to 1000", true, &f.TopK, fileTopK, "40"),
-			samplingNumber("Top P", "0 to 1", false, &f.TopP, fileSampling.TopP, "0.95"),
-			samplingNumber("Min P", "0 to 1", false, &f.MinP, fileSampling.MinP, "0.05"),
+			huh.NewSelect[string]().Title("Preset").Inline(true).Options(presetOpts...).Value(&f.Preset).
+				Description(presetNote(m.Meta)),
+			sampleField("Temperature", "0 to 5", false, &f.Temperature, func(s models.Sampling) *float64 { return s.Temperature }, fileSampling.Temperature, "0.8"),
+			sampleField("Top K", "0 to 1000", true, &f.TopK, func(s models.Sampling) *float64 { return intAsFloat(s.TopK) }, fileTopK, "40"),
+			sampleField("Top P", "0 to 1", false, &f.TopP, func(s models.Sampling) *float64 { return s.TopP }, fileSampling.TopP, "0.95"),
+			sampleField("Min P", "0 to 1", false, &f.MinP, func(s models.Sampling) *float64 { return s.MinP }, fileSampling.MinP, "0.05"),
 			optionalNumber("Repeat penalty", "0 to 5", false, &f.RepeatPenalty),
 			optionalNumber("Presence penalty", "-2 to 2", false, &f.PresencePenalty),
 		).Title("Sampling defaults").Description("Empty uses the value in grey. Clients can still override these per request."),
@@ -362,4 +381,12 @@ func benchLine(b *client.Benchmark) string {
 		line += " · faster: " + b.Recommended
 	}
 	return line
+}
+
+func intAsFloat(v *int) *float64 {
+	if v == nil {
+		return nil
+	}
+	f := float64(*v)
+	return &f
 }

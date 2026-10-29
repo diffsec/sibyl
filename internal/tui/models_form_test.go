@@ -29,7 +29,7 @@ func TestEditFormShowsContextEstimate(t *testing.T) {
 	run(v, v.editForm(m), 0)
 	v.update(tea.WindowSizeMsg{Width: 140, Height: 60})
 	view := v.form.View()
-	for _, want := range []string{"native context 262,144 tokens", "Empty uses the native context", "more than the GPUs hold"} {
+	for _, want := range []string{"native context 262,144 tokens", "Empty: Sibyl uses", "When VRAM is short"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("form view lacks %q:\n%s", want, view)
 		}
@@ -37,7 +37,8 @@ func TestEditFormShowsContextEstimate(t *testing.T) {
 
 	// Typing a context size recomputes the description.
 	send := func(msg tea.Msg) { run(v, v.update(msg), 0) }
-	send(tea.KeyPressMsg{Code: tea.KeyTab})
+	send(tea.KeyPressMsg{Code: tea.KeyTab}) // to the fit mode
+	send(tea.KeyPressMsg{Code: tea.KeyTab}) // to the context size
 	for _, r := range "32768" {
 		send(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}

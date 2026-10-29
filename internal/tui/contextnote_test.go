@@ -18,13 +18,29 @@ func TestContextNote(t *testing.T) {
 	hw := hardware.Config{Backend: hardware.BackendHIP, GPUs: []int{0, 1}, Layout: hardware.LayoutSpan}
 	gpus := []gpu.GPU{{Index: 0, VRAMTotal: 24 << 30}, {Index: 1, VRAMTotal: 24 << 30}}
 
-	// Empty context: the native 262,144 tokens at f16 need 18 GiB, which
-	// with 29 GiB of weights exceeds 92% of 48 GiB.
+	// Empty context, quality: the native 262,144 tokens at f16 need 18 GiB,
+	// which with 29 GiB of weights exceeds 92% of 48 GiB, so Sibyl picks
+	// the largest multiple of 4096 that fits at f16.
 	got := contextNote(m, &settingsForm{}, hw, gpus)
-	for _, want := range []string{"Empty uses the native context: 262,144 tokens", "18.0 GiB", "of 48.0 GiB VRAM on 2 GPU(s)", "more than the GPUs hold"} {
+	for _, want := range []string{"Empty: Sibyl uses 217,088 tokens with an f16 KV cache", "native 262,144", "of 48.0 GiB VRAM on 2 GPU(s)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("empty context: %q lacks %q", got, want)
 		}
+	}
+	if strings.Contains(got, "more than the GPUs hold") {
+		t.Errorf("the automatic context does not fit: %q", got)
+	}
+
+	// Empty context, context mode: a q8_0 cache keeps the native context.
+	got = contextNote(m, &settingsForm{Fit: "context"}, hw, gpus)
+	if !strings.Contains(got, "Empty: Sibyl uses 262,144 tokens with a q8_0 KV cache") || strings.Contains(got, "more than the GPUs hold") {
+		t.Errorf("context mode: %q", got)
+	}
+
+	// The owner's native context at f16 does not fit.
+	got = contextNote(m, &settingsForm{CtxSize: "262144"}, hw, gpus)
+	if !strings.Contains(got, "18.0 GiB") || !strings.Contains(got, "more than the GPUs hold") {
+		t.Errorf("native at f16: %q", got)
 	}
 
 	// 32k with a q8_0 cache fits.
@@ -70,7 +86,7 @@ func TestModelGPUsFollowsPlacement(t *testing.T) {
 		{"", true, hw, []int{2}},
 		{"", false, hardware.Config{GPUs: []int{2, 0}, Layout: hardware.LayoutPin}, []int{0}},
 	} {
-		if got := idx(modelGPUs(c.layout, c.embedding, c.hw, gpus)); len(got) != len(c.want) || (len(got) > 0 && got[0] != c.want[0]) {
+		if got := idx(hardware.ModelGPUs(c.layout, c.embedding, c.hw, gpus)); len(got) != len(c.want) || (len(got) > 0 && got[0] != c.want[0]) {
 			t.Errorf("layout %q embedding %v: %v, want %v", c.layout, c.embedding, got, c.want)
 		}
 	}

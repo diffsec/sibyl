@@ -10,12 +10,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/diffsec/sibyl/internal/arcane"
+	"github.com/diffsec/sibyl/internal/gguf"
+	"github.com/diffsec/sibyl/internal/models"
 	"github.com/diffsec/sibyl/internal/ollama"
 	"github.com/diffsec/sibyl/internal/router"
 )
@@ -488,5 +492,84 @@ func TestCatalogShrinkRefused(t *testing.T) {
 	}
 	if _, b := f.do(t, "GET", "/router/catalog", "", true); len(b["providers"].([]any)) != 4 {
 		t.Errorf("copy changed: %v", b["providers"])
+	}
+}
+
+// TestAutoContextAndPreset checks that an apply writes the fitted context
+// and the preset's sampling into llama-swap's command line, and the
+// router's models.json.
+func TestAutoContextAndPreset(t *testing.T) {
+	f := newFixture(t)
+	// 12 GiB per GPU. The fixture's hardware pins a model to one GPU.
+	for _, addr := range []string{"0000:03:00.0", "0000:83:00.0"} {
+		write(t, filepath.Join(f.paths.SysfsRoot, "devices", addr, "mem_info_vram_total"), strconv.Itoa(12<<30))
+	}
+	// 32 layers of 8 KV heads of 128: the native 131072 tokens need about
+	// 17 GiB at f16 and 10.5 GiB at q8_0, against 11 GiB usable.
+	data, err := gguf.Encode(map[string]any{
+		"general.architecture": "llama", "general.name": "Llama Test", "llama.block_count": 32, "llama.context_length": 131072,
+		"llama.attention.head_count": 8, "llama.attention.head_count_kv": 8, "llama.attention.key_length": 128,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(f.paths.Models, "fat.gguf"), string(data))
+	if code, b := f.do(t, "PUT", "/models/fat", `{"preset":"coding"}`, true); code != 200 {
+		t.Fatalf("set preset = %d %v", code, b)
+	}
+	cfg, err := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Llama 3's recommendation is temperature 0.6, top_p 0.9: coding keeps 0.6.
+	var line string
+	for _, l := range strings.Split(string(cfg), "\n") {
+		if strings.Contains(l, "fat.gguf") {
+			line = l
+		}
+	}
+	m := regexp.MustCompile(`--ctx-size (\d+)`).FindStringSubmatch(line)
+	if m == nil || !strings.Contains(line, "--temp 0.6") || !strings.Contains(line, "--top-p 0.9") {
+		t.Fatalf("command line %q", line)
+	}
+	ctx, _ := strconv.Atoi(m[1])
+	if ctx%4096 != 0 || ctx >= 131072 || ctx < 65536 {
+		t.Errorf("auto ctx %d", ctx)
+	}
+	// models.yaml keeps only the owner's choice.
+	settings, _ := models.LoadSettings(filepath.Join(f.paths.Config, "models.yaml"))
+	if settings["fat"].CtxSize != 0 || settings["fat"].Preset != "coding" {
+		t.Errorf("models.yaml %+v", settings["fat"])
+	}
+	// GET /models reports the fit.
+	_, raw := f.doRaw(t, "GET", "/models")
+	var list []struct {
+		ID  string      `json:"id"`
+		Fit *models.Fit `json:"fit"`
+	}
+	_ = json.Unmarshal(raw, &list)
+	for _, x := range list {
+		if x.ID == "fat" && (x.Fit == nil || !x.Fit.Auto || x.Fit.Ctx != ctx || !x.Fit.Fits) {
+			t.Errorf("fit %+v", x.Fit)
+		}
+	}
+	// The router learns the fitted context and the presets.
+	rc, err := router.LoadConfig(filepath.Join(f.paths.Config, "router"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, lm := range rc.Models {
+		if lm.ID == "fat" && (lm.Context != ctx || lm.Presets["writing"].Temperature == nil || *lm.Presets["writing"].Temperature != 0.8) {
+			t.Errorf("router model %+v", lm)
+		}
+	}
+
+	// Context mode keeps the native context with a quantized cache.
+	if code, _ := f.do(t, "PUT", "/models/fat", `{"fit":"context"}`, true); code != 200 {
+		t.Fatal("set fit")
+	}
+	cfg, _ = os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if !strings.Contains(string(cfg), "--ctx-size 131072") || !strings.Contains(string(cfg), "--cache-type-k q8_0") {
+		t.Errorf("context mode config:\n%s", cfg)
 	}
 }

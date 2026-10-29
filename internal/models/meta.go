@@ -11,6 +11,8 @@ import (
 // System API reads it from the GGUF header of the first shard.
 type Meta struct {
 	Architecture string `json:"architecture"`
+	// Name is general.name, such as "Qwen3 32B", for the model family.
+	Name string `json:"name,omitempty"`
 	// ContextLength is the native context, in tokens. llama-server uses it
 	// when no context size is set.
 	ContextLength int `json:"context_length,omitempty"`
@@ -87,7 +89,7 @@ var archKeys = []string{
 // ReadMeta reads the GGUF header of a model file.
 func ReadMeta(path string) (Meta, error) {
 	vals, err := gguf.ReadFile(path, func(k string) bool {
-		if k == "general.architecture" || strings.HasPrefix(k, "general.sampling.") {
+		if k == "general.architecture" || k == "general.name" || strings.HasPrefix(k, "general.sampling.") {
 			return true
 		}
 		// Architecture names have no dot, so the rest of the key follows
@@ -98,7 +100,9 @@ func ReadMeta(path string) (Meta, error) {
 	if err != nil {
 		return Meta{}, err
 	}
-	return metaFrom(vals["general.architecture"].Str, vals), nil
+	m := metaFrom(vals["general.architecture"].Str, vals)
+	m.Name = vals["general.name"].Str
+	return m, nil
 }
 
 func metaFrom(arch string, vals map[string]gguf.Value) Meta {

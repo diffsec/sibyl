@@ -29,6 +29,8 @@ type settingsForm struct {
 	NgramModMax     string
 	KVTypeK         string
 	KVTypeV         string
+	Fit             string // quality (or empty) or context
+	Preset          string // empty, or one of models.Presets
 	Args            string // space separated
 }
 
@@ -65,6 +67,8 @@ func formFromSettings(s models.Settings) settingsForm {
 		NgramModMax:     fmtInt(s.Speculative.NgramModMax),
 		KVTypeK:         s.KVCache.TypeK,
 		KVTypeV:         s.KVCache.TypeV,
+		Fit:             string(s.Fit),
+		Preset:          s.Preset,
 		Args:            strings.Join(s.Args, " "),
 	}
 	if s.CtxSize > 0 {
@@ -105,6 +109,8 @@ func (f settingsForm) toSettings() (models.Settings, error) {
 		Hidden:    f.Hidden,
 		Args:      strings.Fields(f.Args),
 		KVCache:   models.KVCache{TypeK: f.KVTypeK, TypeV: f.KVTypeV},
+		Fit:       models.FitMode(f.Fit),
+		Preset:    f.Preset,
 	}
 	var err error
 	if ctx, e := parseInt("context size", f.CtxSize); e != nil {

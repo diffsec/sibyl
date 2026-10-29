@@ -160,7 +160,9 @@ func newHarness(t *testing.T, profiles string) *harness {
 `, provSrv.URL, antSrv.URL))
 	write(t, filepath.Join(h.dir, KeysDir, "cloud"), "provider-secret\n")
 	write(t, filepath.Join(h.dir, KeysDir, "claude"), "anthropic-secret\n")
-	write(t, filepath.Join(h.dir, ModelsName), `[{"id":"small","context":1000},{"id":"embed","embedding":true}]`)
+	write(t, filepath.Join(h.dir, ModelsName), `[{"id":"small","context":1000,
+		"presets":{"coding":{"temperature":0.6,"top_k":20},"writing":{"temperature":1,"min_p":0.05}}},
+		{"id":"embed","embedding":true}]`)
 	if profiles != "" {
 		write(t, filepath.Join(h.dir, ProfilesName), profiles)
 	}
@@ -551,10 +553,10 @@ func TestModelsList(t *testing.T) {
 		}
 		return strings.Join(s, ",")
 	}
-	if got := ids(hybridKey); got != "small,embed,auto,cloud/big" {
+	if got := ids(hybridKey); got != "small,embed,auto,small:coding,small:writing,cloud/big" {
 		t.Errorf("hybrid: %s", got)
 	}
-	if got := ids(localKey); got != "small,embed,auto" {
+	if got := ids(localKey); got != "small,embed,auto,small:coding,small:writing" {
 		t.Errorf("local-only: %s", got)
 	}
 }
@@ -717,5 +719,33 @@ func TestSensitive(t *testing.T) {
 	}
 	if !Sensitive("about Falcon soon", []string{"falcon"}) {
 		t.Error("word not found")
+	}
+}
+
+func TestPresetRequests(t *testing.T) {
+	h := newHarness(t, "")
+	resp := h.post(t, "/v1/chat/completions", localKey, chatBody("small:coding", "hi"))
+	if resp.StatusCode != 200 || resp.Header.Get("X-Sibyl-Route") != "local/small" {
+		t.Fatalf("status %d route %q", resp.StatusCode, resp.Header.Get("X-Sibyl-Route"))
+	}
+	got := h.local.last()
+	if got["model"] != "small" || got["temperature"] != 0.6 || got["top_k"] != float64(20) {
+		t.Errorf("request %v", got)
+	}
+	// The client's own value wins.
+	body := chatBody("small:writing", "hi")
+	body["temperature"] = 0.2
+	h.post(t, "/v1/chat/completions", localKey, body)
+	if got := h.local.last(); got["temperature"] != 0.2 || got["min_p"] != 0.05 {
+		t.Errorf("request %v", got)
+	}
+	// Messages requests get the preset too.
+	h.post(t, "/v1/messages", localKey, map[string]any{"model": "small:coding", "max_tokens": 5,
+		"messages": []any{map[string]any{"role": "user", "content": "hi"}}})
+	if got := h.local.last(); got["temperature"] != 0.6 {
+		t.Errorf("messages request %v", got)
+	}
+	if resp := h.post(t, "/v1/chat/completions", localKey, chatBody("small:poetry", "hi")); resp.StatusCode != 404 {
+		t.Errorf("unknown preset: %d", resp.StatusCode)
 	}
 }

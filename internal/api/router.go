@@ -45,10 +45,20 @@ func (s *Server) writeRouterModels(installed []models.Model, settings map[string
 			continue
 		}
 		st := settings[m.ID]
+		meta := s.modelMeta(m)
 		lm := router.LocalModel{ID: m.ID, Context: st.CtxSize, Embedding: st.Embedding}
-		if lm.Context == 0 {
-			if meta := s.modelMeta(m); meta != nil {
-				lm.Context = meta.ContextLength
+		if lm.Context == 0 && meta != nil {
+			lm.Context = meta.ContextLength
+		}
+		// The sampling of each preset, which a client picks per request
+		// with <model>:<preset>. A request that names a preset asks for it,
+		// so its values replace the model's defaults for that request.
+		if !st.Embedding {
+			lm.Presets = map[string]models.Sampling{}
+			for _, p := range models.Presets {
+				if ps, err := models.PresetSampling(p, meta); err == nil {
+					lm.Presets[p] = ps
+				}
 			}
 		}
 		out = append(out, lm)

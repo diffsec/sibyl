@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -166,4 +167,40 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// ModelGPUs returns the detected GPUs that a model runs on with layout,
+// following the generator's placement (llamaswap.place).
+func ModelGPUs(layout string, embedding bool, hw Config, gpus []gpu.GPU) []gpu.GPU {
+	sel := slices.Clone(hw.GPUs)
+	slices.Sort(sel)
+	pos := -1 // -1 means every selected GPU
+	switch {
+	case layout == string(LayoutSpan):
+	case strings.HasPrefix(layout, "gpu:"):
+		pos, _ = strconv.Atoi(strings.TrimPrefix(layout, "gpu:"))
+	case embedding:
+		pos = len(sel) - 1
+	case hw.Layout == LayoutPin:
+		pos = 0
+	}
+	var out []gpu.GPU
+	for i, idx := range sel {
+		if (pos < 0 || i == pos) && idx >= 0 && idx < len(gpus) {
+			out = append(out, gpus[idx])
+		}
+	}
+	return out
+}
+
+// VRAM sums the memory of gpus, or returns 0 when one does not report it.
+func VRAM(gpus []gpu.GPU) int64 {
+	var total int64
+	for _, g := range gpus {
+		if g.VRAMTotal == 0 {
+			return 0
+		}
+		total += int64(g.VRAMTotal)
+	}
+	return total
 }

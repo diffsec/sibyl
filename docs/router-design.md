@@ -76,6 +76,7 @@ clients:
 | `<provider>/<model>`, such as `anthropic/claude-sonnet-5-5` | Sends it to that provider, if the client's policy allows providers |
 | `auto` | Runs the rules of the `auto` profile |
 | `auto:<profile>`, such as `auto:coding` | Runs the rules of that profile |
+| `<local model>:<preset>`, such as `qwen3-32b-q4_k_m:coding` | Sends it to the local model, with the preset's sampling in the fields that the request leaves out. The System API writes each model's preset values to `models.json`. |
 
 `GET /v1/models` lists, for the calling client, the local models, the provider models that its policy allows, and the profiles.
 

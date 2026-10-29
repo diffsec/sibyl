@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // MarshalJSON writes a route as its string form.
@@ -36,6 +38,10 @@ type Decision struct {
 	// LocalModel is the profile's local model, the last resort of a client
 	// whose budget is spent.
 	LocalModel string `json:"-"`
+	// Preset is the sampling preset of <model>:<preset>, and Sampling its
+	// values, which fill the fields that the request leaves out.
+	Preset   string           `json:"preset,omitempty"`
+	Sampling *models.Sampling `json:"-"`
 }
 
 // Attempts returns the routes in the order that the router tries them.
@@ -100,6 +106,16 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 			}
 			// Local model IDs have no slash, so the name must be a provider's.
 			return d, refuse(http.StatusNotFound, "no provider %q: name a local model, <provider>/<model> or auto", p)
+		}
+		// <model>:<preset> runs a local model with a sampling preset.
+		if base, preset, ok := strings.Cut(model, ":"); ok {
+			if lm, known := rs.cfg.localModel(base); known {
+				if ps, ok := lm.Presets[preset]; ok {
+					d.Route, d.Preset, d.Sampling = Route{Model: base}, preset, &ps
+					return d, nil
+				}
+				return d, refuse(http.StatusNotFound, "model %s has no preset %q", base, preset)
+			}
 		}
 		d.Route = Route{Model: model}
 		return d, nil

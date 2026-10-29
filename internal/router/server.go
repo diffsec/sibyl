@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // maxBody is the largest request body. Images in a request are base64, so
@@ -295,6 +297,52 @@ func (s *Server) localReady(model string) bool {
 		}
 	}
 	return false
+}
+
+// withSampling sets the sampling fields of a chat request that the request
+// leaves out. llama-server reads top_k and min_p next to the OpenAI fields.
+func withSampling(body []byte, s *models.Sampling) ([]byte, error) {
+	if s == nil {
+		return body, nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil, err
+	}
+	set := func(key string, v any) {
+		if _, has := m[key]; has || v == nil {
+			return
+		}
+		b, _ := json.Marshal(v)
+		m[key] = b
+	}
+	if s.Temperature != nil {
+		set("temperature", *s.Temperature)
+	}
+	if s.TopK != nil {
+		set("top_k", *s.TopK)
+	}
+	if s.TopP != nil {
+		set("top_p", *s.TopP)
+	}
+	if s.MinP != nil {
+		set("min_p", *s.MinP)
+	}
+	if s.RepeatPenalty != nil {
+		set("repeat_penalty", *s.RepeatPenalty)
+	}
+	if s.PresencePenalty != nil {
+		set("presence_penalty", *s.PresencePenalty)
+	}
+	return json.Marshal(m)
+}
+
+// presetFor returns the sampling preset of d when rt is its local route.
+func presetFor(d Decision, rt Route) *models.Sampling {
+	if rt.Local() && rt == d.Route {
+		return d.Sampling
+	}
+	return nil
 }
 
 // withModel returns body with its model field set to model.
@@ -650,6 +698,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	e = entryFor(c, "chat", d)
 	resp, rt, err := s.send(r, c, d, func(rt Route) ([]byte, string, error) {
 		b, err := withModel(body, rt.Model)
+		if err == nil {
+			b, err = withSampling(b, presetFor(d, rt))
+		}
 		return b, "/chat/completions", err
 	})
 	if err != nil {
@@ -751,6 +802,9 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 			return body, "/messages", nil
 		}
 		b, err := json.Marshal(req.toChat(rt.Model, rt.Local()))
+		if err == nil {
+			b, err = withSampling(b, presetFor(d, rt))
+		}
 		return b, "/chat/completions", err
 	})
 	if err != nil {
@@ -885,6 +939,14 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 			add("auto", "sibyl-router")
 		} else {
 			add("auto:"+n, "sibyl-router")
+		}
+	}
+	// <model>:<preset> for each local chat model.
+	for _, lm := range cfg.Models {
+		for _, p := range models.Presets {
+			if _, ok := lm.Presets[p]; ok {
+				add(lm.ID+":"+p, "sibyl-preset")
+			}
 		}
 	}
 	if !staysLocal(c, hint(r.Header, c)) {

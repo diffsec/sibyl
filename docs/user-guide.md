@@ -373,12 +373,29 @@ On the Models screen, select a model and press Enter. The settings apply as soon
 | Setting | Effect |
 |---|---|
 | Layout | Span across all selected GPUs, or pin to one GPU. |
-| Context size | The longest conversation in tokens. Empty uses the model's native context, which is often 262,144 tokens and needs a lot of VRAM. The field shows the native context and an estimate of the memory that your choice needs, and says when the model needs more than the GPUs hold. llama.cpp then keeps part of it in system RAM, which is slower. |
+| When VRAM is short | What an automatic context gives up. Quality (the default) keeps the KV cache at f16 and shortens the context. Context quantizes the KV cache only as far as it must, to `q8_0` and then `q4_0`, to keep the native context. |
+| Context size | The longest conversation in tokens. Empty lets Sibyl choose: the native context if it fits on the model's GPUs, else the largest multiple of 4,096 tokens that fits in 92% of their VRAM. The field shows what Sibyl chooses and its memory estimate. A number that you enter is kept even when it does not fit, and the field then says that llama.cpp keeps part of the model in system RAM, which is slower. |
 | Embedding | Marks a model for embeddings. Open WebUI uses the first embedding model for document search. |
 | Hidden | Leaves the model out of the model lists. |
-| Sampling | Default temperature, top-k, top-p, min-p and penalties. An empty field shows in grey the value that applies: the model file's recommendation, or llama.cpp's default. A client can still override them per request. |
-| KV cache | The precision of the context memory. `q8_0` halves its size with little loss. |
+| Preset | A sampling preset for the model's main use: `general`, `coding`, `agentic` or `writing`. See [Sampling presets](#sampling-presets). |
+| Sampling | Default temperature, top-k, top-p, min-p and penalties. An empty field shows in grey the value that applies: the preset's, the model file's recommendation, or llama.cpp's default. A value that you enter wins over the preset. A client can still override them per request. |
+| KV cache | The precision of the context memory. `q8_0` halves its size with little loss. A type that you choose here is kept, and an automatic context fits around it. |
 | Speculative decoding | Speeds up generation with a small draft model or with n-gram lookup. |
+
+### Sampling presets
+
+A preset starts from the model's recommended sampling: the values in the model file (`general.sampling`), else the model family's published values (Qwen, Gemma, Llama, DeepSeek, Mistral, gpt-oss), else llama.cpp's defaults. It then adjusts them for a use:
+
+| Preset | Change |
+|---|---|
+| `general` | None: the recommendation as it is. |
+| `coding` | Temperature at most 0.6, so code is more consistent. |
+| `agentic` | Temperature at most 0.6, so tool calls are more consistent. |
+| `writing` | Temperature at least 0.8, and min-p at least 0.05, which keeps a higher temperature coherent. |
+
+gpt-oss keeps OpenAI's one setting, temperature 1.0 and top-p 1.0, for every preset. These adjustments are Sibyl's own defaults, not the model vendors'.
+
+A client can pick a preset for one request without a model reload: ask for `<model>:<preset>`, such as `qwen3.8-flash-next-reap-288-fn-r1:coding`. The model lists show each model with each preset. The preset fills only the fields that the request leaves out.
 
 ### Benchmark the backends
 

@@ -177,6 +177,12 @@ type Settings struct {
 	Sampling    Sampling    `yaml:"sampling,omitempty" json:"sampling,omitzero"`
 	Speculative Speculative `yaml:"speculative,omitempty" json:"speculative,omitzero"`
 	KVCache     KVCache     `yaml:"kv_cache,omitempty" json:"kv_cache,omitzero"`
+	// Fit decides what an automatic context gives up when VRAM is short:
+	// quality (the default) or context.
+	Fit FitMode `yaml:"fit,omitempty" json:"fit,omitempty"`
+	// Preset is the sampling preset for the model's default use. The
+	// sampling fields above override its values.
+	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
 	// Args are extra llama-server flags for anything the typed fields do not cover.
 	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
@@ -214,6 +220,12 @@ func (s Settings) Validate(selected int) error {
 	}
 	if err := s.KVCache.Validate(); err != nil {
 		return err
+	}
+	if s.Fit != "" && s.Fit != FitQuality && s.Fit != FitContext {
+		return fmt.Errorf("fit %q: must be %s or %s", s.Fit, FitQuality, FitContext)
+	}
+	if s.Preset != "" && !slices.Contains(Presets, s.Preset) {
+		return fmt.Errorf("preset %q: use one of %s", s.Preset, strings.Join(Presets, ", "))
 	}
 	for _, a := range s.Args {
 		if !safeArg.MatchString(a) {

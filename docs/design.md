@@ -168,7 +168,9 @@ Each model has typed settings in `models.yaml`. The System API checks every valu
 | Setting | llama-server flag | Allowed values |
 |---|---|---|
 | `layout` | `--split-mode`, `--device` | `span` or `gpu:N` |
-| `ctx_size` | `--ctx-size` | 0 (model default) or more |
+| `ctx_size` | `--ctx-size` | 0 (Sibyl fits it to the GPUs) or more |
+| `fit` | `--ctx-size`, `--cache-type-k`, `--cache-type-v` | `quality` (default) or `context` |
+| `preset` | `--temp`, `--top-k`, `--top-p`, `--min-p` | `general`, `coding`, `agentic`, `writing` |
 | `sampling.temperature` | `--temp` | 0 to 5 |
 | `sampling.top_k` | `--top-k` | 0 to 1000 |
 | `sampling.top_p` | `--top-p` | 0 to 1 |
@@ -192,7 +194,9 @@ The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.
 
 `GET /models` includes each model's GGUF metadata (`internal/gguf`, `models.ReadMeta`): the architecture, the native context, the per-token KV cache elements, and the sampling defaults in `general.sampling.*`. The System API caches it by file size and modification time. The reader reads only the header, and refuses lengths over fixed limits.
 
-With no `ctx_size`, llama-server uses the native context, which is often 262,144 tokens. The TUI's context field shows the native context and an estimate of the GPU memory for the chosen context and KV cache types, and says when the total passes 92% of the VRAM of the GPUs that the model's layout uses. llama.cpp then keeps the rest in system RAM: on the test host, a 63 GB model at a 131,072 token context ran with 42 GB on two 24 GB GPUs. The estimate per token is:
+With no `ctx_size`, Sibyl fits the context to the GPUs that the model's layout uses (`models.FitContext`, called from the apply). The budget is 92% of their VRAM less the weights. With `fit: quality` it keeps the KV cache types (f16 by default) and takes the native context if it fits, else the largest multiple of 4,096 tokens that fits. With `fit: context` and no cache types set, it tries f16, then `q8_0`, then `q4_0`, and takes the first that reaches the native context, or else the one that gives the most tokens. A `ctx_size` or cache type that the owner sets is kept. The chosen values go into the llama-swap command line and the router's `models.json`, and `GET /models` reports them as `fit`, but `models.yaml` keeps only the owner's choices, so a GPU change refits. Before 2026-10-29, an empty `ctx_size` meant the native context, which is often 262,144 tokens and often spilled into system RAM.
+
+The TUI's context field shows what Sibyl chooses and an estimate of the GPU memory for the context and KV cache types, and says when the total passes 92% of the VRAM of the GPUs that the model's layout uses. llama.cpp then keeps the rest in system RAM: on the test host, a 63 GB model at a 131,072 token context ran with 42 GB on two 24 GB GPUs. The estimate per token is:
 
 - the K and V elements of every layer that keeps a full-length cache, at the cache type's size: recurrent layers, sliding-window layers and multi-token prediction layers are left out;
 - the sparse attention indexer, if the model has one, in f16;

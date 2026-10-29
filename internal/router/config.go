@@ -20,6 +20,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/diffsec/sibyl/internal/catalog"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // Policy decides whether a client's requests can leave the host.
@@ -398,6 +399,9 @@ type LocalModel struct {
 	// Context is the context size that llama-server runs the model with.
 	Context   int  `json:"context,omitempty"`
 	Embedding bool `json:"embedding,omitempty"`
+	// Presets are the sampling of each preset, which a client picks per
+	// request with <model>:<preset>.
+	Presets map[string]models.Sampling `json:"presets,omitempty"`
 }
 
 // Config is the router configuration, read from one directory.

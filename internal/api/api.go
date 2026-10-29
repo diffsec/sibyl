@@ -256,8 +256,11 @@ func (s *Server) putHardware(w http.ResponseWriter, r *http.Request) {
 
 type modelView struct {
 	models.Model
-	Settings  models.Settings `json:"settings"`
-	Benchmark *Benchmark      `json:"benchmark,omitempty"`
+	Settings models.Settings `json:"settings"`
+	// Fit is the context size and KV cache types that the model runs
+	// with, which Sibyl chooses where the settings leave them open.
+	Fit       *models.Fit `json:"fit,omitempty"`
+	Benchmark *Benchmark  `json:"benchmark,omitempty"`
 	// Meta is what the model file says about its context, for the context
 	// size and memory estimate. It is missing when the header is unreadable.
 	Meta *models.Meta `json:"meta,omitempty"`
@@ -274,9 +277,12 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	hw, _ := s.hardware()
+	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
 	out := make([]modelView, len(installed))
 	for i, m := range installed {
-		out[i] = modelView{Model: m, Settings: settings[m.ID], Meta: s.modelMeta(m)}
+		_, fit := s.effective(m, settings[m.ID], hw, gpus)
+		out[i] = modelView{Model: m, Settings: settings[m.ID], Meta: s.modelMeta(m), Fit: fit}
 		if b, ok := s.readBenchmark(m.ID); ok {
 			out[i].Benchmark = &b
 		}
@@ -404,7 +410,12 @@ func (s *Server) Apply() (ApplyResult, error) {
 		return ApplyResult{}, err
 	}
 
-	cfg, issues := llamaswap.Generate(hw, installed, settings)
+	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
+	eff := make(map[string]models.Settings, len(installed))
+	for _, m := range installed {
+		eff[m.ID], _ = s.effective(m, settings[m.ID], hw, gpus)
+	}
+	cfg, issues := llamaswap.Generate(hw, installed, eff)
 	body, err := llamaswap.Marshal(cfg)
 	if err != nil {
 		return ApplyResult{}, err
@@ -415,7 +426,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 	}
 	// The router reads each model's context size from models.json. A
 	// failure here does not stop llama-swap from getting its config.
-	if err := s.writeRouterModels(installed, settings, served); err != nil {
+	if err := s.writeRouterModels(installed, eff, served); err != nil {
 		s.Log.Warn("write the router's model list", "err", err)
 	}
 
@@ -469,6 +480,23 @@ func (s *Server) respondApply(w http.ResponseWriter) {
 	}
 	go s.SyncOpenWebUI()
 	writeJSON(w, http.StatusOK, res)
+}
+
+// effective returns the settings that a model runs with: the automatic
+// context fit and the preset's sampling, under the owner's own values. The
+// result is not saved: models.yaml keeps only what the owner chose.
+func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Config, gpus []gpu.GPU) (models.Settings, *models.Fit) {
+	meta := s.modelMeta(m)
+	st.Sampling = st.EffectiveSampling(meta)
+	if st.Embedding || meta == nil {
+		return st, nil
+	}
+	vram := hardware.VRAM(hardware.ModelGPUs(st.Layout, st.Embedding, hw, gpus))
+	fit := meta.FitContext(st.Fit, m.Size, vram, st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV)
+	if fit.Auto {
+		st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV = fit.Ctx, fit.TypeK, fit.TypeV
+	}
+	return st, &fit
 }
 
 // hardware loads hardware.yaml. With no file, the default depends on the
