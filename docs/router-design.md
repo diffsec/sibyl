@@ -1,10 +1,10 @@
 # Smart model router (phase 6)
 
-Status: design, not built. Written on 2026-10-28, after phases 1 to 5.
+Status: step 6.1 is built (2026-10-29). Steps 6.2 and 6.3 are design. Written on 2026-10-28, after phases 1 to 5.
 
 The router is a gateway in front of llama-swap. It serves a request on the local GPUs when a local model can do the job, and sends it to a frontier provider (Anthropic, OpenAI, OpenRouter and similar) when the request needs more context, more capability, or a feature that the local model lacks. Rules that the owner writes decide each request. A small local classifier can add labels, such as the task and its difficulty, for the rules to use.
 
-The router is off by default. With no provider configured, it passes every request to llama-swap, and Sibyl behaves as it does today. No request content leaves the host unless the owner configures a provider and a rule that allows it.
+With no provider configured, the router passes every request to llama-swap, and Sibyl behaves as it did before the router. No request content leaves the host unless the owner configures a provider and a rule that allows it.
 
 ## Goals and limits
 
@@ -24,18 +24,18 @@ Limits:
 
 ## Where it runs
 
-The router is a new Go service, `cmd/sibyl-router` with `internal/router`, in a new rootless container `sibyl-router` on the `sibyl` network.
+The router is a Go service, `cmd/sibyl-router` with `internal/router`. It runs in the rootless container `router`, from the image `sibyl-router`, on the `sibyl` network at `router:8080`.
 
 ```
-client --TLS--> caddy :8443 /v1/* --> sibyl-router --> llama-swap (local)
-                                            |
-                                            +--> providers over HTTPS (Anthropic, OpenAI, OpenRouter, ...)
-Open WebUI --------------------------------> sibyl-router
-System API Ollama shim (/api/*) -----------> sibyl-router
+client --TLS--> caddy :8443 /v1/* --> router --> llama-swap (local)
+                                      |
+                                      +--> providers over HTTPS (Anthropic, OpenAI, OpenRouter, ...)
+Open WebUI --------------------------------> router
+System API Ollama shim (/api/*) -----------> router
 ```
 
 - Caddy sends `/v1/*` to the router instead of llama-swap. The router checks the client key, so Caddy no longer compares a bearer token for `/v1`.
-- Open WebUI and the Ollama shim call the router, not llama-swap, so the same policies apply to every path. Each gets its own client key.
+- Open WebUI calls the router with its own client key, `open-webui`. The Ollama shim sends the caller's key to the router, so the caller's policy applies.
 - llama-swap stays unreachable from outside the `sibyl` network.
 
 The router is not part of the System API, for two reasons. The System API holds administrative power over the host, and the router handles untrusted request bodies at high volume. Keeping them apart limits what a bug in either one exposes. It also completes the key split from the security audit: inference clients get router keys, and only operators get the System API key.
@@ -64,6 +64,9 @@ clients:
 - The System API creates and revokes keys (`POST /router/clients`, `DELETE /router/clients/{name}`) and shows a new key once. The TUI gets a Router screen for this.
 - The key that Sibyl creates at the first boot becomes the first client, `default`, with the `local-only` policy, so an upgrade changes nothing for existing clients.
 - Open WebUI starts as the client `open-webui` with the `local-only` policy. The admin changes it to `hybrid` to let Open WebUI use providers.
+- The keys of `default` and `open-webui` are Podman secrets (`sibyl-api-key` and `sibyl-router-owui-key`), not hashes in `clients.yaml`. An entry for either name in `clients.yaml` sets only its policy. The secrets service creates a missing secret at every boot, so an upgraded host gets the Open WebUI key before the services start.
+- Open WebUI keeps its connection settings in its database after the first start. The System API therefore moves an older install from llama-swap to the router through Open WebUI's admin API, when an Open WebUI admin key is stored. Until then, Open WebUI keeps calling llama-swap directly.
+- The router reloads its configuration files within two seconds of a change. A file with an error is not used: the router keeps the last good configuration and logs the error.
 
 ## Model names
 
@@ -83,12 +86,12 @@ Before the rules run, the router computes a profile of the request. Only local w
 | Field | Source |
 |---|---|
 | `client`, `policy` | The client key |
-| `prompt_tokens` | An estimate from the message text, with a margin. The router asks llama-server's `/tokenize` only when the estimate is near a limit. |
+| `prompt_tokens` | An estimate: the characters of the message text, tool calls and tool definitions, divided by 3. English text runs near 4 characters per token, so the estimate is high, and a request near the local context goes to the larger context. The design asked llama-server's `/tokenize` near a limit. That call is not made, because it loads the model in llama-swap. |
 | `max_tokens`, `stream` | The request |
 | `has_images`, `has_tools`, `json_schema` | The request |
-| `local_context` | The context size of the local model that the profile names, from `models.yaml` |
-| `local_busy` | llama-swap's `/running`: whether the local model is loading or serving another request |
-| `sensitive` | Local detectors: private keys, API tokens, credential patterns, and owner-listed words |
+| `local_context` | The context size of the local model that the profile names. The System API writes it to `models.json` on each apply: the configured context, else the model file's native context. |
+| `local_ready` | llama-swap's `/running`: whether the local model is loaded and ready. The router asks only when a rule tests it. llama-swap does not report the requests in flight, so "busy" is not known. |
+| `sensitive` | Local detectors: private keys, API tokens, credential patterns, and the owner's `sensitive_words` |
 | `task`, `difficulty` | The classifier, when one is configured. Otherwise `unknown`. |
 | `hint` | The `X-Sibyl-Route` request header: `local`, `cloud` or `auto` |
 
@@ -123,8 +126,10 @@ profiles:
 
 - `route: local` means the profile's `local_model`. A rule can also name a local model ID.
 - `fallback` is the order that the router tries when the chosen route fails. A `local-only` client skips every provider in it.
+- `local_wait_seconds` (default 30) limits the wait for a local route, but only when a next route exists. With no next route, the router waits as long as llama-swap takes to load the model.
+- Conditions: `sensitive`, `has_images`, `has_tools`, `json_schema`, `stream` and `local_ready` take true or false. `prompt_tokens_over` takes a number or `local_context`. `max_tokens_over` takes a number. `task`, `difficulty`, `hint` and `clients` take a list of values.
 - A rule that names a provider for a `local-only` client does not match, and the next rule runs.
-- `POST /router/explain` takes a request body and returns the profile, every rule with match or no match, and the route, without sending the request. The TUI uses it to test rules.
+- `POST /router/explain` on the System API takes `{"client", "format", "hint", "request"}` and returns the profile, every rule with match or no match, and the route, without sending the request. The System API asks the router's `/sibyl/explain`, which only the System API key can call.
 
 ## Classifier
 
@@ -141,7 +146,7 @@ Published work supports a learned router. LMSYS reports that its matrix factoriz
 
 ## Providers
 
-Each provider has a type, a base URL, a key, and a price table.
+Each provider has a type, a base URL, a key, and a price table. Step 6.1 accepts only the type `openai`. The type `anthropic` comes with its adapter in step 6.2.
 
 ```yaml
 # /var/lib/sibyl/config/router/providers.yaml (keys are in separate 0600 files)
@@ -189,6 +194,8 @@ The router also serves `POST /v1/messages`, so a tool that speaks only the Anthr
 - An `anthropic` route gets the client's request body unchanged, apart from the model name and the key. No field is lost in translation.
 - A local route or an OpenAI-compatible route gets the translated request.
 - The client's `x-api-key` header carries the Sibyl client key. The router never passes it to a provider.
+- Thinking blocks in the request are dropped, and the response has none. Server tools, such as web search, have no input schema, so they are left out of the request.
+- `POST /v1/messages/count_tokens` returns the router's own estimate, the same one that the rules use.
 
 ### Prices and budgets
 
@@ -207,16 +214,16 @@ A new client has no budget, so its provider spend has no limit until the admin s
 
 Every response carries `X-Sibyl-Route`, such as `anthropic/claude-sonnet-5-5; rule="too long for the local model"`.
 
-The decision log, `/var/lib/sibyl/config/router/decisions.jsonl`, records one line per request: time, client, requested model, route, rule, token counts, cost and latency. It never records message content. It rotates at 50 MB.
+The decision log, `/var/lib/sibyl/config/router/log/decisions.jsonl`, records one line per request: time, client, requested model, route, rule, status, token counts and latency. Cost comes with the price tables in step 6.2. It never records message content. It rotates at 50 MB and keeps one old file.
 
 The System API reads the log for `GET /router/stats`, and the TUI's Router screen shows requests, routes, spend per client, and the last decisions.
 
 ## Security
 
-- The router is off until a provider exists. The first boot creates only the `default` client, with the `local-only` policy.
+- No request leaves the host until the owner adds a provider and makes a client `hybrid`. The built-in clients start `local-only`.
 - Provider keys are files with mode 0600 in `/var/lib/sibyl/config/router/keys/`. The System API checks a key with the provider before it stores it, as it does for the Hugging Face token. The router never logs a key.
 - Client keys are stored as SHA-256 hashes and compared in constant time.
-- The router container drops all capabilities, runs read-only, and has no access to the Podman socket or the host queue directories.
+- The router container drops all capabilities, runs read-only, and has no access to the Podman socket or the host queue directories. It mounts its configuration read-only, and writes only the log directory.
 - `local-only` is enforced in the router, after the rules. A rule bug cannot send a `local-only` client's request to a provider. A test covers every rule type against a `local-only` client.
 - Outbound connections verify TLS with the system trust store, and honour `HTTPS_PROXY`.
 
@@ -224,7 +231,7 @@ The System API reads the log for `GET /router/stats`, and the TUI's Router scree
 
 | Step | Scope | Exit check |
 |---|---|---|
-| 6.1 | Router service with client keys and policies, model names, the OpenAI-compatible adapter for OpenAI and OpenRouter, the Anthropic Messages endpoint for clients, typed rules, `explain`, the decision log. Caddy, Open WebUI and the Ollama shim move to the router. | With no provider, every existing client works unchanged. A `local-only` client's request never leaves the host: a packet capture on the host shows no connection to a provider. |
+| 6.1 (built) | Router service with client keys and policies, model names, the OpenAI-compatible adapter for OpenAI and OpenRouter, the Anthropic Messages endpoint for clients, typed rules, `explain`, the decision log. Caddy, Open WebUI and the Ollama shim move to the router. | With no provider, every existing client works unchanged. A `local-only` client's request never leaves the host: a packet capture on the host shows no connection to a provider. |
 | 6.2 | Anthropic adapter, price tables, budgets, fallbacks, the TUI Router screen. | A request longer than the local context goes to the configured provider with tool calls and streaming intact. A spent budget sends the next request to the local model. |
 | 6.3 | Classifier, starter example set, and an evaluation script that replays a labelled request set and reports route, cost and quality per profile. | On the labelled set, the `auto` profile sends fewer requests to providers than an all-provider profile, at a quality that the owner accepts. |
 

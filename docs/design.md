@@ -52,12 +52,15 @@ systemd owns the core services. The Quadlet files are in the OS image under `/et
 | Container | Image | Port on the `sibyl` network | Exposed on the host |
 |---|---|---|---|
 | `llama-swap` | `ghcr.io/diffsec/sibyl-llama-swap:<ver>-hip` or `-vulkan` | 8080 | No |
+| `router` | `ghcr.io/diffsec/sibyl-router` | 8080 | No |
 | `open-webui` | `ghcr.io/open-webui/open-webui` (pinned digest) | 8080 | No |
 | `system-api` | `ghcr.io/diffsec/sibyl-system-api` | 3001 | No |
 | `arcane` | `ghcr.io/getarcaneapp/manager` (pinned digest) | 3552 | No |
 | `caddy` | `ghcr.io/diffsec/sibyl-caddy` | 10443, 18443, 19443 | Yes, through nftables redirect |
 
-nftables redirects host port 443 to 10443 (Open WebUI), 8443 to 18443 (OpenAI API and System API), and 9443 to 19443 (Arcane). The input chain accepts the high ports only for redirected connections. This keeps `net.ipv4.ip_unprivileged_port_start` at its default of 1024.
+nftables redirects host port 443 to 10443 (Open WebUI), 8443 to 18443 (the router's OpenAI and Anthropic API, the Ollama shim, and the System API), and 9443 to 19443 (Arcane).
+
+Caddy sends `/v1/*` to the model router, which checks each client's key and policy and then forwards the request to llama-swap or to a provider. Open WebUI and the Ollama shim also call the router. [router-design.md](router-design.md) describes the router. The input chain accepts the high ports only for redirected connections. This keeps `net.ipv4.ip_unprivileged_port_start` at its default of 1024.
 
 ## System API and host agent
 
@@ -72,7 +75,7 @@ The System API is a Go service (`cmd/sibyl-api`, `internal/`). It runs in a cont
 
 Each change to the hardware or to model settings runs an apply. The apply regenerates the llama-swap configuration, and llama-swap reloads it without a restart. llama-swap polls the file with `stat`, so the configuration is mounted as a directory: a single-file bind mount keeps the old inode after an atomic rename. If the backend or the GPU set changes, the apply also rewrites `backend.conf` and queues a reload and a restart.
 
-The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System API creates an empty file named `<timestamp>.<action>.<unit>` in the request queue. The `sibyl-agent.path` user unit starts the agent, which accepts only `restart` and `reload` for the five Sibyl units and deletes every request. The `sibyl-status.timer` writes the unit states to `status.json` every 15 seconds.
+The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System API creates an empty file named `<timestamp>.<action>.<unit>` in the request queue. The `sibyl-agent.path` user unit starts the agent, which accepts only `restart` and `reload` for the six Sibyl units and deletes every request. The `sibyl-status.timer` writes the unit states to `status.json` every 15 seconds.
 
 | Route | Purpose |
 |---|---|
@@ -96,6 +99,12 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `PUT, DELETE /host/users/{name}` | Create an operator account or replace its SSH keys, or delete it |
 | `GET /host/requests/{id}` | The result of a host request that took longer than 45 seconds |
 | `GET, POST /pools`, `DELETE /pools/{name}` | Model pools and candidate disks, make a pool, or detach one |
+| `GET /router` | Router clients, providers and profiles |
+| `POST /router/clients`, `PUT, DELETE /router/clients/{name}` | Create a client and show its key once, change its policy, or delete it |
+| `PUT, DELETE /router/providers/{name}` | Add or change a provider after a check of its key, or delete it |
+| `PUT /router/profiles` | Replace the routing profiles after the router's checks |
+| `POST /router/explain` | The route for a request, with every rule, without sending it |
+| `GET /router/stats` | Requests per client and per route, and the last decisions |
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
 

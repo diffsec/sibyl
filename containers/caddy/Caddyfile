@@ -23,7 +23,8 @@
 	reverse_proxy open-webui:8080
 }
 
-# OpenAI-compatible API, Ollama-compatible shim, and System API
+# OpenAI and Anthropic compatible API (the router), Ollama-compatible shim,
+# and System API
 :18443 {
 	import tls_nd
 
@@ -36,15 +37,19 @@
 		reverse_proxy system-api:3001
 	}
 
+	# The model router checks the client keys itself: each client has its
+	# own key and policy.
+	handle /v1/* {
+		reverse_proxy router:8080 {
+			flush_interval -1
+		}
+	}
+
 	@authed header Authorization "Bearer {env.SIBYL_API_KEY}"
 
 	handle @authed {
-		handle /v1/* {
-			reverse_proxy llama-swap:8080 {
-				flush_interval -1
-			}
-		}
-		# Ollama-compatible shim, served by the System API.
+		# Ollama-compatible shim, served by the System API. It sends the
+		# caller's key on to the router.
 		handle /api/* {
 			reverse_proxy system-api:3001 {
 				flush_interval -1

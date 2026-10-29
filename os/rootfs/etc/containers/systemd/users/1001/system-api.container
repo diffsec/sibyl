@@ -17,6 +17,8 @@ Volume=/var/lib/sibyl/run:/run/sibyl:z
 Volume=/var/lib/sibyl-host/out:/run/sibyl-host:ro
 Volume=/var/lib/sibyl/home/.config/containers/systemd/llama-swap.container.d:/quadlet:z
 Secret=sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0400,uid=10001,gid=10001
+# The router key of Open WebUI, which the System API gives to Open WebUI.
+Secret=sibyl-router-owui-key,type=mount,target=/run/secrets/open-webui-key,mode=0400,uid=10001,gid=10001
 Environment=SIBYL_IMAGE_TAG=@IMAGE_TAG@
 Environment=SIBYL_GPU_VARIANT=@GPU_VARIANT@
 Environment=SIBYL_VERSION=@IMAGE_TAG@

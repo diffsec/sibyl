@@ -19,8 +19,15 @@ import (
 
 // OpenWebUI holds the Open WebUI integration state.
 type OpenWebUI struct {
-	Base     string // http://open-webui:8080
-	EmbedURL string // OpenAI base URL that Open WebUI uses for embeddings
+	Base string // http://open-webui:8080
+	// URL is the OpenAI base URL of the router, which Open WebUI uses for
+	// chat and embeddings: http://router:8080/v1.
+	URL string
+	// Key is the router key of the client "open-webui".
+	Key string
+	// OldURLs are earlier connection URLs that the sync replaces, such as
+	// llama-swap's from before the router.
+	OldURLs []string
 	// syncMu runs one sync at a time. A later sync waits rather than
 	// skipping, so the last configuration change always reaches Open WebUI.
 	syncMu     sync.Mutex
@@ -63,8 +70,9 @@ func (s *Server) embeddingModel() (string, error) {
 	return ids[0], nil
 }
 
-// SyncOpenWebUI points Open WebUI at the embedding model, if a key is stored.
-// It runs in the background after each configuration change.
+// SyncOpenWebUI points Open WebUI's model connection at the router, and its
+// document embeddings at the embedding model, if an admin key is stored. It
+// runs in the background after each configuration change.
 func (s *Server) SyncOpenWebUI() {
 	if s.OpenWebUI == nil {
 		return
@@ -92,24 +100,36 @@ func (s *Server) syncOnce() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	o := s.OpenWebUI
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var notes []string
+	if o.Key != "" {
+		changed, err := c.SyncConnection(ctx, o.URL, o.Key, o.OldURLs...)
+		if err != nil {
+			return "", fmt.Errorf("set the model connection: %w", err)
+		}
+		if changed {
+			s.Log.Info("open webui connection set", "url", o.URL)
+			notes = append(notes, "connected to the router")
+		}
+	}
 	model, err := s.embeddingModel()
 	if err != nil {
 		return "", err
 	}
 	if model == "" {
-		return "no embedding model installed", nil
+		return strings.Join(append(notes, "no embedding model installed"), "; "), nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	changed, err := c.Sync(ctx, model, s.OpenWebUI.EmbedURL)
+	changed, err := c.Sync(ctx, model, o.URL, o.Key)
 	if err != nil {
 		return "", err
 	}
 	if changed {
 		s.Log.Info("open webui embedding model set", "model", model)
-		return "set embedding model " + model, nil
+		return strings.Join(append(notes, "set embedding model "+model), "; "), nil
 	}
-	return "embedding model " + model + " already set", nil
+	return strings.Join(append(notes, "embedding model "+model+" already set"), "; "), nil
 }
 
 type owuiStatus struct {

@@ -188,16 +188,19 @@ Open `https://<address>:9443/` and log in to Arcane with the user `arcane` and t
 |---|---|---|
 | Open WebUI | `https://<address>/` | Chat in the browser, with document search |
 | OpenAI-compatible API | `https://<address>:8443/v1` | Programs and tools that speak the OpenAI API |
+| Anthropic-compatible API | `https://<address>:8443/v1/messages` | Programs and tools that speak the Anthropic Messages API |
 | Ollama-compatible API | `https://<address>:8443/api` | Programs and tools that speak the Ollama API |
 | Arcane | `https://<address>:9443/` | Other containers on the same host |
 
 ### The API key
 
-Both APIs need the API key. It is in `/var/lib/sibyl-operator/api.key`, which the administrator and operators can read. Treat it like a password: the same key also controls the Sibyl System API, which manages models, accounts and disks.
+The APIs need a key. The first key is in `/var/lib/sibyl-operator/api.key`, which the administrator and operators can read. Treat it like a password: the same key also controls the Sibyl System API, which manages models, accounts and disks.
 
 ```bash
 cat /var/lib/sibyl-operator/api.key
 ```
+
+Give each program its own client key instead. A client key works only for inference, and it can be revoked alone. See "Client keys and the model router" below.
 
 ### Call the OpenAI API
 
@@ -225,6 +228,61 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" https://<address>:844
 ```
 
 Sibyl downloads models itself, so `ollama pull` and the other model management calls return an error that says so.
+
+The Ollama API accepts only the first key in this release.
+
+### Call the Anthropic API
+
+Tools that speak the Anthropic Messages API, such as Claude Code, can use the local models. Set the base URL to `https://<address>:8443` and the API key to a Sibyl key. Sibyl reads the key from the `x-api-key` header or from `Authorization: Bearer`.
+
+```bash
+curl --cacert sibyl-ca.crt -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+  https://<address>:8443/v1/messages \
+  -d '{"model":"<model id>","max_tokens":200,"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Sibyl translates the request for the local model. Text, images, tools and streaming work. Thinking blocks are not returned, and server tools, such as web search, are left out of the request.
+
+### Client keys and the model router
+
+Every request to `/v1` goes through the model router. The router checks the key, and then sends the request to a local model, or to a cloud provider when you allow that. With no provider configured, every request stays on the host.
+
+Each key belongs to a client. A client has one of two policies:
+
+- `local-only`: the client's requests never leave the host. This is the default.
+- `hybrid`: the routing rules can send the client's requests to a provider.
+
+Two clients exist from the start: `default`, which owns the first key, and `open-webui`. Both are `local-only`.
+
+The System API manages the router at `https://<address>:8443/system/router`. These examples use the first key in `$KEY`.
+
+Create a client. The answer holds the new key. Copy it, because Sibyl stores only its hash and cannot show it again:
+
+```bash
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  https://<address>:8443/system/router/clients -d '{"name":"laptop","policy":"local-only"}'
+```
+
+Add a provider. Sibyl checks the key with the provider before it stores it. OpenAI, OpenRouter and other services with an OpenAI-compatible API work in this release:
+
+```bash
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -X PUT https://<address>:8443/system/router/providers/openrouter \
+  -d '{"type":"openai","base_url":"https://openrouter.ai/api/v1","api_key":"<provider key>","models":["<model>"]}'
+```
+
+Let a client use providers. Do this only for clients whose prompts can leave the host:
+
+```bash
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -X PUT https://<address>:8443/system/router/clients/laptop -d '{"policy":"hybrid"}'
+```
+
+A `hybrid` client can then ask for `<provider>/<model>`, such as `openrouter/<model>`, or for `auto`. The model `auto` runs the rules of the `auto` profile, which you set with `PUT /system/router/profiles`. [router-design.md](router-design.md) lists the rule conditions. `POST /system/router/explain` shows the route for a request without sending it, and `GET /system/router/stats` shows the requests per client and per route.
+
+A new client has no spending limit at a provider. Watch the stats, and set a limit at the provider.
+
+Each response has an `X-Sibyl-Route` header that names the route, such as `local/qwen3-32b-q4_k_m`. A client can send `X-Sibyl-Route: local` to keep one request on the host.
 
 ### The sibyl console
 

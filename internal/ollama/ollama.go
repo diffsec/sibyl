@@ -1,5 +1,6 @@
-// Package ollama serves the Ollama HTTP API on top of llama-swap's OpenAI
-// API, so clients that speak only Ollama work with Sibyl unchanged.
+// Package ollama serves the Ollama HTTP API on top of an OpenAI API, so
+// clients that speak only Ollama work with Sibyl unchanged. The upstream is
+// the model router, which checks the caller's key and applies its policy.
 package ollama
 
 import (
@@ -27,10 +28,21 @@ type ModelInfo struct {
 
 // Shim translates Ollama requests to an OpenAI-compatible upstream.
 type Shim struct {
-	Upstream string                                         // llama-swap, e.g. http://llama-swap:8080
+	Upstream string                                         // the router, e.g. http://router:8080
+	Running  string                                         // llama-swap, for /running; empty means Upstream
 	Models   func(ctx context.Context) ([]ModelInfo, error) // installed models
 	HTTP     *http.Client                                   // no overall timeout: responses stream
 	Now      func() time.Time
+}
+
+type authKey struct{}
+
+// withAuth keeps the caller's Authorization header, so the upstream sees
+// the caller's key.
+func withAuth(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h(w, r.WithContext(context.WithValue(r.Context(), authKey{}, r.Header.Get("Authorization"))))
+	}
 }
 
 // Register adds the Ollama routes to mux.
@@ -39,10 +51,10 @@ func (s *Shim) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/tags", s.tags)
 	mux.HandleFunc("POST /api/show", s.show)
 	mux.HandleFunc("GET /api/ps", s.ps)
-	mux.HandleFunc("POST /api/chat", s.chat)
-	mux.HandleFunc("POST /api/generate", s.generate)
-	mux.HandleFunc("POST /api/embed", s.embed)
-	mux.HandleFunc("POST /api/embeddings", s.embeddingsLegacy)
+	mux.HandleFunc("POST /api/chat", withAuth(s.chat))
+	mux.HandleFunc("POST /api/generate", withAuth(s.generate))
+	mux.HandleFunc("POST /api/embed", withAuth(s.embed))
+	mux.HandleFunc("POST /api/embeddings", withAuth(s.embeddingsLegacy))
 	for _, p := range []string{"pull", "push", "create", "copy", "delete", "blobs/"} {
 		mux.HandleFunc("/api/"+p, notSupported)
 	}
@@ -155,7 +167,11 @@ func (s *Shim) show(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Shim) ps(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.Upstream+"/running", nil)
+	base := s.Running
+	if base == "" {
+		base = s.Upstream
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, base+"/running", nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -347,6 +363,9 @@ func (s *Shim) upstream(ctx context.Context, path string, body any) (*http.Respo
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if auth, _ := ctx.Value(authKey{}).(string); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return nil, err

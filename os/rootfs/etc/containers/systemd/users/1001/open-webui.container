@@ -1,7 +1,7 @@
 [Unit]
 Description=Sibyl Open WebUI
-Wants=llama-swap.service
-After=llama-swap.service
+Wants=router.service
+After=router.service
 
 [Container]
 ContainerName=open-webui
@@ -11,8 +11,11 @@ Network=sibyl.network
 Volume=open-webui.volume:/app/backend/data:Z
 Secret=open-webui-secret-key,type=env,target=WEBUI_SECRET_KEY
 Environment=ENABLE_OLLAMA_API=false
-Environment=OPENAI_API_BASE_URL=http://llama-swap:8080/v1
-Environment=OPENAI_API_KEY=none
+# Open WebUI is the router client "open-webui". Open WebUI keeps these two
+# in its database after the first start; the System API moves an older
+# install to the router through Open WebUI's admin API.
+Environment=OPENAI_API_BASE_URL=http://router:8080/v1
+Secret=sibyl-router-owui-key,type=env,target=OPENAI_API_KEY
 Environment=WEBUI_NAME=Sibyl
 Environment=WEBUI_AUTH=true
 Environment=ENABLE_SIGNUP=false
@@ -21,8 +24,9 @@ Environment=ENABLE_COMMUNITY_SHARING=false
 Environment=ENABLE_RAG_WEB_SEARCH=false
 Environment=ENABLE_IMAGE_GENERATION=false
 Environment=RAG_EMBEDDING_ENGINE=openai
-Environment=RAG_OPENAI_API_BASE_URL=http://llama-swap:8080/v1
-Environment=RAG_OPENAI_API_KEY=none
+# The System API sets the embedding model, URL and key once Open WebUI is
+# connected (sibyl, Integrations).
+Environment=RAG_OPENAI_API_BASE_URL=http://router:8080/v1
 Environment=ANONYMIZED_TELEMETRY=false
 Environment=DO_NOT_TRACK=true
 Environment=SCARF_NO_ANALYTICS=true

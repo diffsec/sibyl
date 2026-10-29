@@ -28,9 +28,11 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
             |  caddy (TLS)       |   rootless containers of the
             +--+-------+-------+-+   sibyl user (UID 1001),
                |       |       |     on the "sibyl" Podman network
-     open-webui   llama-swap   system-api      arcane
-                      ^          |   ^           |
-                      |          |   |           +-- sibyl's Podman socket
+     open-webui --> router    system-api      arcane
+                      |   \     |   ^           |
+                      v    `-> providers (HTTPS) +-- sibyl's Podman socket
+                 llama-swap      |   |
+                      ^          |   |
                       +----------+   |
                    config files      | files in /var/lib/sibyl/run
                                      |
@@ -38,7 +40,8 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
         restart, reload, bench              hostname, network, accounts, pools
 ```
 
-- Caddy terminates TLS and routes by port: 443 to Open WebUI, 8443 to llama-swap (`/v1`) and the System API (`/api`, `/system`), 9443 to Arcane. nftables redirects the low ports to Caddy's high ports, so no container needs a privileged port.
+- Caddy terminates TLS and routes by port: 443 to Open WebUI, 8443 to the router (`/v1`) and the System API (`/api`, `/system`), 9443 to Arcane. nftables redirects the low ports to Caddy's high ports, so no container needs a privileged port.
+- The router (`cmd/sibyl-router`) checks client keys, picks a route with the owner's rules, and forwards each request to llama-swap or to a provider. Open WebUI and the Ollama shim call it too. [router-design.md](router-design.md) describes it.
 - llama-swap starts `llama-server` processes on demand from a generated configuration. One inference image runs at a time: HIP, Vulkan or CUDA.
 - The System API (`cmd/sibyl-api`) owns the configuration. It writes `hardware.yaml`, `models.yaml`, the llama-swap configuration and the Quadlet drop-in that picks the inference image.
 - The System API cannot reach systemd or root. It asks two agents through files:
@@ -58,7 +61,7 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
 | `os/packages/` | dnf package lists, common and per variant. |
 | `os/variants/` | Variant build steps. `nvidia.sh` builds and signs the NVIDIA kernel modules. |
 | `containers/` | One directory per service image, and `live/` for the live USB image. |
-| `cmd/` | The Go programs: `sibyl-api`, `sibyl-tui`, `sibyl-hostd`, `sibyl-install`, `sibyl-update`. |
+| `cmd/` | The Go programs: `sibyl-api`, `sibyl-router`, `sibyl-tui`, `sibyl-hostd`, `sibyl-install`, `sibyl-update`. |
 | `internal/` | The Go packages. Each has a package comment that says what it does. |
 | `scripts/` | CI helpers, the bundle builder, and the base image bump. |
 | `tools/pxe/` | Network boot and unattended install, for lab hosts. |
@@ -70,6 +73,7 @@ The Go packages, from the outside in:
 | Package | Role |
 |---|---|
 | `api` | HTTP routes of the System API, and the apply that regenerates the configuration |
+| `router` | The model router: client keys, rules, forwarding, the Anthropic Messages translation, the decision log |
 | `client` | Typed client for the System API, used by the TUI |
 | `tui` | The terminal interface and the setup wizard |
 | `hostctl` | Requests to the host agent and to `sibyl-hostd`, and their results |
@@ -81,7 +85,7 @@ The Go packages, from the outside in:
 | `hardware` | Variants, backends, `hardware.yaml`, HIP targets |
 | `gpu` | GPU detection from sysfs |
 | `download`, `hf` | Hugging Face client and the download manager |
-| `ollama` | Ollama API shim over llama-swap's OpenAI API |
+| `ollama` | Ollama API shim over the router's OpenAI API |
 | `owui` | Open WebUI admin API client |
 | `disks` | `lsblk` parsing and disk eligibility |
 

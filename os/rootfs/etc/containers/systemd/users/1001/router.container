@@ -1,0 +1,30 @@
+[Unit]
+Description=Sibyl model router
+
+[Container]
+ContainerName=router
+Image=ghcr.io/diffsec/sibyl-router:@IMAGE_TAG@
+Network=sibyl.network
+UserNS=keep-id:uid=10001,gid=10001
+# The System API writes the configuration. The router reads it, and writes
+# only the decision log.
+Volume=/var/lib/sibyl/config/router:/config:ro,z
+Volume=/var/lib/sibyl/config/router/log:/log:z
+# The System API key is the key of the client "default", and the only key
+# that can ask the router to explain a decision.
+Secret=sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0400,uid=10001,gid=10001
+Secret=sibyl-router-owui-key,type=mount,target=/run/secrets/open-webui-key,mode=0400,uid=10001,gid=10001
+DropCapability=ALL
+NoNewPrivileges=true
+ReadOnly=true
+PidsLimit=512
+HealthCmd=["/usr/bin/sibyl-router","-healthcheck"]
+HealthInterval=30s
+HealthStartPeriod=10s
+Notify=healthy
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target

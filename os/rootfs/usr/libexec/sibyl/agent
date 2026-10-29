@@ -13,8 +13,8 @@
 set -euo pipefail
 
 RUN=/var/lib/sibyl/run
-UNITS=(llama-swap open-webui caddy arcane system-api)
-REQUEST_RE='^[0-9]{1,20}\.(restart|reload)\.(all|llama-swap|open-webui|caddy|arcane|system-api)$'
+UNITS=(llama-swap router open-webui caddy arcane system-api)
+REQUEST_RE='^[0-9]{1,20}\.(restart|reload)\.(all|llama-swap|router|open-webui|caddy|arcane|system-api)$'
 BENCH_RE='^[0-9]{1,20}\.bench\.([a-z0-9][a-z0-9._-]{0,127})$'
 MODELS=/var/lib/sibyl/models
 POOLS=/var/lib/sibyl-pools

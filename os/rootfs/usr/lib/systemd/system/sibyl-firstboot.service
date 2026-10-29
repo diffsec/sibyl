@@ -1,10 +1,9 @@
 [Unit]
-Description=Sibyl first-boot secrets and TLS certificate
+Description=Sibyl secrets and TLS certificate (creates what is missing)
 After=network-online.target user-runtime-dir@1001.service systemd-tmpfiles-setup.service
 Wants=network-online.target
 Requires=user-runtime-dir@1001.service
 Before=user@1001.service
-ConditionPathExists=!/var/lib/sibyl/.firstboot-done
 
 [Service]
 Type=oneshot

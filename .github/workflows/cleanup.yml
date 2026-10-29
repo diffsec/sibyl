@@ -42,6 +42,8 @@ jobs:
             keep: 10
           - package: sibyl-system-api
             keep: 10
+          - package: sibyl-router
+            keep: 10
           - package: sibyl-tui
             keep: 10
           - package: sibyl-iso
@@ -49,7 +51,8 @@ jobs:
           - package: sibyl-bundle
             keep: 3
     steps:
-      # The ISO and the bundle exist only after an opt-in build.
+      # The ISO and the bundle exist only after an opt-in build, and the
+      # router only after its first build.
       - name: Check that the package exists
         id: exists
         env:

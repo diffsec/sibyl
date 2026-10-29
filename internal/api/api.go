@@ -60,6 +60,10 @@ type Server struct {
 	OpenWebUI *OpenWebUI
 	// GitHubBase is https://github.com, or a test server.
 	GitHubBase string
+	// RouterURL is the model router, such as http://router:8080.
+	RouterURL string
+	// ProviderHTTP checks provider keys. Nil means a default client.
+	ProviderHTTP *http.Client
 
 	// mu serializes every change to the configuration files.
 	mu sync.Mutex
@@ -146,6 +150,15 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /downloads/{id}", s.getDownload)
 	auth.HandleFunc("DELETE /downloads/{id}", s.cancelDownload)
 	auth.HandleFunc("POST /downloads/{id}/retry", s.retryDownload)
+	auth.HandleFunc("GET /router", s.getRouter)
+	auth.HandleFunc("POST /router/clients", s.postRouterClient)
+	auth.HandleFunc("PUT /router/clients/{name}", s.putRouterClient)
+	auth.HandleFunc("DELETE /router/clients/{name}", s.deleteRouterClient)
+	auth.HandleFunc("PUT /router/providers/{name}", s.putRouterProvider)
+	auth.HandleFunc("DELETE /router/providers/{name}", s.deleteRouterProvider)
+	auth.HandleFunc("PUT /router/profiles", s.putRouterProfiles)
+	auth.HandleFunc("POST /router/explain", s.postRouterExplain)
+	auth.HandleFunc("GET /router/stats", s.getRouterStats)
 	if s.Ollama != nil {
 		s.Ollama.Register(auth)
 	}
@@ -387,6 +400,16 @@ func (s *Server) Apply() (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	served := map[string]bool{}
+	for id := range cfg.Models {
+		served[id] = true
+	}
+	// The router reads each model's context size from models.json. A
+	// failure here does not stop llama-swap from getting its config.
+	if err := s.writeRouterModels(installed, settings, served); err != nil {
+		s.Log.Warn("write the router's model list", "err", err)
+	}
+
 	// llama-swap reloads on any change to the file's size or modification
 	// time, and a reload unloads the running models. Write only on a change.
 	res := ApplyResult{Models: len(cfg.Models), Issues: issues}

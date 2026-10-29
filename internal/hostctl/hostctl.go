@@ -23,7 +23,7 @@ import (
 
 // Units are the services that the API can restart. The host agent holds the
 // same list and rejects anything else.
-var Units = []string{"llama-swap", "open-webui", "caddy", "arcane", "system-api"}
+var Units = []string{"llama-swap", "router", "open-webui", "caddy", "arcane", "system-api"}
 
 // Action is a request type.
 type Action string

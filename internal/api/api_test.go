@@ -321,21 +321,34 @@ func TestBenchmark(t *testing.T) {
 
 func TestOpenWebUIIntegration(t *testing.T) {
 	f := newFixture(t)
-	var gotModel string
+	var gotModel, gotEmbedKey string
+	var gotConn map[string]any
 	owuiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer good-key" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if r.URL.Path == "/api/v1/retrieval/embedding/update" {
-			var b map[string]any
+		switch r.URL.Path {
+		case "/api/v1/retrieval/embedding/update":
+			var b struct {
+				Model string `json:"RAG_EMBEDDING_MODEL"`
+				Cfg   struct {
+					Key string `json:"key"`
+				} `json:"openai_config"`
+			}
 			_ = json.NewDecoder(r.Body).Decode(&b)
-			gotModel, _ = b["RAG_EMBEDDING_MODEL"].(string)
+			gotModel, gotEmbedKey = b.Model, b.Cfg.Key
+		case "/openai/config":
+			_, _ = w.Write([]byte(`{"ENABLE_OPENAI_API":true,"OPENAI_API_BASE_URLS":["http://llama-swap:8080/v1"],"OPENAI_API_KEYS":["none"],"OPENAI_API_CONFIGS":{}}`))
+			return
+		case "/openai/config/update":
+			_ = json.NewDecoder(r.Body).Decode(&gotConn)
 		}
 		_, _ = w.Write([]byte(`{"RAG_EMBEDDING_ENGINE":"","RAG_EMBEDDING_MODEL":"x","openai_config":{"url":""}}`))
 	}))
 	defer owuiSrv.Close()
-	f.server.OpenWebUI = &OpenWebUI{Base: owuiSrv.URL, EmbedURL: "http://llama-swap:8080/v1"}
+	f.server.OpenWebUI = &OpenWebUI{Base: owuiSrv.URL, URL: "http://router:8080/v1", Key: "owui-router-key",
+		OldURLs: []string{"http://llama-swap:8080/v1"}}
 
 	if code, _ := f.do(t, "PUT", "/integrations/open-webui", `{"api_key":"bad-key"}`, true); code != http.StatusUnprocessableEntity {
 		t.Errorf("bad key = %d, want 422", code)
@@ -348,8 +361,11 @@ func TestOpenWebUIIntegration(t *testing.T) {
 	if code != 200 || b["configured"] != true || b["embedding_model"] != "chat-14b" {
 		t.Fatalf("good key = %d %v", code, b)
 	}
-	if gotModel != "chat-14b" {
-		t.Errorf("open webui was set to %q", gotModel)
+	if gotModel != "chat-14b" || gotEmbedKey != "owui-router-key" {
+		t.Errorf("open webui embedding was set to %q with key %q", gotModel, gotEmbedKey)
+	}
+	if urls, _ := gotConn["OPENAI_API_BASE_URLS"].([]any); len(urls) != 1 || urls[0] != "http://router:8080/v1" {
+		t.Errorf("open webui connection %v", gotConn)
 	}
 	if st, err := os.Stat(filepath.Join(f.paths.Config, "open-webui.key")); err != nil || st.Mode().Perm() != 0o600 {
 		t.Errorf("key file: %v %v", st, err)

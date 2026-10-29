@@ -1,6 +1,7 @@
 #!/bin/bash
 # Create the TLS certificate and the Podman secrets that the Quadlet units use.
-# Runs once. Delete /var/lib/sibyl/.firstboot-done to run it again.
+# Runs at every boot and creates only what is missing, so an upgrade that adds
+# a secret gets it before the services start.
 set -euo pipefail
 
 ND_USER=sibyl
@@ -34,6 +35,11 @@ if ! secret_exists sibyl-api-key; then
     printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-api-key - >/dev/null
 fi
 
+# The router key of Open WebUI (the router client "open-webui").
+if ! secret_exists sibyl-router-owui-key; then
+    printf 'sib-%s' "$(openssl rand -hex 24)" | as_nd podman secret create sibyl-router-owui-key - >/dev/null
+fi
+
 if ! secret_exists arcane-encryption-key; then
     openssl rand -hex 32 | as_nd podman secret create arcane-encryption-key - >/dev/null
 fi
@@ -48,4 +54,3 @@ if [ ! -e "$STATE/config/arcane.env" ]; then
     chmod 0640 "$STATE/config/arcane.env"
 fi
 
-touch "$STATE/.firstboot-done"

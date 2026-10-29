@@ -24,6 +24,7 @@ images=(
     "os os.oci.tar $registry/sibyl-os:$tag-$variant"
     "sibyl sibyl-caddy.oci.tar $registry/sibyl-caddy:$tag"
     "sibyl sibyl-system-api.oci.tar $registry/sibyl-system-api:$tag"
+    "sibyl sibyl-router.oci.tar $registry/sibyl-router:$tag"
     "tui sibyl-tui.oci.tar $registry/sibyl-tui:$tag"
 )
 # The llama-swap backends that each variant ships (hardware.Backends).

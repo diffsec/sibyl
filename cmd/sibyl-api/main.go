@@ -78,12 +78,25 @@ func run(log *slog.Logger) error {
 		Log:       log,
 		OnDone:    s.OnDownloadDone,
 	}
+	s.RouterURL = env("SIBYL_ROUTER_URL", "http://router:8080")
+	llamaSwap := env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080")
 	s.OpenWebUI = &api.OpenWebUI{
-		Base:     env("SIBYL_OPEN_WEBUI_URL", "http://open-webui:8080"),
-		EmbedURL: env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080") + "/v1",
+		Base:    env("SIBYL_OPEN_WEBUI_URL", "http://open-webui:8080"),
+		URL:     s.RouterURL + "/v1",
+		OldURLs: []string{llamaSwap + "/v1"},
 	}
+	// The router key of the client "open-webui". Without it, Open WebUI
+	// keeps its current connection.
+	if b, err := os.ReadFile(env("SIBYL_OPEN_WEBUI_KEY_FILE", "/run/secrets/open-webui-key")); err == nil {
+		s.OpenWebUI.Key = strings.TrimSpace(string(b))
+	} else {
+		log.Warn("no Open WebUI router key; Open WebUI keeps its connection", "err", err)
+	}
+	// The shim sends the caller's key to the router, so the caller's policy
+	// applies to Ollama requests too.
 	s.Ollama = &ollama.Shim{
-		Upstream: env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080"),
+		Upstream: s.RouterURL,
+		Running:  llamaSwap,
 		Models:   s.OllamaModels,
 		HTTP:     &http.Client{},
 	}

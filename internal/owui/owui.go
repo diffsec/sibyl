@@ -1,5 +1,5 @@
-// Package owui sets Open WebUI's document embedding model through its admin
-// API, so it follows the embedding model installed in Sibyl.
+// Package owui sets Open WebUI's model connection and document embedding
+// model through its admin API, so Open WebUI follows the Sibyl configuration.
 package owui
 
 import (
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 )
@@ -39,6 +40,7 @@ type Embedding struct {
 	Engine string
 	Model  string
 	URL    string
+	Key    string
 }
 
 // Client calls Open WebUI with an admin API key.
@@ -100,36 +102,82 @@ func (c *Client) Embedding(ctx context.Context) (Embedding, error) {
 		Model        string `json:"RAG_EMBEDDING_MODEL"`
 		OpenAIConfig struct {
 			URL string `json:"url"`
+			Key string `json:"key"`
 		} `json:"openai_config"`
 	}
 	if err := c.do(ctx, http.MethodGet, "/api/v1/retrieval/embedding", nil, &r); err != nil {
 		return Embedding{}, err
 	}
-	return Embedding{Engine: r.Engine, Model: r.Model, URL: r.OpenAIConfig.URL}, nil
+	return Embedding{Engine: r.Engine, Model: r.Model, URL: r.OpenAIConfig.URL, Key: r.OpenAIConfig.Key}, nil
 }
 
 // SetEmbedding points Open WebUI at an OpenAI-compatible embedding model.
-func (c *Client) SetEmbedding(ctx context.Context, model, url string) error {
+func (c *Client) SetEmbedding(ctx context.Context, model, url, key string) error {
 	body := map[string]any{
 		"RAG_EMBEDDING_ENGINE":     "openai",
 		"RAG_EMBEDDING_MODEL":      model,
 		"RAG_EMBEDDING_BATCH_SIZE": 8,
-		"openai_config":            map[string]string{"url": url, "key": "none"},
+		"openai_config":            map[string]string{"url": url, "key": key},
 	}
 	return c.do(ctx, http.MethodPost, "/api/v1/retrieval/embedding/update", body, nil)
 }
 
 // Sync sets the embedding model if Open WebUI uses a different one. It
 // returns true when it changed the configuration.
-func (c *Client) Sync(ctx context.Context, model, url string) (bool, error) {
+func (c *Client) Sync(ctx context.Context, model, url, key string) (bool, error) {
 	cur, err := c.Embedding(ctx)
 	if err != nil {
 		return false, err
 	}
-	if cur.Engine == "openai" && cur.Model == model && cur.URL == url {
+	if cur.Engine == "openai" && cur.Model == model && cur.URL == url && cur.Key == key {
 		return false, nil
 	}
-	return true, c.SetEmbedding(ctx, model, url)
+	return true, c.SetEmbedding(ctx, model, url, key)
+}
+
+// connections is Open WebUI's list of OpenAI-compatible connections.
+type connections struct {
+	Enable  *bool          `json:"ENABLE_OPENAI_API"`
+	URLs    []string       `json:"OPENAI_API_BASE_URLS"`
+	Keys    []string       `json:"OPENAI_API_KEYS"`
+	Configs map[string]any `json:"OPENAI_API_CONFIGS"`
+}
+
+// SyncConnection makes Open WebUI reach its models at url with key. It
+// replaces the connection whose URL is url or one of old, and adds one if
+// none matches. Connections that the admin added are kept. It returns true
+// when it changed the configuration.
+func (c *Client) SyncConnection(ctx context.Context, url, key string, old ...string) (bool, error) {
+	var cur connections
+	if err := c.do(ctx, http.MethodGet, "/openai/config", nil, &cur); err != nil {
+		return false, err
+	}
+	for len(cur.Keys) < len(cur.URLs) {
+		cur.Keys = append(cur.Keys, "")
+	}
+	if cur.Configs == nil {
+		cur.Configs = map[string]any{}
+	}
+	enabled := cur.Enable != nil && *cur.Enable
+	i := -1
+	for j, u := range cur.URLs {
+		if strings.TrimSuffix(u, "/") == url || slices.Contains(old, strings.TrimSuffix(u, "/")) {
+			i = j
+			break
+		}
+	}
+	if i >= 0 && enabled && cur.URLs[i] == url && cur.Keys[i] == key {
+		return false, nil
+	}
+	if i < 0 {
+		cur.URLs = append(cur.URLs, url)
+		cur.Keys = append(cur.Keys, key)
+	} else {
+		cur.URLs[i], cur.Keys[i] = url, key
+	}
+	on := true
+	cur.Enable = &on
+	return true, c.do(ctx, http.MethodPost, "/openai/config/update", cur, nil)
 }
 
 // ErrAdminExists means sign-up was refused because Open WebUI already has users.

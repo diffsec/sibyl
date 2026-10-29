@@ -142,6 +142,11 @@ jobs:
             file: containers/system-api/Containerfile
             suffix: ''
             inputs: containers/system-api cmd internal go.mod go.sum
+          - name: sibyl-router
+            context: .
+            file: containers/router/Containerfile
+            suffix: ''
+            inputs: containers/router cmd internal go.mod go.sum
           - name: sibyl-tui
             context: .
             file: containers/tui/Containerfile

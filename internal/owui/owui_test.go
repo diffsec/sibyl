@@ -12,8 +12,10 @@ import (
 
 // fakeOWUI accepts only the key "admin" and stores the embedding config.
 type fakeOWUI struct {
-	engine, model, url string
-	updates            int
+	engine, model, url, key string
+	updates                 int
+	conn                    connections
+	connUpdates             int
 }
 
 func (f *fakeOWUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +27,7 @@ func (f *fakeOWUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/retrieval/embedding":
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"RAG_EMBEDDING_ENGINE": f.engine, "RAG_EMBEDDING_MODEL": f.model,
-			"openai_config": map[string]string{"url": f.url, "key": ""},
+			"openai_config": map[string]string{"url": f.url, "key": f.key},
 		})
 	case "/api/v1/retrieval/embedding/update":
 		var b struct {
@@ -33,12 +35,20 @@ func (f *fakeOWUI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Model  string `json:"RAG_EMBEDDING_MODEL"`
 			Cfg    struct {
 				URL string `json:"url"`
+				Key string `json:"key"`
 			} `json:"openai_config"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&b)
-		f.engine, f.model, f.url = b.Engine, b.Model, b.Cfg.URL
+		f.engine, f.model, f.url, f.key = b.Engine, b.Model, b.Cfg.URL, b.Cfg.Key
 		f.updates++
 		_, _ = w.Write([]byte(`{"status":true}`))
+	case "/openai/config":
+		_ = json.NewEncoder(w).Encode(f.conn)
+	case "/openai/config/update":
+		f.conn = connections{}
+		_ = json.NewDecoder(r.Body).Decode(&f.conn)
+		f.connUpdates++
+		_, _ = w.Write([]byte(`{}`))
 	default:
 		http.NotFound(w, r)
 	}
@@ -54,16 +64,56 @@ func TestSync(t *testing.T) {
 		t.Fatal("want an error for a non-admin key")
 	}
 	c := New(srv.URL, "admin")
-	changed, err := c.Sync(ctx, "embed", "http://llama-swap:8080/v1")
+	changed, err := c.Sync(ctx, "embed", "http://router:8080/v1", "k")
 	if err != nil || !changed {
 		t.Fatalf("first sync: changed %v, err %v", changed, err)
 	}
-	if f.engine != "openai" || f.model != "embed" || f.url != "http://llama-swap:8080/v1" {
+	if f.engine != "openai" || f.model != "embed" || f.url != "http://router:8080/v1" || f.key != "k" {
 		t.Errorf("open webui config = %+v", f)
 	}
-	changed, err = c.Sync(ctx, "embed", "http://llama-swap:8080/v1")
+	changed, err = c.Sync(ctx, "embed", "http://router:8080/v1", "k")
 	if err != nil || changed || f.updates != 1 {
 		t.Errorf("second sync must not update: changed %v, updates %d, err %v", changed, f.updates, err)
+	}
+	// A new key changes the configuration.
+	if changed, err = c.Sync(ctx, "embed", "http://router:8080/v1", "k2"); err != nil || !changed || f.key != "k2" {
+		t.Errorf("key change: changed %v, key %q, err %v", changed, f.key, err)
+	}
+}
+
+func TestSyncConnection(t *testing.T) {
+	off := false
+	f := &fakeOWUI{conn: connections{
+		Enable:  &off,
+		URLs:    []string{"https://api.example.com/v1", "http://llama-swap:8080/v1"},
+		Keys:    []string{"admin-added", "none"},
+		Configs: map[string]any{"0": map[string]any{"enable": true}},
+	}}
+	srv := httptest.NewServer(f)
+	defer srv.Close()
+	c := New(srv.URL, "admin")
+	ctx := context.Background()
+
+	changed, err := c.SyncConnection(ctx, "http://router:8080/v1", "rk", "http://llama-swap:8080/v1")
+	if err != nil || !changed {
+		t.Fatalf("changed %v err %v", changed, err)
+	}
+	got := f.conn
+	if *got.Enable != true || len(got.URLs) != 2 || got.URLs[0] != "https://api.example.com/v1" ||
+		got.URLs[1] != "http://router:8080/v1" || got.Keys[0] != "admin-added" || got.Keys[1] != "rk" || got.Configs["0"] == nil {
+		t.Errorf("connections %+v", got)
+	}
+	if changed, err = c.SyncConnection(ctx, "http://router:8080/v1", "rk", "http://llama-swap:8080/v1"); err != nil || changed || f.connUpdates != 1 {
+		t.Errorf("second sync: changed %v updates %d err %v", changed, f.connUpdates, err)
+	}
+
+	// With no matching connection, the router is added.
+	f.conn = connections{URLs: []string{"https://api.example.com/v1"}, Keys: []string{"x"}}
+	if _, err := c.SyncConnection(ctx, "http://router:8080/v1", "rk"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.conn.URLs) != 2 || f.conn.URLs[1] != "http://router:8080/v1" || f.conn.Keys[1] != "rk" {
+		t.Errorf("connections %+v", f.conn)
 	}
 }
 
