@@ -492,7 +492,7 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 		return st, nil
 	}
 	vram := hardware.VRAM(hardware.ModelGPUs(st.Layout, st.Embedding, hw, gpus))
-	fit := meta.FitContext(st.Fit, m.Size, vram, st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV)
+	fit := meta.FitContext(st.Fit, meta.Weights(m.Size), vram, st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV)
 	if fit.Auto {
 		st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV = fit.Ctx, fit.TypeK, fit.TypeV
 	}

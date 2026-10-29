@@ -1,6 +1,6 @@
 // Package gguf reads the metadata of a GGUF model file. It reads only the
 // header, never the tensor data, and it keeps only the keys that a caller
-// asks for. Every length in the file is checked against a limit, so a
+// asks for. It can also list the tensors with their sizes. Every length in the file is checked against a limit, so a
 // damaged or hostile file cannot make the reader allocate without bound.
 package gguf
 
@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 )
 
 // Limits for one file. A real header holds a tokenizer of a few hundred
@@ -22,7 +23,13 @@ const (
 	maxArray     = 1 << 24
 	maxHeaderLen = 512 << 20 // bytes read before the reader gives up
 	maxDepth     = 4         // nested arrays
+	maxTensors   = 1 << 20
+	maxDims      = 8
 )
+
+// defaultAlignment is the alignment of the tensor data when the file does
+// not set general.alignment.
+const defaultAlignment = 32
 
 // Value types in the GGUF format.
 const (
@@ -70,23 +77,124 @@ func ReadFile(path string, want func(key string) bool) (map[string]Value, error)
 
 // Read reads GGUF metadata from r.
 func Read(r io.Reader, want func(key string) bool) (map[string]Value, error) {
+	d, n, err := open(r)
+	if err != nil {
+		return nil, err
+	}
+	return d.keys(n, want)
+}
+
+// Tensor is one tensor of a model file. Size is its share of the data
+// section, alignment padding included.
+type Tensor struct {
+	Name string
+	Size int64
+}
+
+// ReadTensors lists the tensors of path.
+func ReadTensors(path string) ([]Tensor, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	return Tensors(f, fi.Size())
+}
+
+// Tensors lists the tensors of a model file of fileSize bytes read from r.
+// The sizes come from the data offsets, so the reader needs no table of
+// the quantization types.
+func Tensors(r io.Reader, fileSize int64) ([]Tensor, error) {
+	d, n, err := open(r)
+	if err != nil {
+		return nil, err
+	}
+	count := d.tensors
+	if count > maxTensors {
+		return nil, fmt.Errorf("GGUF header lists %d tensors", count)
+	}
+	vals, err := d.keys(n, func(k string) bool { return k == "general.alignment" })
+	if err != nil {
+		return nil, err
+	}
+	align := uint64(defaultAlignment)
+	if v, ok := vals["general.alignment"]; ok && v.Num > 0 {
+		align = uint64(v.Num)
+	}
+	type info struct {
+		name   string
+		offset uint64
+	}
+	infos := make([]info, 0, count)
+	for i := uint64(0); i < count; i++ {
+		name := d.str()
+		dims := d.u32()
+		if d.err == nil && dims > maxDims {
+			return nil, fmt.Errorf("tensor %q has %d dimensions", name, dims)
+		}
+		for j := uint32(0); j < dims; j++ {
+			_ = d.u64()
+		}
+		_ = d.u32() // type
+		off := d.u64()
+		if d.err != nil {
+			return nil, d.err
+		}
+		infos = append(infos, info{name, off})
+	}
+	start := (d.pos + align - 1) / align * align
+	if fileSize < 0 || start > uint64(fileSize) {
+		return nil, errors.New("the tensor data starts after the end of the file")
+	}
+	end := uint64(fileSize) - start
+	sorted := make([]int, len(infos))
+	for i := range sorted {
+		sorted[i] = i
+	}
+	sort.Slice(sorted, func(a, b int) bool { return infos[sorted[a]].offset < infos[sorted[b]].offset })
+	out := make([]Tensor, len(infos))
+	for k, i := range sorted {
+		next := end
+		if k+1 < len(sorted) {
+			next = infos[sorted[k+1]].offset
+		}
+		if infos[i].offset > next {
+			return nil, fmt.Errorf("tensor %q starts after the end of the file", infos[i].name)
+		}
+		out[i] = Tensor{Name: infos[i].name, Size: int64(next - infos[i].offset)}
+	}
+	return out, nil
+}
+
+// open checks the magic and the version and returns the number of keys.
+func open(r io.Reader) (*decoder, uint64, error) {
 	d := &decoder{r: bufio.NewReaderSize(io.LimitReader(r, maxHeaderLen), 1<<20)}
 	var magic [4]byte
 	if _, err := io.ReadFull(d.r, magic[:]); err != nil || string(magic[:]) != "GGUF" {
-		return nil, ErrNotGGUF
+		return nil, 0, ErrNotGGUF
 	}
+	d.pos = 4
 	version := d.u32()
 	if d.err == nil && (version < 2 || version > 3) {
-		return nil, fmt.Errorf("GGUF version %d is not supported", version)
+		return nil, 0, fmt.Errorf("GGUF version %d is not supported", version)
 	}
-	_ = d.u64() // tensor count
+	d.tensors = d.u64()
 	n := d.u64()
 	if d.err != nil {
-		return nil, d.err
+		return nil, 0, d.err
 	}
 	if n > maxKeys {
-		return nil, fmt.Errorf("GGUF header lists %d keys", n)
+		return nil, 0, fmt.Errorf("GGUF header lists %d keys", n)
 	}
+	return d, n, nil
+}
+
+// keys reads n key-value pairs and keeps the wanted ones.
+func (d *decoder) keys(n uint64, want func(key string) bool) (map[string]Value, error) {
 	out := map[string]Value{}
 	for i := uint64(0); i < n; i++ {
 		key := d.str()
@@ -107,9 +215,11 @@ func Read(r io.Reader, want func(key string) bool) (map[string]Value, error) {
 }
 
 type decoder struct {
-	r   *bufio.Reader
-	err error
-	buf [8]byte
+	r       *bufio.Reader
+	err     error
+	buf     [8]byte
+	pos     uint64 // bytes read so far
+	tensors uint64 // the tensor count in the header
 }
 
 func (d *decoder) read(n int) []byte {
@@ -119,6 +229,7 @@ func (d *decoder) read(n int) []byte {
 	if _, err := io.ReadFull(d.r, d.buf[:n]); err != nil {
 		d.err = fmt.Errorf("truncated header: %w", err)
 	}
+	d.pos += uint64(n)
 	return d.buf[:n]
 }
 
@@ -138,6 +249,7 @@ func (d *decoder) str() string {
 	if _, err := io.ReadFull(d.r, b); err != nil {
 		d.err = fmt.Errorf("truncated header: %w", err)
 	}
+	d.pos += n
 	return string(b)
 }
 
@@ -148,6 +260,7 @@ func (d *decoder) skip(n uint64) {
 	if _, err := d.r.Discard(int(n)); err != nil {
 		d.err = fmt.Errorf("truncated header: %w", err)
 	}
+	d.pos += n
 }
 
 // size is the byte size of a fixed-size type, or 0.

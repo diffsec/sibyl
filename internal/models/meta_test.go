@@ -114,3 +114,51 @@ func TestReadMetaRefusesNonGGUF(t *testing.T) {
 		t.Error("want an error for a file that is not GGUF")
 	}
 }
+
+func TestReadMetaGPUWeights(t *testing.T) {
+	kv := map[string]any{"general.architecture": "llama", "llama.context_length": uint32(4096)}
+	write := func(dir, name string, ts []gguf.Tensor) string {
+		data, err := gguf.EncodeTensors(kv, ts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	// A split model with a per-layer embedding table and its own output
+	// layer: both embedding tables stay in system RAM.
+	dir := t.TempDir()
+	first := write(dir, "m-00001-of-00002.gguf", []gguf.Tensor{
+		{Name: "token_embd.weight", Size: 1024}, {Name: "per_layer_token_embd.weight", Size: 4096},
+		{Name: "blk.0.ffn_up.weight", Size: 512},
+	})
+	write(dir, "m-00002-of-00002.gguf", []gguf.Tensor{{Name: "output.weight", Size: 1024}})
+	m, err := ReadMeta(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.GPUWeights != 512+1024 {
+		t.Errorf("split model: GPU weights = %d, want %d", m.GPUWeights, 512+1024)
+	}
+	if m.Weights(1<<40) != m.GPUWeights {
+		t.Error("Weights did not use the GPU weights")
+	}
+
+	// A tied output layer: llama.cpp copies the token embedding to the GPUs.
+	tied := write(t.TempDir(), "t.gguf", []gguf.Tensor{
+		{Name: "token_embd.weight", Size: 1024}, {Name: "blk.0.ffn_up.weight", Size: 512},
+	})
+	if m, err := ReadMeta(tied); err != nil || m.GPUWeights != 1024+512 {
+		t.Errorf("tied output: GPU weights = %d, %v", m.GPUWeights, err)
+	}
+
+	// A missing second shard leaves the file size in use.
+	alone := write(t.TempDir(), "a-00001-of-00002.gguf", []gguf.Tensor{{Name: "blk.0.ffn_up.weight", Size: 512}})
+	if m, err := ReadMeta(alone); err != nil || m.GPUWeights != 0 || m.Weights(777) != 777 {
+		t.Errorf("missing shard: GPU weights = %d, %v", m.GPUWeights, err)
+	}
+}

@@ -1,7 +1,10 @@
 package models
 
 import (
+	"fmt"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/diffsec/sibyl/internal/gguf"
@@ -31,6 +34,75 @@ type Meta struct {
 	// Sampling holds the defaults that the file recommends. llama-server
 	// applies them when a setting is not given.
 	Sampling Sampling `json:"sampling,omitzero"`
+	// GPUWeights is the size of the tensors that llama.cpp puts on the
+	// GPUs, over all shards. It leaves out the input layer, which llama.cpp
+	// keeps in system RAM. Zero means the tensors could not be read.
+	GPUWeights int64 `json:"gpu_weight_bytes,omitempty"`
+}
+
+// Weights returns the bytes of weights on the GPUs: GPUWeights, or the
+// file size when the tensors are not known.
+func (m Meta) Weights(fileSize int64) int64 {
+	if m.GPUWeights > 0 {
+		return m.GPUWeights
+	}
+	return fileSize
+}
+
+// hostTensors are the input layer tensors. llama.cpp keeps them in system
+// RAM because it only looks up rows of them. A per-layer embedding table
+// can be close to half of a model.
+var hostTensors = map[string]bool{
+	"token_embd.weight":           true,
+	"per_layer_token_embd.weight": true,
+	"position_embd.weight":        true,
+	"token_types.weight":          true,
+}
+
+// gpuWeights sums the tensors that llama.cpp puts on the GPUs, over the
+// shards of the model whose first shard is path. A model with no
+// output.weight uses its token embedding as the output layer, and
+// llama.cpp puts a copy of it on the GPUs.
+func gpuWeights(path string) (int64, error) {
+	var gpu, embd int64
+	output := false
+	for _, p := range shardPaths(path) {
+		ts, err := gguf.ReadTensors(p)
+		if err != nil {
+			return 0, err
+		}
+		for _, t := range ts {
+			switch t.Name {
+			case "token_embd.weight":
+				embd = t.Size
+			case "output.weight":
+				output = true
+			}
+			if !hostTensors[t.Name] {
+				gpu += t.Size
+			}
+		}
+	}
+	if !output {
+		gpu += embd
+	}
+	return gpu, nil
+}
+
+// shardPaths returns every shard of a split model from its first shard,
+// or path alone.
+func shardPaths(path string) []string {
+	dir, name := filepath.Split(path)
+	m := splitShard.FindStringSubmatch(name)
+	if m == nil {
+		return []string{path}
+	}
+	n, _ := strconv.Atoi(m[3])
+	out := make([]string, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, filepath.Join(dir, fmt.Sprintf("%s-%05d-of-%s.gguf", m[1], i, m[3])))
+	}
+	return out
 }
 
 // computePerToken is llama.cpp's compute buffer growth per context token
@@ -102,6 +174,8 @@ func ReadMeta(path string) (Meta, error) {
 	}
 	m := metaFrom(vals["general.architecture"].Str, vals)
 	m.Name = vals["general.name"].Str
+	// Without the tensors, the fit counts the whole file as GPU weights.
+	m.GPUWeights, _ = gpuWeights(path)
 	return m, nil
 }
 

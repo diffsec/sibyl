@@ -21,7 +21,8 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	used := hardware.ModelGPUs(f.Layout, f.Embedding, hw, gpus)
 	vram := hardware.VRAM(used)
 	set, _ := strconv.Atoi(strings.TrimSpace(f.CtxSize))
-	fit := m.Meta.FitContext(models.FitMode(f.Fit), m.Size, vram, max(set, 0), f.KVTypeK, f.KVTypeV)
+	weights := m.Meta.Weights(m.Size)
+	fit := m.Meta.FitContext(models.FitMode(f.Fit), weights, vram, max(set, 0), f.KVTypeK, f.KVTypeV)
 	ctx, typeK, typeV := fit.Ctx, fit.TypeK, fit.TypeV
 	if ctx == 0 {
 		ctx = native
@@ -44,14 +45,17 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 		lines = append(lines, "This is over the native context, so answers can get worse.")
 	}
 	cost := m.Meta.ContextBytes(ctx, typeK, typeV)
-	total := cost + m.Size
-	line := fmt.Sprintf("At %s tokens: context about %s + weights %s = %s", thousands(ctx), gib(cost), gib(m.Size), gib(total))
+	total := cost + weights
+	line := fmt.Sprintf("At %s tokens: context about %s + weights %s = %s", thousands(ctx), gib(cost), gib(weights), gib(total))
 	if vram > 0 {
 		line += fmt.Sprintf(" of %s VRAM on %d GPU(s).", gib(vram), len(used))
 	} else {
 		line += "."
 	}
 	lines = append(lines, line)
+	if host := m.Size - weights; host > 1<<30 {
+		lines = append(lines, fmt.Sprintf("The embedding tables, %s, stay in system RAM.", gib(host)))
+	}
 	if vram > 0 && float64(total) > models.FitMargin*float64(vram) {
 		lines = append(lines, "This is more than the GPUs hold, so llama.cpp keeps part of it in system RAM, which is slower.\n"+
 			"A smaller context, a q8_0 or q4_0 KV cache, or more GPUs keeps it all on the GPUs.")

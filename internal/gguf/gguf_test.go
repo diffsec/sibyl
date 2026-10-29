@@ -75,3 +75,48 @@ func TestReadRefusesBadInput(t *testing.T) {
 		t.Error("a huge key count was accepted")
 	}
 }
+
+func TestTensorsSizesFromOffsets(t *testing.T) {
+	want := []Tensor{{"token_embd.weight", 100}, {"blk.0.ffn_up.weight", 64}, {"output.weight", 7}}
+	data, err := EncodeTensors(map[string]any{"general.architecture": "llama", "llama.kv": []int{1, 2}}, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Tensors(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Each size but the last includes the padding to the 32-byte alignment.
+	padded := []int64{128, 64, 7}
+	for i, g := range got {
+		if g.Name != want[i].Name || g.Size != padded[i] {
+			t.Errorf("tensor %d = %+v, want %s of %d", i, g, want[i].Name, padded[i])
+		}
+	}
+
+	if _, err := Tensors(bytes.NewReader(data), int64(len(data))-8); err == nil {
+		t.Error("a tensor past the end of the file was accepted")
+	}
+}
+
+func TestTensorsRefusesHugeCounts(t *testing.T) {
+	var b bytes.Buffer
+	b.WriteString("GGUF")
+	for _, v := range []any{uint32(3), uint64(1 << 40), uint64(0)} {
+		_ = binary.Write(&b, binary.LittleEndian, v)
+	}
+	if _, err := Tensors(&b, 1<<20); err == nil {
+		t.Error("a huge tensor count was accepted")
+	}
+
+	b.Reset()
+	b.WriteString("GGUF")
+	for _, v := range []any{uint32(3), uint64(1), uint64(0), uint64(1)} {
+		_ = binary.Write(&b, binary.LittleEndian, v)
+	}
+	b.WriteString("x")
+	_ = binary.Write(&b, binary.LittleEndian, uint32(1<<30))
+	if _, err := Tensors(&b, 1<<20); err == nil {
+		t.Error("a huge dimension count was accepted")
+	}
+}
