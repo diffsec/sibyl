@@ -154,7 +154,7 @@ func (m Meta) ContextBytes(ctx int, typeK, typeV string) int64 {
 var archKeys = []string{
 	"context_length", "block_count", "nextn_predict_layers", "embedding_length",
 	"attention.head_count", "attention.head_count_kv", "attention.key_length", "attention.value_length",
-	"attention.recurrent_layers", "attention.sliding_window", "attention.sliding_window_pattern",
+	"attention.recurrent_layers", "full_attention_interval", "attention.sliding_window", "attention.sliding_window_pattern",
 	"attention.indexer.head_count", "attention.indexer.key_length",
 }
 
@@ -204,6 +204,17 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 		headsKV = perLayer(get("attention.head_count"), layers)
 	}
 	recurrent := perLayer(get("attention.recurrent_layers"), layers)
+	// Without the list, a hybrid model gives the interval of its full
+	// attention layers: with 4, layers 3, 7, 11 and so on keep a cache, as
+	// llama.cpp reads it.
+	if n := get("full_attention_interval").Int(); recurrent == nil && n > 1 {
+		recurrent = make([]float64, layers)
+		for i := range recurrent {
+			if (i+1)%n != 0 {
+				recurrent[i] = 1
+			}
+		}
+	}
 	// A sliding-window layer keeps only the window, so its cache does not
 	// grow with the context.
 	swa := perLayer(get("attention.sliding_window_pattern"), layers)

@@ -1,11 +1,8 @@
 # llama.cpp (HIP/ROCm) + llama-swap, for the Radeon and Ryzen GPUs that ROCm
 # supports. GPU_TARGETS must match hardware.HIPTargets, which a test checks.
 
-ARG ROCM_VERSION=7.2.4
-ARG ROCM_BUILD_IMAGE=docker.io/rocm/dev-ubuntu-24.04:${ROCM_VERSION}-complete
-ARG RUNTIME_IMAGE=docker.io/ubuntu:24.04
 
-FROM ${ROCM_BUILD_IMAGE} AS build
+FROM docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete AS build
 
 ARG LLAMA_CPP_REF=b11889
 # RDNA2 (RX 6800/6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5
@@ -39,7 +36,7 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
 COPY collect-rocm-libs.sh /usr/local/bin/collect-rocm-libs.sh
 RUN /usr/local/bin/collect-rocm-libs.sh /out "${GPU_TARGETS}" build/bin/llama-server build/bin/llama-bench
 
-FROM ${RUNTIME_IMAGE} AS llama-swap-dl
+FROM docker.io/ubuntu:24.04 AS llama-swap-dl
 
 ARG LLAMA_SWAP_VERSION=266
 ARG LLAMA_SWAP_SHA256=
@@ -49,7 +46,7 @@ RUN apt-get update \
 COPY fetch-llama-swap.sh /usr/local/bin/fetch-llama-swap.sh
 RUN /usr/local/bin/fetch-llama-swap.sh "${LLAMA_SWAP_VERSION}" "${LLAMA_SWAP_SHA256}" /out
 
-FROM ${RUNTIME_IMAGE}
+FROM docker.io/ubuntu:24.04
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libgomp1 libssl3t64 curl \

@@ -9,6 +9,6 @@ cd "$(git rev-parse --show-toplevel)"
 digest="$(curl -fsS "https://quay.io/api/v1/repository/fedora/fedora-bootc/tag/?specificTag=${release}&onlyActiveTags=true" \
     | python3 -c 'import sys, json; print(json.load(sys.stdin)["tags"][0]["manifest_digest"])')"
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "unexpected digest: $digest" >&2; exit 1; }
-sed -i.bak -E "s#^(ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:)[0-9]+@sha256:[0-9a-f]{64}#\1${release}@${digest}#" os/Containerfile
+sed -i.bak -E "s#^(FROM quay.io/fedora/fedora-bootc:)[0-9]+@sha256:[0-9a-f]{64}#\1${release}@${digest}#" os/Containerfile
 rm -f os/Containerfile.bak
-grep -n '^ARG BASE_IMAGE=' os/Containerfile
+grep -n '^FROM quay.io/fedora/fedora-bootc:' os/Containerfile

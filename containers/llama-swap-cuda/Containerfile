@@ -4,10 +4,8 @@
 # The NVIDIA driver and libcuda come from the host through CDI
 # (nvidia-container-toolkit), not from this image.
 
-ARG LLAMA_CUDA_IMAGE=ghcr.io/ggml-org/llama.cpp:full-cuda-b11889@sha256:1aeae166af7207ae57f0cc8529e8df76f98ef72ecd7d714cc381f4bd4ee2fedf
-ARG UBUNTU_IMAGE=docker.io/ubuntu:26.04
 
-FROM ${UBUNTU_IMAGE} AS llama-swap-dl
+FROM docker.io/ubuntu:26.04 AS llama-swap-dl
 
 ARG LLAMA_SWAP_VERSION=266
 ARG LLAMA_SWAP_SHA256=
@@ -17,7 +15,7 @@ RUN apt-get update \
 COPY llama-swap/fetch-llama-swap.sh /usr/local/bin/fetch-llama-swap.sh
 RUN /usr/local/bin/fetch-llama-swap.sh "${LLAMA_SWAP_VERSION}" "${LLAMA_SWAP_SHA256}" /out
 
-FROM ${LLAMA_CUDA_IMAGE}
+FROM ghcr.io/ggml-org/llama.cpp:full-cuda-b11889@sha256:1aeae166af7207ae57f0cc8529e8df76f98ef72ecd7d714cc381f4bd4ee2fedf
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

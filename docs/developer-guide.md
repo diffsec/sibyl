@@ -66,7 +66,7 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
 | `scripts/` | CI helpers, the bundle builder, and the base image bump. |
 | `tools/pxe/` | Network boot and unattended install, for lab hosts. |
 | `tools/vmtest/` | The VM install test that CI runs on the ISO. |
-| `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `bump-base.yml` updates the base image digest. |
+| `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `bump-base.yml` updates the base image digest. `dependabot.yml` keeps the image pins, the Go modules and the actions current. |
 
 The Go packages, from the outside in:
 
@@ -244,7 +244,7 @@ gh workflow run cleanup.yml -f dry_run=true
 
 ### Base image
 
-Quay deletes old `fedora-bootc` manifests after the tag moves, so the digest in `os/Containerfile` goes stale. The `bump base image` workflow opens a pull request with the current digest every Monday. To do it by hand, run `scripts/bump-base-image.sh`.
+Quay deletes old `fedora-bootc` manifests after the tag moves, so the digest in `os/Containerfile` goes stale within days. On 2026-10-30 the pinned digest was gone and the OS build failed. Dependabot checks every image pin daily and opens a pull request, and the pull request builds every image. The `bump base image` workflow still opens a pull request every Monday, as a fallback. To do it by hand, run `scripts/bump-base-image.sh`.
 
 ## Release
 

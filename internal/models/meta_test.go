@@ -57,6 +57,14 @@ func TestBytesPerTokenMatchesMeasurements(t *testing.T) {
 			"qwen35.attention.recurrent_layers": repeat([]bool{true, true, true, false}, 65),
 			"general.sampling.temp":             float32(1), "general.sampling.top_k": 20,
 		}, map[string]int64{"f16": 73640, "q8_0": 51131}},
+		// The same model with only the interval, as some merges write it:
+		// the 16 full attention layers give the same cost.
+		{"hybrid with an interval", map[string]any{
+			"general.architecture": "qwen35", "qwen35.block_count": 64, "qwen35.context_length": 262144,
+			"qwen35.attention.head_count": 24, "qwen35.attention.head_count_kv": 4,
+			"qwen35.attention.key_length": 256, "qwen35.attention.value_length": 256,
+			"qwen35.full_attention_interval": uint32(4),
+		}, map[string]int64{"f16": 73640, "q8_0": 51131}},
 		{"sliding window", map[string]any{
 			"general.architecture": "flint", "flint.block_count": 49, "flint.context_length": 262144,
 			"flint.attention.head_count": 32, "flint.attention.head_count_kv": 4,
