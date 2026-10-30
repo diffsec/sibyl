@@ -184,9 +184,16 @@ func (d *Diag) copyPstore(dir string) (string, error) {
 	// systemd-pstore archives one crash in one pass at boot: a directory
 	// per boot, or with EFI pstore one file per record. Copy every entry
 	// from that pass, which is every entry within a minute of the newest.
-	// An entry from before this boot belongs to an older crash. A lockup
-	// that the hardware watchdog ends writes no record at all.
-	booted := d.bootTime()
+	// systemd-pstore keeps the time of the crash on each record, so the
+	// record time says nothing about the boot. pstore-seen holds the newest
+	// record time already copied. An older record belongs to an earlier
+	// crash. A lockup that the hardware watchdog ends writes no record.
+	var seen time.Time
+	if b, err := os.ReadFile(d.data("pstore-seen")); err == nil {
+		if ns, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
+			seen = time.Unix(0, ns)
+		}
+	}
 	var newest time.Time
 	mod := map[string]time.Time{}
 	for _, e := range entries {
@@ -201,7 +208,7 @@ func (d *Diag) copyPstore(dir string) (string, error) {
 	var copied []string
 	for _, e := range entries {
 		t, ok := mod[e.Name()]
-		if !ok || newest.Sub(t) > time.Minute || t.Before(booted) {
+		if !ok || newest.Sub(t) > time.Minute || !t.After(seen) {
 			continue
 		}
 		root := filepath.Join(d.path(pstoreDir), e.Name())
@@ -221,27 +228,12 @@ func (d *Diag) copyPstore(dir string) (string, error) {
 		copied = append(copied, "copied "+e.Name())
 	}
 	if len(copied) == 0 {
-		return "no pstore record from this boot\n", nil
+		return "no new pstore record\n", nil
+	}
+	if err := writeAtomic(d.data("pstore-seen"), []byte(strconv.FormatInt(newest.UnixNano(), 10)+"\n"), 0o600, "", -1); err != nil {
+		return strings.Join(copied, "\n"), err
 	}
 	return strings.Join(copied, "\n") + "\n", nil
-}
-
-// bootTime is when this boot started, from /proc/uptime. It is the zero
-// time when the file cannot be read.
-func (d *Diag) bootTime() time.Time {
-	b, err := os.ReadFile(d.path("proc/uptime"))
-	if err != nil {
-		return time.Time{}
-	}
-	f := strings.Fields(string(b))
-	if len(f) == 0 {
-		return time.Time{}
-	}
-	up, err := strconv.ParseFloat(f[0], 64)
-	if err != nil {
-		return time.Time{}
-	}
-	return time.Now().Add(-time.Duration(up * float64(time.Second)))
 }
 
 func copyFile(src, dst string) error {

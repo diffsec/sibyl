@@ -135,7 +135,7 @@ A lockup stops the watchdog too. These parts handle it, in order:
 2. The kernel writes the panic text to pstore (EFI variables), and `panic=10` reboots 10 seconds later.
 3. If the kernel cannot panic, the hardware watchdog resets the board. systemd pets `/dev/watchdog0` every 30 seconds with `RuntimeWatchdogSec=60s`. `RebootWatchdogSec=5min` covers a reboot that hangs on a stuck driver.
 4. At the next boot, `systemd-pstore` archives the panic text to `/var/lib/systemd/pstore`.
-5. A hardware watchdog reset leaves no pstore record, because the kernel did not panic.
+5. A hardware watchdog reset leaves no pstore record, because the kernel did not panic. Each record keeps the time of its crash, so `/var/lib/sibyl-diag/pstore-seen` holds the newest record time already copied, and boot check copies only newer records.
 6. `sibyl-diag-boot` finds the `running` marker that a clean shutdown removes. It records an `unclean-shutdown` incident with the journal of the crashed boot and the pstore records. The unit ignores a failed check and stops the check after 4 minutes, because a failed unit does not run `ExecStop`, and the next clean boot would then count as unclean.
 7. After more than 2 unclean boots in 6 hours, boot check writes `/var/lib/sibyl/config/safe-mode`. `llama-swap.container` has `ConditionPathExists=!` on it, so inference does not start, and the rest of the box comes up for diagnosis. `sudo sibyl-diag safe-mode off` clears it.
 

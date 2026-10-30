@@ -763,7 +763,7 @@ func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
 	ps := filepath.Join(d.Root, pstoreDir)
 	now := time.Now()
 	files := map[string]time.Time{
-		"dmesg-efi_pstore-100001001":        now.Add(-30 * time.Minute), // an older crash, before this boot
+		"dmesg-efi_pstore-100001001":        now.Add(-30 * time.Minute), // an older crash, already copied
 		"dmesg-efi_pstore-200001001":        now,
 		"dmesg-efi_pstore-200002001":        now,
 		"8c60eaca/dmesg-efi_pstore-2000031": now.Add(-time.Second),
@@ -785,7 +785,11 @@ func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
 	if err := os.Chtimes(ps, now, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(d.Root, "proc/uptime"), []byte("600.00 100.00\n"), 0o644); err != nil {
+	seen := strconv.FormatInt(now.Add(-30*time.Minute).UnixNano(), 10)
+	if err := os.MkdirAll(d.data(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d.data("pstore-seen"), []byte(seen+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -797,5 +801,9 @@ func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
 		if want := !strings.Contains(name, "100001"); (err == nil) != want {
 			t.Errorf("%s copied = %v, want %v", name, err == nil, want)
 		}
+	}
+	// The next boot without a crash copies nothing again.
+	if out, _ := d.copyPstore(t.TempDir()); out != "no new pstore record\n" {
+		t.Errorf("second copy = %q", out)
 	}
 }
