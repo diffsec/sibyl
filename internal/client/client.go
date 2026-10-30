@@ -485,6 +485,60 @@ func (c *Client) RouterStats(ctx context.Context) (RouterStats, error) {
 	return r, c.do(ctx, http.MethodGet, "/router/stats", nil, &r)
 }
 
+// CalibrationCell is the calibration result for one local model, task and
+// difficulty.
+type CalibrationCell struct {
+	LocalModel        string  `json:"local_model"`
+	Task              string  `json:"task"`
+	Difficulty        string  `json:"difficulty"`
+	Comparisons       int     `json:"comparisons"`
+	LocalOKRate       float64 `json:"local_ok_rate"`
+	ProviderCostUSD   float64 `json:"provider_cost_usd"`
+	LocalLatencyMS    int64   `json:"local_latency_ms"`
+	ProviderLatencyMS int64   `json:"provider_latency_ms"`
+}
+
+// CalibrationProposal is a rule change that the calibration supports.
+type CalibrationProposal struct {
+	ID          string  `json:"id"`
+	Profile     string  `json:"profile"`
+	Task        string  `json:"task"`
+	Difficulty  string  `json:"difficulty"`
+	Current     string  `json:"current"`
+	Route       string  `json:"route"`
+	Comparisons int     `json:"comparisons"`
+	LocalOKRate float64 `json:"local_ok_rate"`
+	Allowed     bool    `json:"allowed"`
+}
+
+// RouterCalibration is the calibration report.
+type RouterCalibration struct {
+	Samples int `json:"samples"`
+	Pending int `json:"pending"`
+	Judged  int `json:"judged"`
+	Failed  int `json:"failed"`
+	Status  *struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	} `json:"status"`
+	SpentTodayUSD float64               `json:"spent_today_usd"`
+	DailyUSD      float64               `json:"daily_usd"`
+	AutoApply     bool                  `json:"auto_apply"`
+	Cells         []CalibrationCell     `json:"cells"`
+	Proposals     []CalibrationProposal `json:"proposals"`
+}
+
+// RouterCalibration returns the calibration report and the proposals.
+func (c *Client) RouterCalibration(ctx context.Context) (RouterCalibration, error) {
+	var r RouterCalibration
+	return r, c.do(ctx, http.MethodGet, "/router/calibration", nil, &r)
+}
+
+// ApplyCalibration adds the rule of a proposal to its profile.
+func (c *Client) ApplyCalibration(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/router/calibration/apply", map[string]string{"id": id}, nil)
+}
+
 // CreateRouterClient creates a client and returns its key.
 func (c *Client) CreateRouterClient(ctx context.Context, name, policy string, budget *RouterBudget) (NewRouterClient, error) {
 	var r NewRouterClient
