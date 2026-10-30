@@ -329,14 +329,16 @@ The outcomes belong to one local model. When the profile's `local_model` changes
 
 - A `local-only` client's requests never go to a provider for comparison. They can only be judged by a local judge, and the comparison then has no provider answer. The default is to not sample them.
 - The judge is a model, so it can be wrong. The report shows the number of comparisons behind every figure, and a proposal needs at least 50.
-- Rules change only when the owner accepts a proposal. An automatic mode can come later, limited to routes that the owner already allows.
+- By default, rules change only when the owner accepts a proposal. The automatic mode applies a proposal only to a route that the owner already allows.
 
-### Questions for the owner
+### Decisions for step 6.4
 
-1. Is a 2% sample with 14 days of content on the host acceptable, and for which clients?
-2. Which model judges by default: the strongest provider model, or a local model so that no extra content leaves the host?
-3. What is the default `calibration_daily_usd`?
-4. Do proposals wait for the owner, or apply themselves within the allowed routes?
+The owner chose on 2026-10-30:
+
+1. Sampling is opt-in per client with `calibrate: true`. It is off by default.
+2. The strongest provider model judges by default. The owner can name another judge.
+3. `calibration_daily_usd` defaults to 1.
+4. A rule proposal waits for the owner by default. A setting lets Sibyl apply proposals by itself, only to routes that the owner already allows, and each change is logged.
 
 ## Delivery
 
