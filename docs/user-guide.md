@@ -527,6 +527,10 @@ Sibyl does not update by itself. The operating system and the services update to
 
 ### Online update
 
+On the Status page of the web console, press "Check for an update". When a version is available, press "Apply update". With "Reboot into it when it is staged" on, the host reboots by itself when the download ends. Without it, the page offers "Reboot now" when the update is staged. In the TUI, the Status screen has the same controls: `u` checks, `U` applies, and `B` reboots into a staged update.
+
+From a shell, the same steps are:
+
 ```bash
 sudo bootc upgrade
 sudo systemctl reboot

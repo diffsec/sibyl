@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,7 +90,10 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"hostname":"sibyl","interfaces":[{"name":"enp8s0","state":"connected","method":"dhcp","addresses":["192.168.1.26/24"]}],
 			"users":[{"name":"admin","groups":["wheel"],"admin":true},{"name":"ops","groups":["sibyl-operators"],"managed":true,"keys":1}],
 			"pending_network":{"interface":"enp8s0","expires":"soon"},
-			"disks":[{"name":"sdb","path":"/dev/sdb","size":64000000000,"model":"USB","serial":"SER123"}]}`)
+			"disks":[{"name":"sdb","path":"/dev/sdb","size":64000000000,"model":"USB","serial":"SER123"}],
+			"update":{"image":"ghcr.io/diffsec/sibyl-os:latest-amd","booted":"sha-old-amd","available":"sha-new-amd","check":{"active":"inactive","result":"success"}}}`)
+	case "POST /host/update/check", "POST /host/update/apply", "POST /host/reboot":
+		_, _ = io.WriteString(w, `{"ok":true,"message":"started by hostd"}`)
 	case "GET /downloads":
 		_, _ = io.WriteString(w, `[{"id":"j1","repo":"org/model-GGUF","variant":"Q8_0","status":"downloading","bytes_done":5368709120,"bytes_total":10737418240},
 			{"id":"j2","repo":"org/other-GGUF","variant":"Q4_K_M","status":"failed","error":"disk full"}]`)
@@ -622,5 +626,31 @@ func TestModelAndHostChanges(t *testing.T) {
 	h.do("POST", "/console/status/openwebui", url.Values{"mode": {"create"}, "name": {"Ben"}, "email": {"b@x"}, "password": {"pw"}}, true)
 	if b := h.api.body("POST /integrations/open-webui/connect"); b["create_admin"] != true || b["password"] != "pw" {
 		t.Errorf("connect %v", b)
+	}
+}
+
+func TestUpdateControls(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	w := h.do("GET", "/console/status", nil, false)
+	for _, want := range []string{"sha-old-amd", "Apply update sha-new-amd", "Check for an update"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("status lacks %q", want)
+		}
+	}
+	w = h.do("POST", "/console/status/update/apply", url.Values{"reboot": {"on"}}, true)
+	if loc := w.Header().Get("Location"); !strings.Contains(loc, "/console/status?done=update") || !strings.Contains(loc, "started+by+hostd") {
+		t.Errorf("apply %q", loc)
+	}
+	if b := h.api.body("POST /host/update/apply"); b["reboot"] != true {
+		t.Errorf("apply body %v", b)
+	}
+	h.do("POST", "/console/status/update/apply", url.Values{}, true)
+	if b := h.api.body("POST /host/update/apply"); b["reboot"] != false {
+		t.Errorf("apply without reboot %v", b)
+	}
+	h.do("POST", "/console/status/update/check", url.Values{}, true)
+	if !slices.Contains(h.api.calls, "POST /host/update/check") {
+		t.Error("no check call")
 	}
 }

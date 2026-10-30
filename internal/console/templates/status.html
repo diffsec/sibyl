@@ -30,6 +30,33 @@
   </table>
 </section>
 {{end}}
+{{with .Update}}
+<section class="card stack" id="update">
+  <h2>Update</h2>
+  <dl class="facts">
+    <dt>Running</dt><dd class="mono">{{.Booted}}</dd>
+    <dt>Source</dt><dd class="mono">{{.Image}}</dd>
+    {{with .Available}}<dt>Available</dt><dd class="mono good">{{.}}</dd>{{end}}
+    {{with .Staged}}<dt>Staged</dt><dd class="mono">{{.}}, starts at the next boot</dd>{{end}}
+  </dl>
+  {{if $.UpdateBusy}}<p class="warn">An update step is running. Reload the page to see when it ends.</p>{{end}}
+  {{if $.UpdateFailed}}<p class="bad">The last update step failed. The host keeps running the current version. See <code>journalctl -u sibyl-upgrade*</code> on the host.</p>{{end}}
+  <div class="actions">
+    <form method="post" action="/console/status/update/check"><button type="submit" class="secondary">Check for an update</button></form>
+  </div>
+  {{if .Available}}
+  <form method="post" action="/console/status/update/apply" class="stack">
+    <label class="check"><input type="checkbox" name="reboot" checked> Reboot into it when it is staged</label>
+    <p class="muted">The download runs in the background. A reboot stops the models and the APIs for a few minutes. If the new version does not boot, the host starts the old one, which bootc keeps.</p>
+    <button type="submit">Apply update {{.Available}}</button>
+  </form>
+  {{end}}
+  {{if .Staged}}
+  <form method="post" action="/console/status/reboot">
+    <details><summary>Reboot now</summary><button type="submit" class="danger">Reboot into {{.Staged}}</button></details></form>
+  {{end}}
+</section>
+{{end}}
 <section class="card stack">
   <h2>Open WebUI</h2>
   {{with .OWUI}}<p>{{if .Configured}}<span class="good">Connected.</span>{{with .LastSync}} Last sync: {{.}}{{end}}{{with .Error}} <span class="bad">{{.}}</span>{{end}}{{else}}Not connected. Sibyl sets Open WebUI's embedding model through an admin API key.{{end}}</p>{{end}}

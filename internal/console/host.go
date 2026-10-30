@@ -26,6 +26,18 @@ func (c *Console) hostRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+Prefix+"host/pool/detach", c.signedIn(c.hostChange(c.detachPool)))
 	mux.HandleFunc("POST "+Prefix+"status/restart", c.signedIn(c.restart))
 	mux.HandleFunc("POST "+Prefix+"status/openwebui", c.signedIn(c.connectOpenWebUI))
+	mux.HandleFunc("POST "+Prefix+"status/update/check", c.signedIn(c.statusChange(func(r *http.Request) (string, hostd.Result, error) {
+		res, err := c.client.CheckUpdate(r.Context())
+		return "update check", res, err
+	})))
+	mux.HandleFunc("POST "+Prefix+"status/update/apply", c.signedIn(c.statusChange(func(r *http.Request) (string, hostd.Result, error) {
+		res, err := c.client.ApplyUpdate(r.Context(), r.PostFormValue("reboot") == "on")
+		return "update", res, err
+	})))
+	mux.HandleFunc("POST "+Prefix+"status/reboot", c.signedIn(c.statusChange(func(r *http.Request) (string, hostd.Result, error) {
+		res, err := c.client.Reboot(r.Context())
+		return "reboot", res, err
+	})))
 	mux.HandleFunc("GET "+Prefix+"setup", c.signedIn(c.setupPage))
 }
 
@@ -111,9 +123,19 @@ func (c *Console) hostPage(w http.ResponseWriter, r *http.Request) {
 	c.render(w, r, http.StatusOK, "host", data)
 }
 
-// hostChange runs a host action. sibyl-hostd can take longer than the
-// page waits, and the API then answers that the request is queued.
+// hostChange runs a host action and returns to the Host page. sibyl-hostd
+// can take longer than the page waits, and the API then answers that the
+// request is queued.
 func (c *Console) hostChange(fn func(*http.Request) (string, hostd.Result, error)) http.HandlerFunc {
+	return c.hostChangeTo("host", fn)
+}
+
+// statusChange is hostChange for the Status page.
+func (c *Console) statusChange(fn func(*http.Request) (string, hostd.Result, error)) http.HandlerFunc {
+	return c.hostChangeTo("status", fn)
+}
+
+func (c *Console) hostChangeTo(page string, fn func(*http.Request) (string, hostd.Result, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -127,7 +149,7 @@ func (c *Console) hostChange(fn func(*http.Request) (string, hostd.Result, error
 		if res.Message != "" {
 			done += ": " + res.Message
 		}
-		c.back(w, r, "host", done, err)
+		c.back(w, r, page, done, err)
 	}
 }
 
@@ -220,6 +242,14 @@ func (c *Console) statusData(ctx context.Context, data map[string]any) {
 	}
 	if o, err := c.client.OpenWebUI(ctx); err == nil {
 		data["OWUI"] = o
+	}
+	if h, err := c.client.Host(ctx); err == nil && h.Update != nil {
+		u := h.Update
+		data["Update"] = u
+		data["UpdateBusy"] = u.Check.Active == "activating" || u.Download.Active == "activating" || u.DownloadReboot.Active == "activating"
+		data["UpdateFailed"] = u.Check.Result != "" && u.Check.Result != "success" ||
+			u.Download.Result != "" && u.Download.Result != "success" ||
+			u.DownloadReboot.Result != "" && u.DownloadReboot.Result != "success"
 	}
 }
 

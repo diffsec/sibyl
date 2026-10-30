@@ -96,6 +96,7 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `GET /host` | Hostname, network interfaces, accounts, and a network change that waits for a confirm |
 | `PUT /host/hostname` | Set the static hostname |
 | `PUT /host/network/{iface}`, `POST /host/network/confirm` | DHCP or a static IPv4 address, with automatic rollback |
+| `POST /host/update/check`, `POST /host/update/apply`, `POST /host/reboot` | Check the registry for a newer host image, download and stage it (`{"reboot": true}` also reboots into it), or reboot after 5 seconds. `GET /host` reports the booted, staged and available versions in `update`. |
 | `PUT, DELETE /host/users/{name}` | Create an operator account or replace its SSH keys, or delete it |
 | `GET /host/requests/{id}` | The result of a host request that took longer than 45 seconds |
 | `GET, POST /pools`, `DELETE /pools/{name}` | Model pools and candidate disks, make a pool, or detach one |

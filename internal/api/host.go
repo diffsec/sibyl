@@ -67,6 +67,28 @@ func (s *Server) confirmNetwork(w http.ResponseWriter, r *http.Request) {
 	s.hostAction(w, r, hostd.ConfirmNetwork, struct{}{})
 }
 
+// postUpdateCheck asks the registry for a newer host image. The result is
+// in GET /host as update.available.
+func (s *Server) postUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	s.hostAction(w, r, hostd.UpdateCheck, struct{}{})
+}
+
+// postUpdateApply downloads and stages the newer host image, and with
+// {"reboot": true} reboots into it.
+func (s *Server) postUpdateApply(w http.ResponseWriter, r *http.Request) {
+	var u hostd.UpdateRequest
+	if err := readJSON(r, &u); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.hostAction(w, r, hostd.UpdateApply, u)
+}
+
+// postReboot reboots the host after 5 seconds, such as into a staged update.
+func (s *Server) postReboot(w http.ResponseWriter, r *http.Request) {
+	s.hostAction(w, r, hostd.Reboot, struct{}{})
+}
+
 // userBody is the body of PUT /host/users/{name}. GitHub, if set, adds the
 // public keys that github.com publishes for that account.
 type userBody struct {

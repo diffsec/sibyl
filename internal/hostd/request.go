@@ -51,7 +51,8 @@ const (
 )
 
 // Actions are every action that sibyl-hostd accepts.
-var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh, CreatePool, DetachPool}
+var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh, CreatePool, DetachPool,
+	UpdateCheck, UpdateApply, Reboot}
 
 // MaxRequestSize is the largest request file that sibyl-hostd reads.
 const MaxRequestSize = 64 << 10
@@ -307,7 +308,13 @@ func Decode(a Action, data []byte) (any, error) {
 			return nil, err
 		}
 		return p, p.Validate()
-	case ConfirmNetwork, Refresh:
+	case UpdateApply:
+		var u UpdateRequest
+		if err := dec(&u); err != nil {
+			return nil, err
+		}
+		return u, nil
+	case ConfirmNetwork, Refresh, UpdateCheck, Reboot:
 		return nil, nil
 	}
 	return nil, fmt.Errorf("unknown action %q", a)
@@ -333,6 +340,8 @@ type State struct {
 	Users      []Account       `json:"users"`
 	Pending    *PendingNetwork `json:"pending_network,omitempty"`
 	Pools      []Pool          `json:"pools,omitempty"`
+	// Update is the host image and the online update.
+	Update *UpdateState `json:"update,omitempty"`
 	// Disks are the whole disks, with the reason when one cannot be a pool.
 	Disks  []disks.Disk `json:"disks,omitempty"`
 	Errors []string     `json:"errors,omitempty"`

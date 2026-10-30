@@ -301,6 +301,22 @@ func (c *Client) ConfirmNetwork(ctx context.Context) (hostd.Result, error) {
 	return c.hostAction(ctx, http.MethodPost, "/host/network/confirm", nil)
 }
 
+// CheckUpdate asks the registry for a newer host image.
+func (c *Client) CheckUpdate(ctx context.Context) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/update/check", struct{}{})
+}
+
+// ApplyUpdate downloads and stages the newer host image, and reboots into
+// it when reboot is true.
+func (c *Client) ApplyUpdate(ctx context.Context, reboot bool) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/update/apply", hostd.UpdateRequest{Reboot: reboot})
+}
+
+// Reboot reboots the host after 5 seconds.
+func (c *Client) Reboot(ctx context.Context) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/reboot", struct{}{})
+}
+
 // SetUser creates an operator account or replaces its keys. github, if set,
 // adds the keys that GitHub publishes for that account.
 func (c *Client) SetUser(ctx context.Context, name string, keys []string, github string) (hostd.Result, error) {
