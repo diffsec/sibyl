@@ -74,7 +74,11 @@ func run(ctx context.Context, d *diag.Diag, cmd string, args []string) error {
 	case "watchdog":
 		return d.RunWatchdog(ctx)
 	case "boot-check":
-		res, err := d.BootCheck(ctx)
+		// Finish before the unit's TimeoutStartSec, so that systemd runs
+		// ExecStop at the next clean shutdown.
+		bctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+		defer cancel()
+		res, err := d.BootCheck(bctx)
 		fmt.Println(res)
 		return err
 	case "clean-shutdown":

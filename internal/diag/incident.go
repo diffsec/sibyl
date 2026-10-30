@@ -77,16 +77,16 @@ func (d *Diag) Capture(ctx context.Context, reason string, details map[string]an
 	})
 	if previousBoot {
 		step("journal-previous-boot.txt", journal("-b", "-1", "-n", "20000"))
-		step("journal-previous-boot-kernel.txt", journal("-k", "-b", "-1"))
+		step("journal-previous-boot-kernel.txt", journal("-k", "-b", "-1", "-n", "20000"))
 		step("pstore.txt", func() (any, error) { return d.copyPstore(dir) })
 	}
-	step("journal-kernel.txt", journal("-k", "-b", "0"))
+	step("journal-kernel.txt", journal("-k", "-b", "0", "-n", "20000"))
 	step("journal-system.txt", journal("-b", "0", "--since", "-1h", "-n", "50000"))
 	step("journal-llama-swap.txt", journal("CONTAINER_NAME=llama-swap", "--since", "-2h", "-n", "50000"))
 	step("journal-sibyl-user.txt", journal("_UID=1001", "--since", "-1h", "-n", "20000"))
 	step("llama-swap-logs.txt", func() (any, error) { return swap.Raw(ctx, "/logs") })
 	step("llama-swap-state.json", func() (any, error) { return d.swapSnapshot(ctx, swap), nil })
-	step("llama-swap-config.yaml", func() (any, error) { return os.ReadFile(d.path(llamaSwapConfig)) })
+	step("llama-swap-config.yaml", func() (any, error) { return readUserFile(d.path(llamaSwapConfig), maxConfigBytes) })
 	step("units.txt", user("status", "-n", "50", "llama-swap.service", "router.service",
 		"open-webui.service", "caddy.service", "system-api.service"))
 	step("units-failed.txt", cmd(30*time.Second, "systemctl", "--failed", "--no-pager"))

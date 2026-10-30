@@ -157,8 +157,47 @@ func (d *Diag) BuildBundle(incidentDir, note string) (Bundle, error) {
 	if err := gz.Close(); err != nil {
 		return Bundle{}, err
 	}
-	return b, writeAtomic(b.Path, buf.Bytes(), 0o640, "", -1)
+	if err := writeAtomic(b.Path, buf.Bytes(), 0o640, "", -1); err != nil {
+		return Bundle{}, err
+	}
+	d.PruneBundles()
+	return b, nil
 }
+
+// PruneBundles removes the oldest bundles, with their upload markers, past
+// the incident limits. A queued bundle that goes is not uploaded.
+func (d *Diag) PruneBundles() {
+	paths, _ := filepath.Glob(filepath.Join(d.BundleDir(), "SBL-*.tar.gz"))
+	type bundle struct {
+		path string
+		size int64
+		mod  time.Time
+	}
+	var all []bundle
+	var total int64
+	for _, p := range paths {
+		if info, err := os.Stat(p); err == nil {
+			all = append(all, bundle{p, info.Size(), info.ModTime()})
+			total += info.Size()
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].mod.Before(all[j].mod) })
+	c := d.Cfg.Capture
+	for i := 0; i < len(all) && (len(all)-i > c.MaxIncidents || total > c.MaxIncidentBytes); i++ {
+		for _, p := range []string{all[i].path, all[i].path + ".sent", all[i].path + ".pending"} {
+			if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+				d.Log.Warn("prune bundle", "err", err)
+			}
+		}
+		total -= all[i].size
+	}
+}
+
+// uploadClient refuses redirects, so a redirect cannot send a bundle to an
+// address that CheckEndpoint did not check.
+var uploadClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}}
 
 // CheckEndpoint requires HTTPS, or plain HTTP to loopback for tests.
 func CheckEndpoint(endpoint string) error {
@@ -207,7 +246,7 @@ func (d *Diag) Upload(ctx context.Context, path string) (string, error) {
 	req.Header.Set("X-Sibyl-Device-Id", d.DeviceID())
 	req.Header.Set("X-Sibyl-Version", d.readShare("version"))
 	req.Header.Set("X-Content-Sha256", hex.EncodeToString(sum[:]))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := uploadClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("upload: %w", err)
 	}

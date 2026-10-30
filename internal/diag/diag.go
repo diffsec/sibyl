@@ -12,11 +12,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -125,7 +127,8 @@ type WatchdogConfig struct {
 	IncidentCooldown     int    `yaml:"incident_cooldown" json:"incident_cooldown"`
 }
 
-// UploadConfig holds the image default for the ingest endpoint.
+// UploadConfig holds the image default for the ingest endpoint. Only the
+// image file sets it, not the override.
 type UploadConfig struct {
 	Endpoint       string `yaml:"endpoint" json:"endpoint"`
 	MaxBundleBytes int64  `yaml:"max_bundle_bytes" json:"max_bundle_bytes"`
@@ -144,23 +147,50 @@ func DefaultConfig() Config {
 	}
 }
 
+// maxConfigBytes caps a read of a file that the sibyl user can write.
+const maxConfigBytes = 1 << 20
+
+// readUserFile reads a file in a directory that the sibyl user owns. It does
+// not follow a symlink, refuses anything but a regular file, and reads at most
+// limit bytes, so the sibyl user cannot make root read another file.
+func readUserFile(path string, limit int64) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return io.ReadAll(io.LimitReader(f, limit))
+}
+
 // LoadConfig reads the defaults and then the override over them. A missing
 // file is skipped. A file that does not parse is an error, so a typo in the
-// override does not silently turn the watchdog off.
+// override does not silently turn the watchdog off. The override is in a
+// directory that the sibyl user owns, so it cannot change the upload settings.
 func (d *Diag) LoadConfig() error {
 	cfg := DefaultConfig()
-	for _, p := range []string{d.path(defaultsFile), d.path(overrideFile)} {
-		b, err := os.ReadFile(p)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if err := yaml.Unmarshal(b, &cfg); err != nil {
-			return fmt.Errorf("%s: %w", p, err)
-		}
+	b, err := os.ReadFile(d.path(defaultsFile))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return fmt.Errorf("%s: %w", d.path(defaultsFile), err)
+	}
+	upload := cfg.Upload
+	b, err = readUserFile(d.path(overrideFile), maxConfigBytes)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		return fmt.Errorf("%s: %w", d.path(overrideFile), err)
+	}
+	cfg.Upload = upload
 	d.Cfg = cfg
 	return nil
 }
@@ -251,11 +281,16 @@ func (d *Diag) readShare(name string) string {
 	return strings.TrimSpace(string(b))
 }
 
-// SafeMode reports whether the safe-mode flag is set, and its reason.
+// SafeMode reports whether the safe-mode flag is set, and its reason. The
+// flag is in the sibyl user's config directory, so any entry there sets safe
+// mode, but only a regular file gives a reason.
 func (d *Diag) SafeMode() (bool, string) {
-	b, err := os.ReadFile(d.SafeModeFile())
-	if err != nil {
+	if _, err := os.Lstat(d.SafeModeFile()); err != nil {
 		return false, ""
+	}
+	b, err := readUserFile(d.SafeModeFile(), 512)
+	if err != nil {
+		return true, ""
 	}
 	return true, strings.TrimSpace(string(b))
 }

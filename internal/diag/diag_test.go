@@ -97,9 +97,15 @@ type fakeRun struct {
 	active   string
 	restarts int
 	kernel   string
+	// hang makes cat block until the channel closes, as a read of a wedged
+	// GPU's recover file does. It ignores the context, as the kernel does.
+	hang chan struct{}
 }
 
 func (f *fakeRun) run(_ context.Context, name string, args ...string) (string, error) {
+	if name == "cat" && f.hang != nil {
+		<-f.hang
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	call := name + " " + strings.Join(args, " ")
@@ -113,6 +119,18 @@ func (f *fakeRun) run(_ context.Context, name string, args ...string) (string, e
 		return f.kernel + "-- cursor: s=abc\n", nil
 	}
 	return "", errors.New(name + ": not found")
+}
+
+func (f *fakeRun) count(prefix string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.calls {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
 }
 
 func (f *fakeRun) called(prefix string) bool {
@@ -225,6 +243,18 @@ func TestRedactor(t *testing.T) {
 			t.Errorf("%q was removed from %q", kept, out)
 		}
 	}
+	out6 := r.Text("GPUBOX.lan via 2001:db8:85a3::8a2e:370:7334 and fe80::1%eth0, [2a02:1:2::5]:443 at 12:00:00 " +
+		"std::vector a::b ::1 :: 2001:db8:0:0:1:0:0:1")
+	for _, leak := range []string{"GPUBOX", "2001:db8", "8a2e", "fe80::1", "2a02", "::5"} {
+		if strings.Contains(out6, leak) {
+			t.Errorf("%q leaked in %q", leak, out6)
+		}
+	}
+	for _, kept := range []string{"12:00:00", "std::vector", " ::1 ", " :: ", "%eth0", "]:443"} {
+		if !strings.Contains(out6, kept) {
+			t.Errorf("%q was removed from %q", kept, out6)
+		}
+	}
 	tok := r.Text("192.168.1.20")
 	if r.Text("from 192.168.1.20") != "from "+tok || tok == r.Text("192.168.1.21") {
 		t.Error("the address token must be stable per address and differ between addresses")
@@ -253,8 +283,15 @@ func TestDecideLadder(t *testing.T) {
 	if got := Decide(State{Restarts: []int64{now - 1000, now - 1000, now - 1000}}, cfg, now, ProbAPIUnresponsive, true); got != ActRestart {
 		t.Errorf("old restarts must leave the window: got %s", got)
 	}
-	if got := Decide(State{}, cfg, now, ProbCrashLoop, false); got != ActReboot {
-		t.Errorf("a crash loop on a non-AMD host must skip restart and reset: got %s", got)
+	if got := Decide(State{LastGPUFault: now - 10}, cfg, now, ProbCrashLoop, false); got != ActReboot {
+		t.Errorf("a crash loop after a GPU fault on a non-AMD host must skip restart and reset: got %s", got)
+	}
+	if got := Decide(State{}, cfg, now, ProbCrashLoop, true); got != ActDegraded {
+		t.Errorf("a crash loop with no GPU fault must not reset or reboot: got %s", got)
+	}
+	failed := State{Restarts: []int64{now - 10, now - 10, now - 10}}
+	if got := Decide(failed, cfg, now, ProbServiceFailed, true); got != ActDegraded {
+		t.Errorf("a failed unit with no GPU fault must stop after the restarts: got %s", got)
 	}
 }
 
@@ -365,6 +402,32 @@ func TestWatchdogStallAndRestart(t *testing.T) {
 	}
 	if n := len(d.Incidents()); n != 1 {
 		t.Errorf("incidents = %d, want 1", n)
+	}
+
+	// The watchdog waits for llama-swap to start before it acts again.
+	w.Tick(ctx)
+	w.Tick(ctx)
+	if n := fr.count("systemctl --user -M sibyl@ restart"); n != 1 {
+		t.Errorf("restarts = %d within the settle time, want 1", n)
+	}
+}
+
+func TestGPUResetThatHangsIsSavedAndLeadsToReboot(t *testing.T) {
+	_, srv := newFakeSwap(t)
+	d, fr := newDiag(t, srv.URL)
+	fr.hang = make(chan struct{})
+	defer close(fr.hang)
+	defer func(old time.Duration) { gpuResetTimeout = old }(gpuResetTimeout)
+	gpuResetTimeout = 50 * time.Millisecond
+	w := NewWatchdog(d)
+	now := d.Now().Unix()
+	w.st.Restarts = []int64{now - 10, now - 10, now - 10}
+	w.act(context.Background(), Problem{Name: ProbAPIUnresponsive})
+	if !fr.called("systemctl reboot") {
+		t.Fatalf("a hung GPU reset must lead to a reboot; calls: %v", fr.calls)
+	}
+	if st := d.LoadState(); len(st.GPUResets) != 1 {
+		t.Errorf("saved GPU resets = %d, want 1", len(st.GPUResets))
 	}
 }
 
@@ -583,5 +646,97 @@ func readTarGz(t *testing.T, path string) map[string]string {
 		}
 		b, _ := io.ReadAll(tr)
 		out[h.Name] = string(b)
+	}
+}
+
+func TestBundlesArePrunedWithTheirMarkers(t *testing.T) {
+	_, srv := newFakeSwap(t)
+	d, _ := newDiag(t, srv.URL)
+	d.Cfg.Capture.MaxIncidents = 2
+	dir, err := d.Capture(context.Background(), "manual", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for i := range 3 {
+		b, err := d.BuildBundle(dir, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.MarkPending(b.Path)
+		old := time.Now().Add(time.Duration(i-10) * time.Minute)
+		if err := os.Chtimes(b.Path, old, old); err != nil {
+			t.Fatal(err)
+		}
+		paths = append(paths, b.Path)
+	}
+	d.PruneBundles()
+	for i, p := range paths {
+		_, err := os.Stat(p)
+		_, perr := os.Stat(p + ".pending")
+		if gone := err != nil && perr != nil; gone != (i == 0) {
+			t.Errorf("bundle %d: removed = %v, want %v", i, gone, i == 0)
+		}
+	}
+}
+
+func TestUploadRefusesARedirect(t *testing.T) {
+	var hits int
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/v1/bundles", http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	_, srv := newFakeSwap(t)
+	d, _ := newDiag(t, srv.URL)
+	dir, _ := d.Capture(context.Background(), "manual", nil, false)
+	b, err := d.BuildBundle(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SaveConsent(ConsentManual, redirect.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Upload(context.Background(), b.Path); err == nil || hits != 0 {
+		t.Fatalf("upload through a redirect: err %v, hits %d", err, hits)
+	}
+}
+
+func TestSibylOwnedFilesCannotSteerRoot(t *testing.T) {
+	d, _ := newDiag(t, "http://127.0.0.1:1")
+	secret := filepath.Join(d.Root, "shadow")
+	if err := os.WriteFile(secret, []byte("root:$6$hash\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flag := d.SafeModeFile()
+	if err := os.MkdirAll(filepath.Dir(flag), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, flag); err != nil {
+		t.Fatal(err)
+	}
+	if on, why := d.SafeMode(); !on || why != "" {
+		t.Errorf("SafeMode through a symlink = %v, %q", on, why)
+	}
+	if err := os.WriteFile(filepath.Join(d.Root, overrideFile),
+		[]byte("upload:\n  endpoint: https://evil.example\nwatchdog:\n  max_reboots: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.LoadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if d.Cfg.Upload.Endpoint != "" || d.Cfg.Watchdog.MaxReboots != 1 {
+		t.Errorf("override: upload %+v, max_reboots %d", d.Cfg.Upload, d.Cfg.Watchdog.MaxReboots)
+	}
+	link := filepath.Join(d.Root, llamaSwapConfig)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readUserFile(link, maxConfigBytes); err == nil {
+		t.Error("readUserFile followed a symlink")
 	}
 }

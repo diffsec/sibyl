@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/netip"
 	"regexp"
 	"strings"
 )
@@ -39,7 +40,9 @@ var secretRules = []rule{
 var (
 	ipv4Re = regexp.MustCompile(`\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b`)
 	macRe  = regexp.MustCompile(`\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b`)
-	ipv6Re = regexp.MustCompile(`\b(?:[0-9a-fA-F]{1,4}:){3,7}[0-9a-fA-F]{1,4}\b`)
+	// ipv6Re finds candidates. netip.ParseAddr decides, so "::" in
+	// "std::vector" or a time such as 12:00:00 stays.
+	ipv6Re = regexp.MustCompile(`[0-9a-fA-F:]*:[0-9a-fA-F:]*:[0-9a-fA-F:.]*`)
 	// Addresses that say nothing about the owner's network: loopback, the
 	// unspecified and broadcast addresses, and Podman's container networks.
 	keepIPv4 = regexp.MustCompile(`^(127\.|0\.0\.0\.0$|255\.255\.255\.255$|10\.88\.|10\.89\.)`)
@@ -57,15 +60,41 @@ func (r Redactor) Text(s string) string {
 		s = ru.re.ReplaceAllString(s, ru.repl)
 	}
 	s = macRe.ReplaceAllStringFunc(s, func(m string) string { return r.token("mac", strings.ToLower(m)) })
-	s = ipv6Re.ReplaceAllStringFunc(s, func(m string) string { return r.token("ip6", strings.ToLower(m)) })
+	s = r.ipv6(s)
 	s = ipv4Re.ReplaceAllStringFunc(s, func(m string) string {
 		if keepIPv4.MatchString(m) {
 			return m
 		}
 		return r.token("ip", m)
 	})
-	if h := r.Hostname; h != "" && h != "localhost" && h != "sibyl" {
-		s = regexp.MustCompile(`\b`+regexp.QuoteMeta(h)+`\b`).ReplaceAllString(s, "<hostname>")
+	if h := r.Hostname; h != "" && !strings.EqualFold(h, "localhost") && !strings.EqualFold(h, "sibyl") {
+		s = regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(h)+`\b`).ReplaceAllString(s, "<hostname>")
 	}
 	return s
+}
+
+func wordByte(c byte) bool {
+	return c == '_' || c == '.' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// ipv6 replaces each IPv6 address except loopback and the unspecified address.
+func (r Redactor) ipv6(s string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range ipv6Re.FindAllStringIndex(s, -1) {
+		start, end := loc[0], loc[1]
+		if start > 0 && wordByte(s[start-1]) || end < len(s) && wordByte(s[end]) {
+			continue
+		}
+		cand := strings.TrimRight(s[start:end], ":.")
+		a, err := netip.ParseAddr(cand)
+		if err != nil || !a.Is6() || a.IsLoopback() || a.IsUnspecified() {
+			continue
+		}
+		b.WriteString(s[last:start])
+		b.WriteString(r.token("ip6", a.String()))
+		last = start + len(cand)
+	}
+	b.WriteString(s[last:])
+	return b.String()
 }

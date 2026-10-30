@@ -73,6 +73,8 @@ type State struct {
 	NRestarts     int              `json:"nrestarts"`
 	LastProblem   string           `json:"last_problem"`
 	LastAction    string           `json:"last_action"`
+	LastActionAt  int64            `json:"last_action_at"`
+	LastGPUFault  int64            `json:"last_gpu_fault"`
 }
 
 // LoadState reads the history. A missing or broken file is a fresh state.
@@ -116,6 +118,11 @@ func Decide(st State, cfg WatchdogConfig, now int64, problem string, hasAMD bool
 	// systemd already restarts a crash loop, so another restart does not help.
 	if problem != ProbCrashLoop && recent(st.Restarts, now, cfg.RestartWindow) < cfg.MaxRestarts {
 		return ActRestart
+	}
+	// A unit that does not stay up, with no GPU fault in the kernel log, has a
+	// configuration or image problem. A GPU reset or a reboot does not fix it.
+	if (problem == ProbCrashLoop || problem == ProbServiceFailed) && now-st.LastGPUFault >= int64(cfg.RestartWindow) {
+		return ActDegraded
 	}
 	if cfg.GPUReset && hasAMD && recent(st.GPUResets, now, cfg.RestartWindow) == 0 {
 		return ActGPUReset
@@ -317,8 +324,19 @@ func (w *Watchdog) save() {
 	}
 }
 
+// gpuResetTimeout bounds one GPU reset. Tests shorten it.
+var gpuResetTimeout = time.Minute
+
+// settle returns the seconds that the watchdog waits after an action before
+// it acts again, so that llama-swap can start and load a model.
+func settle(cfg WatchdogConfig) int64 {
+	return int64(max(120, 2*cfg.ProbeInterval*cfg.FailuresBeforeAction))
+}
+
 // gpuReset reads each AMD GPU's recover file. A read that fails or hangs
-// means the driver is stuck.
+// means the driver is stuck. A read of a wedged GPU can stay in the kernel
+// for good, and then the process cannot be killed or waited for, so the
+// reset gives up after the timeout and leaves that read behind.
 func (w *Watchdog) gpuReset(ctx context.Context) error {
 	done := 0
 	for _, g := range w.gpus {
@@ -329,8 +347,18 @@ func (w *Watchdog) gpuReset(ctx context.Context) error {
 		if f == "" {
 			continue
 		}
-		cctx, cancel := context.WithTimeout(ctx, time.Minute)
-		_, err := w.d.Run(cctx, "cat", f)
+		cctx, cancel := context.WithTimeout(ctx, gpuResetTimeout)
+		res := make(chan error, 1)
+		go func() {
+			_, err := w.d.Run(cctx, "cat", f)
+			res <- err
+		}()
+		var err error
+		select {
+		case err = <-res:
+		case <-cctx.Done():
+			err = fmt.Errorf("the GPU reset did not finish in %s", gpuResetTimeout)
+		}
 		cancel()
 		if err != nil {
 			return fmt.Errorf("reset %s: %w", g.PCIAddr, err)
@@ -351,7 +379,7 @@ func (w *Watchdog) act(ctx context.Context, p Problem) {
 		hasAMD = hasAMD || g.Vendor == "amd"
 	}
 	action := Decide(w.st, cfg, now, p.Name, hasAMD)
-	w.st.LastProblem, w.st.LastAction = p.Name, action
+	w.st.LastProblem, w.st.LastAction, w.st.LastActionAt = p.Name, action, now
 	w.d.Log.Warn("inference problem", "problem", p.Name, "details", p.Details, "action", action)
 	details := map[string]any{"action": action}
 	for k, v := range p.Details {
@@ -360,7 +388,10 @@ func (w *Watchdog) act(ctx context.Context, p Problem) {
 	w.capture(ctx, p.Name, details)
 
 	if action == ActGPUReset {
+		// Save first. If the reset hangs and systemd kills this process,
+		// the next start goes on to a reboot instead of a second reset.
 		w.st.GPUResets = append(w.st.GPUResets, now)
+		w.save()
 		if err := w.gpuReset(ctx); err != nil {
 			w.d.Log.Error("GPU reset", "err", err)
 			action = ActDegraded
@@ -399,6 +430,7 @@ func (w *Watchdog) Tick(ctx context.Context) {
 	defer w.save()
 
 	if faults := w.checkKernel(ctx); len(faults) > 0 {
+		w.st.LastGPUFault = now
 		w.capture(ctx, ProbGPUFault, map[string]any{"kernel": faults[max(0, len(faults)-20):]})
 	}
 	if on, _ := w.d.SafeMode(); on {
@@ -420,7 +452,7 @@ func (w *Watchdog) Tick(ctx context.Context) {
 		p = w.checkModels(ctx, now)
 	}
 	switch {
-	case p != nil && !w.st.Degraded:
+	case p != nil && !w.st.Degraded && now-w.st.LastActionAt >= settle(cfg):
 		w.act(ctx, *p)
 	case p == nil && w.st.Degraded:
 		w.d.Log.Info("inference is healthy again")

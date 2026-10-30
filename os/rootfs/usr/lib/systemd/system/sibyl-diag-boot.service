@@ -8,7 +8,9 @@ Wants=systemd-pstore.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/sbin/sibyl-diag boot-check
+# "-" keeps the unit active when the check fails. A failed unit does not run
+# ExecStop, and the next boot then counts this one as unclean.
+ExecStart=-/usr/sbin/sibyl-diag boot-check
 # A clean shutdown stops this unit and removes the "running" marker. A crash
 # or a hardware watchdog reset leaves it, and the next boot check sees it.
 ExecStop=/usr/sbin/sibyl-diag clean-shutdown

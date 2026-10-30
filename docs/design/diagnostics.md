@@ -41,7 +41,7 @@ The watchdog and the sampler reach llama-swap on `127.0.0.1:18080`. `llama-swap.
 | `metrics/samples-YYYYMMDD.jsonl` | One sample per line: time, series, labels, value | root |
 | `metrics/requests-YYYYMMDD.jsonl` | One llama-swap request per line | root |
 | `incidents/<UTC time>-<reason>/` | One incident | root |
-| `bundles/SBL-XXXX-XXXX.tar.gz` | Redacted bundles, with `.pending` and `.sent` markers | root |
+| `bundles/SBL-XXXX-XXXX.tar.gz` | Redacted bundles, with `.pending` and `.sent` markers. The oldest go past `max_incidents` or `max_incident_bytes`, with their markers. | root |
 | `watchdog.json` | Recovery history | root |
 | `consent.json`, `device-id`, `redaction-salt` | Upload choice and device identity | root, mode 0600 |
 | `out/status.json`, `out/perf.json` | Summary for the System API, written every minute | `sibyl`, labelled `container_file_t` |
@@ -92,7 +92,7 @@ The box keeps 50 incidents or 2 GB, whichever limit it reaches first. `sudo siby
 
 ### Probes
 
-The watchdog runs every 30 seconds. A probe must fail 3 times in a row before the watchdog acts.
+The watchdog runs every 30 seconds. An HTTP probe must fail 3 times in a row before the watchdog acts. The unit probes act at once, because systemd already retried. After each action, the watchdog waits a settle time before it acts again: 2 × `probe_interval` × `failures_before_action`, and at least 120 seconds. In that time llama-swap can start and load a model.
 
 | Probe | Problem |
 |---|---|
@@ -110,9 +110,11 @@ The watchdog does not probe while the unit starts or stops, because an image pul
 `diag.Decide` picks the next step from the recovery history:
 
 1. Restart llama-swap, at most 3 times in 15 minutes. A crash loop skips this step, because systemd already restarts the unit.
-2. Reset each AMD GPU by reading `/sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`, then restart llama-swap. Once in 15 minutes. If the read fails or takes over 60 seconds, the driver is stuck, and the watchdog goes to step 3.
+2. Reset each AMD GPU by reading `/sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`, then restart llama-swap. Once in 15 minutes. If the read fails or takes over 60 seconds, the driver is stuck, and the watchdog goes to step 3. A read of a wedged GPU can block in the kernel for good. The watchdog then stops waiting after 60 seconds and leaves the read behind. It also saves the reset before the read, so a restart of the watchdog goes to step 3 and does not try a second reset.
 3. Reboot, at most 2 times in 6 hours.
 4. Stop acting and report `degraded`. The box stays up, so that an operator can read the state. The flag clears when the probes pass again.
+
+A `service-failed` or `crash-loop` problem goes from step 1 to step 4 when the kernel log showed no GPU fault in the last 15 minutes. A unit that does not stay up for that reason has a configuration or image problem, such as a typo in the llama-swap config or a missing image. A GPU reset or a reboot does not fix it.
 
 `llama-swap.container` also sets `HealthOnFailure=kill` with `HealthRetries=3`. Podman kills a container that fails its health check, and `Restart=always` brings it back between watchdog probes.
 
@@ -124,7 +126,7 @@ A lockup stops the watchdog too. These parts handle it, in order:
 2. The kernel writes the panic text to pstore (EFI variables), and `panic=10` reboots 10 seconds later.
 3. If the kernel cannot panic, the hardware watchdog resets the board. systemd pets `/dev/watchdog0` every 30 seconds with `RuntimeWatchdogSec=60s`. `RebootWatchdogSec=5min` covers a reboot that hangs on a stuck driver.
 4. At the next boot, `systemd-pstore` archives the panic text to `/var/lib/systemd/pstore`.
-5. `sibyl-diag-boot` finds the `running` marker that a clean shutdown removes. It records an `unclean-shutdown` incident with the journal of the crashed boot and the pstore record.
+5. `sibyl-diag-boot` finds the `running` marker that a clean shutdown removes. The unit ignores a failed check and stops the check after 4 minutes. A failed unit does not run `ExecStop`, so the next clean boot would count as unclean. It records an `unclean-shutdown` incident with the journal of the crashed boot and the pstore record.
 6. After more than 2 unclean boots in 6 hours, boot check writes `/var/lib/sibyl/config/safe-mode`. `llama-swap.container` has `ConditionPathExists=!` on it, so inference does not start, and the rest of the box comes up for diagnosis. `sudo sibyl-diag safe-mode off` clears it.
 
 The flag is in the config directory, not in `/var/lib/sibyl-diag`, because the `sibyl` user manager evaluates the condition and cannot search root's directory. A failed `stat` would count as "no file", and llama-swap would start in safe mode.
@@ -133,7 +135,9 @@ The hardware watchdog needs a driver: `sp5100_tco` on AMD chipsets, `iTCO_wdt` o
 
 ## Consent and privacy
 
-Local capture is always on and stays on the box. Upload has three modes. Only `sudo sibyl-diag consent` writes the mode, to a root-only file, so an edit to `diagnostics.yaml` cannot turn uploads on.
+Local capture is always on and stays on the box. Upload has three modes. Only `sudo sibyl-diag consent` writes the mode, to a root-only file, so an edit to `diagnostics.yaml` cannot turn uploads on. The override `/var/lib/sibyl/config/diagnostics.yaml` cannot set `upload` either, because the `sibyl` user can write it. Only the image file and `consent -endpoint` set the endpoint.
+
+sibyl-diag runs as root and reads three files in directories that the `sibyl` user owns: the override, the safe-mode flag and the llama-swap config. It opens them with `O_NOFOLLOW`, takes regular files only, and reads at most 1 MiB. A symlink cannot make root copy another file into a bundle.
 
 | Mode | Behavior |
 |---|---|
@@ -141,13 +145,13 @@ Local capture is always on and stays on the box. Upload has three modes. Only `s
 | `manual` | `sudo sibyl-diag submit` uploads one bundle after it shows the size and the endpoint and asks for confirmation. |
 | `automatic` | The watchdog bundles each incident and queues it. `sibyl-diag-upload.timer` sends the queue every hour. |
 
-The redactor runs on every file before it goes into a bundle. It removes private keys, bearer tokens, `X-Api-Key` values, Sibyl `sib-` keys, Hugging Face, OpenAI and GitHub tokens, `key=value` secrets and email addresses. It replaces IPv4, IPv6 and MAC addresses and the hostname with a keyed hash. The key is a random salt per device, so one address gives the same token in every file of that box, and the token cannot be reversed. Loopback and Podman container networks (`10.88.*`, `10.89.*`) stay as they are. A file with a NUL byte cannot be redacted, so it stays out.
+The redactor runs on every file before it goes into a bundle. It removes private keys, bearer tokens, `X-Api-Key` values, Sibyl `sib-` keys, Hugging Face, OpenAI and GitHub tokens, `key=value` secrets and email addresses. It replaces IPv4, IPv6 and MAC addresses and the hostname, in any letter case, with a keyed hash. The key is a random salt per device, so one address gives the same token in every file of that box, and the token cannot be reversed. Loopback and Podman container networks (`10.88.*`, `10.89.*`) stay as they are. A file with a NUL byte cannot be redacted, so it stays out.
 
 Bundles never contain prompts or responses. llama-swap request rows hold token counts and speeds only. The router's decision log is not captured, because it names clients.
 
 The device ID is a random UUID in `/var/lib/sibyl-diag/device-id`. It does not come from the machine ID or any serial number.
 
-The upload endpoint must use HTTPS. Plain HTTP is accepted for loopback only, for tests.
+The upload endpoint must use HTTPS. Plain HTTP is accepted for loopback only, for tests. The upload does not follow a redirect, so the bundle goes only to the endpoint that was checked.
 
 ## Diagnostic ID
 
