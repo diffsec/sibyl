@@ -4,7 +4,7 @@
 
 
 # dnf checks the Fedora GPG signature on both RPMs before it extracts them.
-FROM quay.io/fedora/fedora:44@sha256:40005ed606ff7bbdc5344f3625e043f64493358b3dfaf2cc6b1995282189f3f5 AS efi
+FROM quay.io/fedora/fedora:44@sha256:278ccc1c8af3d618b64accbba691bb14f82d371b2e13c86fa2ac7a447d1e03bb AS efi
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 WORKDIR /rpms
 RUN dnf -y install --setopt=install_weak_deps=False cpio \
