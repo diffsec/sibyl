@@ -350,6 +350,8 @@ The outcomes belong to one local model. When the profile's `local_model` changes
 
 Steps 1 to 5 of the loop, the regeneration count and the TUI view are built. The Open WebUI feedback and the remeasure after a model change come next.
 
+On 2026-10-30 on `sha-2c7fa2e-amd`, a test client with a sample rate of 1 sent three requests to the REAP local model. The worker got the DeepSeek answers and three verdicts within one minute, for 0.0016 US dollars at a test price of 0.30 and 1.20 US dollars per million tokens. The judge preferred the provider in all three. One local answer named Sydney as the capital of Australia.
+
 - The router keeps the samples, and the comparison worker runs in the router, not in the System API. The router already holds the provider adapters, the spend file and the count of local requests in flight, which the worker needs. The router mounts `/var/lib/sibyl/config/router/calibration` read-write, mode 0700.
 - Only `/v1/chat/completions` requests are sampled. A Messages request, and a request with tools or images, is not sampled, because its answer is not plain text that a judge can compare.
 - Each sample is one JSON file, named by its time, with the request, both answers, the labels and the verdict. The worker fills the missing answer, and then the verdict, one step every 30 seconds or at once after a step that worked. It waits while a local request is in flight, and it never makes llama-swap load a model.
