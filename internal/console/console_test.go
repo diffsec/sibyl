@@ -472,3 +472,40 @@ func TestChecksRunTwoAtOnce(t *testing.T) {
 	close(release)
 	wg.Wait()
 }
+
+func TestOriginNullUsesFetchSite(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	post := func(origin, site string) int {
+		r := httptest.NewRequest("POST", "https://"+testHost+"/console/router/client/delete", strings.NewReader("name=laptop"))
+		r.Host = testHost
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		if site != "" {
+			r.Header.Set("Sec-Fetch-Site", site)
+		}
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: h.jar})
+		w := httptest.NewRecorder()
+		h.h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for _, c := range []struct {
+		origin, site string
+		want         int
+	}{
+		{"null", "same-origin", http.StatusSeeOther},
+		{"", "same-origin", http.StatusSeeOther},
+		{"null", "cross-site", http.StatusForbidden},
+		{"null", "", http.StatusForbidden},
+		{"https://evil.example", "same-origin", http.StatusForbidden},
+	} {
+		if got := post(c.origin, c.site); got != c.want {
+			t.Errorf("Origin %q Sec-Fetch-Site %q = %d, want %d", c.origin, c.site, got, c.want)
+		}
+	}
+	if w := h.do("GET", "/console/login", nil, false); w.Header().Get("Referrer-Policy") != "same-origin" {
+		t.Errorf("Referrer-Policy %q", w.Header().Get("Referrer-Policy"))
+	}
+}

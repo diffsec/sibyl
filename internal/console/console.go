@@ -127,7 +127,9 @@ func headers(next http.Handler) http.Handler {
 		h.Set("Content-Security-Policy", CSP)
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
+		// same-origin, not no-referrer: under no-referrer a browser sends
+		// Origin: null with a form POST.
+		h.Set("Referrer-Policy", "same-origin")
 		if !strings.HasPrefix(r.URL.Path, Prefix+"static/") {
 			h.Set("Cache-Control", "no-store")
 		}
@@ -136,9 +138,17 @@ func headers(next http.Handler) http.Handler {
 }
 
 // sameOrigin reports whether a request that changes something came from a
-// console page. A browser sends Origin with every POST.
+// console page. A browser sends Origin with every POST, but sends "null"
+// under some referrer policies. Sec-Fetch-Site then decides: a page cannot
+// set it, and every current browser sends it.
 func sameOrigin(r *http.Request) bool {
-	return r.Header.Get("Origin") == "https://"+r.Host
+	switch o := r.Header.Get("Origin"); o {
+	case "https://" + r.Host:
+		return true
+	case "", "null":
+		return r.Header.Get("Sec-Fetch-Site") == "same-origin"
+	}
+	return false
 }
 
 func hashID(id string) [32]byte { return sha256.Sum256([]byte(id)) }
