@@ -9,6 +9,8 @@ ExecStart=/usr/libexec/sibyl/hostd -auth
 # write only the results and the failure count, and remove only the
 # requests. NoNewPrivileges is not set: with it, SELinux can refuse the
 # switch to unix_chkpwd's domain, and every sign-in would fail.
+# RestrictSUIDSGID is not set: its seccomp filter cannot read openat2's
+# arguments, so it refuses openat2 with ENOSYS, and the queue reader uses it.
 ProtectSystem=strict
 ReadWritePaths=/var/lib/sibyl-host /run/sibyl-auth
 ProtectHome=yes
@@ -24,7 +26,6 @@ ProtectClock=yes
 ProtectHostname=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
-RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_UNIX
