@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -105,14 +106,22 @@ func main() {
 	send := flag.Bool("send", false, "send the requests, which can cost money at providers")
 	maxTokens := flag.Int("max-tokens", 8192, "with -send, the answer limit; reasoning models spend part of it thinking")
 	judge := flag.String("judge", "", "with -send, comma-separated models that score each answer from 1 to 10")
+	judgeTokens := flag.Int("judge-tokens", 4096, "the judge's limit; a reasoning judge thinks before the number")
 	out := flag.String("out", "", "a JSON lines file for the results, written as each one ends")
+	rescore := flag.String("rescore", "", "a results file from -out: add the -judge scores that it lacks, and write -out")
 	flag.Parse()
 
-	o := options{who: *who, send: *send, maxTokens: *maxTokens}
+	o := options{who: *who, send: *send, maxTokens: *maxTokens, judgeTokens: *judgeTokens}
 	if *judge != "" {
 		o.judges = strings.Split(*judge, ",")
 	}
-	if err := run(*base, *apiKeyFile, *keyFile, *caFile, *set, *profiles, *out, o); err != nil {
+	var err error
+	if *rescore != "" {
+		err = rescoreFile(*base, *keyFile, *caFile, *rescore, *out, o)
+	} else {
+		err = run(*base, *apiKeyFile, *keyFile, *caFile, *set, *profiles, *out, o)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "sibyl-eval:", err)
 		os.Exit(1)
 	}
@@ -120,10 +129,11 @@ func main() {
 
 // options are the settings of one run.
 type options struct {
-	who       string
-	send      bool
-	maxTokens int
-	judges    []string
+	who         string
+	send        bool
+	maxTokens   int
+	judges      []string
+	judgeTokens int
 }
 
 func run(base, apiKeyFile, keyFile, caFile, set, profileList, out string, o options) error {
@@ -358,7 +368,7 @@ func (c *client) runProfile(p string, items []Item, o options) ([]Result, error)
 				if r.Error != "" {
 					break
 				}
-				if v := c.score(j, it.Prompt, r.Answer); v > 0 {
+				if v := c.score(j, it.Prompt, r.Answer, o.judgeTokens); v > 0 {
 					if r.Scores == nil {
 						r.Scores = map[string]float64{}
 					}
@@ -421,13 +431,9 @@ func (c *client) send(r *Result, model, prompt string, maxTokens int, pr *price)
 
 var scoreRE = regexp.MustCompile(`\b(10|[1-9])\b`)
 
-// judgeTokens is the judge's limit. A reasoning judge thinks before the
-// number, and a few tokens give an empty answer.
-const judgeTokens = 1024
-
 // score asks the judge model for a score from 1 to 10, or 0 when it gives
 // none. The last number of the answer counts.
-func (c *client) score(judge, prompt, answer string) float64 {
+func (c *client) score(judge, prompt, answer string, limit int) float64 {
 	q := "Score the answer to the request from 1 (useless) to 10 (as good as an expert's). " +
 		"Judge correctness first, then completeness. Reply with the number only.\n\n<request>\n" + prompt +
 		"\n</request>\n\n<answer>\n" + answer + "\n</answer>"
@@ -438,7 +444,7 @@ func (c *client) score(judge, prompt, answer string) float64 {
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if _, err := c.post("/v1/chat/completions", c.inferenceKey, chat(judge, q, judgeTokens), &resp); err != nil || len(resp.Choices) == 0 {
+	if _, err := c.post("/v1/chat/completions", c.inferenceKey, chat(judge, q, limit), &resp); err != nil || len(resp.Choices) == 0 {
 		return 0
 	}
 	all := scoreRE.FindAllString(resp.Choices[0].Message.Content, -1)
@@ -541,4 +547,70 @@ func pct(a, n int) float64 {
 		return 0
 	}
 	return 100 * float64(a) / float64(n)
+}
+
+// rescoreFile reads the results of an earlier run and asks each judge for
+// the scores that a result lacks, such as when the judge ran out of
+// tokens. It writes every result to out and prints the profile report.
+func rescoreFile(base, keyFile, caFile, in, out string, o options) error {
+	switch {
+	case base == "":
+		return errors.New("give the box's address with -url or SIBYL_URL")
+	case out == "" || out == in:
+		return errors.New("-rescore needs an -out file other than its input")
+	case len(o.judges) == 0:
+		return errors.New("-rescore needs -judge")
+	}
+	b, err := os.ReadFile(in)
+	if err != nil {
+		return err
+	}
+	var results []Result
+	var profiles []string
+	for n, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var r Result
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			return fmt.Errorf("%s line %d: %w", in, n+1, err)
+		}
+		if !slices.Contains(profiles, r.Profile) {
+			profiles = append(profiles, r.Profile)
+		}
+		results = append(results, r)
+	}
+	c := &client{base: strings.TrimSuffix(base, "/")}
+	if c.inferenceKey, err = readKey(keyFile); err != nil {
+		return err
+	}
+	if c.http, err = httpClient(caFile); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	enc := json.NewEncoder(f)
+	added := 0
+	for i := range results {
+		r := &results[i]
+		for _, j := range o.judges {
+			if r.Error != "" || r.Scores[j] > 0 {
+				continue
+			}
+			if v := c.score(j, r.Prompt, r.Answer, o.judgeTokens); v > 0 {
+				if r.Scores == nil {
+					r.Scores = map[string]float64{}
+				}
+				r.Scores[j] = v
+				added++
+			}
+		}
+		if err := enc.Encode(r); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stderr, "added %d scores\n", added)
+	o.send = true
+	reportProfiles(profiles, results, o)
+	return nil
 }

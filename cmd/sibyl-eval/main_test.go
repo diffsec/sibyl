@@ -99,3 +99,43 @@ func captureStdout(t *testing.T, f func()) string {
 }
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+// TestRescoreFillsMissingScores gives a judge only the results that lack
+// its score, with the judge limit, and keeps the scores already there.
+func TestRescoreFillsMissingScores(t *testing.T) {
+	var asked []float64
+	box := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		asked = append(asked, body["max_tokens"].(float64))
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"Thinking done. Score: 7"}}]}`)
+	}))
+	defer box.Close()
+	dir := t.TempDir()
+	in, out := filepath.Join(dir, "in.jsonl"), filepath.Join(dir, "out.jsonl")
+	_ = os.WriteFile(in, []byte(`{"profile":"a","prompt":"p1","answer":"x","route":"local/m","scores":{"j":9}}
+{"profile":"a","prompt":"p2","answer":"y","route":"local/m"}
+{"profile":"b","prompt":"p3","error":"no answer","route":"p/big"}
+`), 0o600)
+	key := filepath.Join(dir, "k")
+	_ = os.WriteFile(key, []byte("k"), 0o600)
+	ca := filepath.Join(dir, "ca.crt")
+	_ = os.WriteFile(ca, certPEM(t, box), 0o600)
+
+	captureStdout(t, func() {
+		if err := rescoreFile(box.URL, key, ca, in, out, options{judges: []string{"j"}, judgeTokens: 4096}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if len(asked) != 1 || asked[0] != 4096 {
+		t.Errorf("judge calls %v, want one with 4096 tokens", asked)
+	}
+	b, _ := os.ReadFile(out)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], `"j":9`) || !strings.Contains(lines[1], `"j":7`) || strings.Contains(lines[2], "scores") {
+		t.Errorf("rescored file:\n%s", b)
+	}
+	if err := rescoreFile(box.URL, key, ca, in, in, options{judges: []string{"j"}}); err == nil {
+		t.Error("rescore over its own input was accepted")
+	}
+}
