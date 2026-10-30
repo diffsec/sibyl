@@ -186,7 +186,22 @@ On the box, through the deployed router (`sha-2999ed5-amd`), `sibyl-eval` gave t
 | `auto` plus a rule that sends `difficulty: [hard]` to a provider | 41 | 19 |
 | Every request to a provider | 0 | 60 |
 
-The set holds 20 hard requests. The label rule sent 19 of them, and no easy or medium request, to the provider. The answers were not sent or scored, so the quality side of the step 6.3 check is still open. It needs a `-send -judge` run, which costs money at the provider.
+The set holds 20 hard requests. The label rule sent 19 of them, and no easy or medium request, to the provider.
+
+### Answer quality on the test host
+
+On 2026-10-30, `sibyl-eval -send` sent the 60 requests twice on `sha-7f8c9bc-amd`. The first pass went to the local model `qwen3.8-27b-turbofcfusion-735-882-here-uncen-neo-coder-max-q8_0`. The second pass went to the provider model `orcarouter/deepseek/deepseek-v4.1-flash-1017`. Both models judged every answer from 1 to 10. A later `-rescore -retry` pass, with a limit of 32,768 output tokens, filled in the answers and scores that the first pass did not get. The score for the label rule takes the local answer for its 41 local routes and the provider answer for its 19 provider routes. The table gives the mean score with the number of scored answers in brackets, and the median latency.
+
+| Answers | Judge | Easy | Medium | Hard | All | p50 latency |
+|---|---|---|---|---|---|---|
+| Every request local | DeepSeek | 9.60 (20) | 8.60 (20) | 7.05 (20) | 8.42 (60) | 21.7 s |
+| Label rule, hard to the provider | DeepSeek | 9.60 (20) | 8.60 (20) | 8.37 (19) | 8.86 (59) | 16.8 s |
+| Every request to the provider | DeepSeek | 9.85 (20) | 9.61 (18) | 8.74 (19) | 9.40 (57) | 5.5 s |
+| Every request local | Local | 9.90 (20) | 8.40 (20) | 8.10 (20) | 8.80 (60) | 21.7 s |
+| Label rule, hard to the provider | Local | 9.90 (20) | 8.40 (20) | 9.11 (19) | 9.14 (59) | 16.8 s |
+| Every request to the provider | Local | 9.95 (20) | 9.40 (20) | 9.26 (19) | 9.54 (59) | 5.5 s |
+
+The label rule closes 45% of the gap between local and provider with the DeepSeek judge, and keeps 68% of the requests local. The local model scores its own answers 0.4 points higher than DeepSeek does, so the step 6.4 default of the strongest provider model as judge is correct. The largest gap that remains is in medium requests: 8.60 local against 9.61 at the provider. Most of it is code. The four medium code requests scored 6.75 local and 9.50 at the provider. A rule that sends medium code requests to the provider is the next thing to measure. Local hard requests took 70 s at the median. One provider request, a persistent B+ tree in Rust, stopped at the token limit with no answer on every try. OrcaRouter returned no price for the model, so the run has no cost figure.
 
 ### The evaluation tool
 
