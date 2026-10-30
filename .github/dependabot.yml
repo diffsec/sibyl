@@ -21,7 +21,7 @@ updates:
     groups:
       # One pull request for the Chainguard images that four files share.
       chainguard:
-        patterns: ["cgr.dev/chainguard/*"]
+        patterns: ["chainguard/*", "cgr.dev/chainguard/*"]
     ignore:
       # ROCm and the Ubuntu releases change the llama.cpp build. Move them
       # by hand after a benchmark (docs/design.md, Build arguments).
