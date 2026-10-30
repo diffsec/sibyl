@@ -10,13 +10,14 @@ import (
 func TestSettingsFormRoundTrip(t *testing.T) {
 	temp, topP, topK, draftMax := 0.6, 0.95, 20, 3
 	in := models.Settings{
-		Layout:      "gpu:1",
-		CtxSize:     262144,
-		Sampling:    models.Sampling{Temperature: &temp, TopP: &topP, TopK: &topK},
-		Speculative: models.Speculative{Types: []string{"draft-simple"}, DraftModel: "drafter", DraftMax: &draftMax},
-		KVCache:     models.KVCache{TypeK: "q8_0", TypeV: "q8_0"},
-		MoE:         models.MoE{CPULayers: models.AllLayers, CacheMiB: 8192},
-		Args:        []string{"--batch-size=2048"},
+		Layout:          "gpu:1",
+		CtxSize:         262144,
+		Sampling:        models.Sampling{Temperature: &temp, TopP: &topP, TopK: &topK},
+		Speculative:     models.Speculative{Types: []string{"draft-simple"}, DraftModel: "drafter", DraftMax: &draftMax},
+		KVCache:         models.KVCache{TypeK: "q8_0", TypeV: "q8_0"},
+		MoE:             models.MoE{CPULayers: models.AllLayers, CacheMiB: 8192},
+		Args:            []string{"--batch-size=2048"},
+		ReasoningEffort: "high",
 	}
 	out, err := FromSettings(in).Settings()
 	if err != nil {

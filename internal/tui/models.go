@@ -187,6 +187,11 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			sampleField("Top K", "0 to 1000", true, &f.TopK, func(s models.Sampling) *float64 { return intAsFloat(s.TopK) }, fileTopK, "40"),
 			sampleField("Top P", "0 to 1", false, &f.TopP, func(s models.Sampling) *float64 { return s.TopP }, fileSampling.TopP, "0.95"),
 			sampleField("Min P", "0 to 1", false, &f.MinP, func(s models.Sampling) *float64 { return s.MinP }, fileSampling.MinP, "0.05"),
+			huh.NewSelect[string]().Title("Reasoning effort").Inline(true).Options(
+				huh.NewOption("Template default", ""), huh.NewOption("low", "low"),
+				huh.NewOption("medium", "medium"), huh.NewOption("high", "high"),
+			).Value(&f.ReasoningEffort).
+				Description("For a model whose chat template reads reasoning_effort. A request can still set its own."),
 			optionalNumber("Repeat penalty", "0 to 5", false, &f.RepeatPenalty),
 			optionalNumber("Presence penalty", "-2 to 2", false, &f.PresencePenalty),
 		).Title("Sampling defaults").Description("Empty uses the value in grey. Clients can still override these per request."),
@@ -341,6 +346,9 @@ func summary(s models.Settings) string {
 	}
 	if s.KVCache.TypeK != "" {
 		parts = append(parts, "kv "+s.KVCache.TypeK)
+	}
+	if s.ReasoningEffort != "" {
+		parts = append(parts, "effort "+s.ReasoningEffort)
 	}
 	return strings.Join(parts, " · ")
 }

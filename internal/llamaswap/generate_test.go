@@ -226,3 +226,22 @@ func TestGenerateMoE(t *testing.T) {
 		t.Errorf("issues = %+v, want chat-14b skipped for a cache without host experts", issues)
 	}
 }
+
+func TestGenerateReasoningEffort(t *testing.T) {
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "embed", Path: "e.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
+		"big":   {ReasoningEffort: "high"},
+		"embed": {Embedding: true, ReasoningEffort: "high"},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	// llama-swap splits cmd with POSIX shell rules, so the quoted JSON is
+	// one argument.
+	if want := `--chat-template-kwargs '{"reasoning_effort":"high"}'`; !strings.Contains(cfg.Models["big"].Cmd, want) {
+		t.Errorf("cmd missing %q:\n%s", want, cfg.Models["big"].Cmd)
+	}
+	if strings.Contains(cfg.Models["embed"].Cmd, "chat-template-kwargs") {
+		t.Errorf("an embedding model got the reasoning effort: %s", cfg.Models["embed"].Cmd)
+	}
+}

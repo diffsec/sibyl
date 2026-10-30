@@ -581,13 +581,13 @@ func TestModelAndHostChanges(t *testing.T) {
 	h := newHarness(t)
 	h.login()
 	w := h.do("POST", "/console/models/edit", url.Values{"id": {"qwen"}, "ctxsize": {"131072"}, "temperature": {"0.7"},
-		"spectypes": {"ngram-mod"}, "moelayers": {"all"}, "embedding": {"on"}}, true)
+		"spectypes": {"ngram-mod"}, "moelayers": {"all"}, "embedding": {"on"}, "reasoningeffort": {"medium"}}, true)
 	if !strings.Contains(w.Header().Get("Location"), "done=saved+qwen") {
 		t.Fatalf("save model %q", w.Header().Get("Location"))
 	}
 	b := h.api.body("PUT /models/qwen")
 	if b["ctx_size"] != 131072.0 || b["embedding"] != true || b["sampling"].(map[string]any)["temperature"] != 0.7 ||
-		b["moe"].(map[string]any)["cpu_layers"] == nil {
+		b["moe"].(map[string]any)["cpu_layers"] == nil || b["reasoning_effort"] != "medium" {
 		t.Errorf("settings %v", b)
 	}
 	w = h.do("POST", "/console/models/edit", url.Values{"id": {"qwen"}, "temperature": {"warm"}}, true)

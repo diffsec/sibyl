@@ -206,6 +206,7 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 	args = append(args, s.MoE.Flags()...)
 	if !s.Embedding {
 		args = append(args, s.Sampling.Flags()...)
+		args = append(args, s.ReasoningFlags()...)
 		args = append(args, s.Speculative.Flags(draftPath)...)
 	}
 	args = append(args, s.Args...)
