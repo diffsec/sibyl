@@ -755,3 +755,42 @@ func TestBootcSummaryReadsTheSlots(t *testing.T) {
 
 // userSystemctl is how a call to the sibyl user manager starts.
 var userSystemctl = "setpriv " + strings.Join(sibylPrefix, " ") + " systemctl --user"
+
+func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
+	d, _ := newDiag(t, "http://127.0.0.1:1")
+	ps := filepath.Join(d.Root, pstoreDir)
+	now := time.Now()
+	files := map[string]time.Time{
+		"dmesg-efi_pstore-100001001":        now.Add(-24 * time.Hour), // an older crash
+		"dmesg-efi_pstore-200001001":        now,
+		"dmesg-efi_pstore-200002001":        now,
+		"8c60eaca/dmesg-efi_pstore-2000031": now.Add(-time.Second),
+	}
+	for name, mt := range files {
+		p := filepath.Join(ps, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("Kernel panic\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range []string{p, filepath.Dir(p)} {
+			if err := os.Chtimes(q, mt, mt); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.Chtimes(ps, now, now); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := d.copyPstore(dir); err != nil {
+		t.Fatal(err)
+	}
+	for name := range files {
+		_, err := os.Stat(filepath.Join(dir, "pstore", name))
+		if want := !strings.Contains(name, "100001"); (err == nil) != want {
+			t.Errorf("%s copied = %v, want %v", name, err == nil, want)
+		}
+	}
+}

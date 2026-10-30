@@ -181,23 +181,43 @@ func (d *Diag) copyPstore(dir string) (string, error) {
 	if err != nil || len(entries) == 0 {
 		return "no pstore record\n", nil
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	latest := filepath.Join(d.path(pstoreDir), entries[len(entries)-1].Name())
+	// systemd-pstore archives one crash in one pass at boot: a directory
+	// per boot, or with EFI pstore one file per record. Copy every entry
+	// from that pass, which is every entry within a minute of the newest.
+	var newest time.Time
+	mod := map[string]time.Time{}
+	for _, e := range entries {
+		if info, err := e.Info(); err == nil {
+			mod[e.Name()] = info.ModTime()
+			if info.ModTime().After(newest) {
+				newest = info.ModTime()
+			}
+		}
+	}
 	target := filepath.Join(dir, "pstore")
-	err = filepath.WalkDir(latest, func(p string, e os.DirEntry, err error) error {
-		if err != nil || e.IsDir() || !e.Type().IsRegular() {
-			return err
+	var copied []string
+	for _, e := range entries {
+		t, ok := mod[e.Name()]
+		if !ok || newest.Sub(t) > time.Minute {
+			continue
 		}
-		rel, err := filepath.Rel(latest, p)
+		root := filepath.Join(d.path(pstoreDir), e.Name())
+		err := filepath.WalkDir(root, func(p string, e os.DirEntry, err error) error {
+			if err != nil || e.IsDir() || !e.Type().IsRegular() {
+				return err
+			}
+			rel, err := filepath.Rel(d.path(pstoreDir), p)
+			if err != nil {
+				return err
+			}
+			return copyFile(p, filepath.Join(target, rel))
+		})
 		if err != nil {
-			return err
+			return strings.Join(copied, "\n"), err
 		}
-		if rel == "." {
-			rel = e.Name()
-		}
-		return copyFile(p, filepath.Join(target, rel))
-	})
-	return "copied " + filepath.Base(latest) + "\n", err
+		copied = append(copied, "copied "+e.Name())
+	}
+	return strings.Join(copied, "\n") + "\n", nil
 }
 
 func copyFile(src, dst string) error {
