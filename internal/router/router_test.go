@@ -620,20 +620,11 @@ func TestDecisionLog(t *testing.T) {
 	h := newHarness(t, testProfiles)
 	resp := h.post(t, "/v1/chat/completions", hybridKey, chatBody("auto", "my password=hunter2hunter2"))
 	_, _ = io.ReadAll(resp.Body)
-	// The handler writes the entry after the response ends.
-	var b []byte
-	var err error
-	for i := 0; i < 100; i++ {
-		if b, err = os.ReadFile(filepath.Join(h.dir, "decisions.jsonl")); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// The handler writes the entry after the response ends, and the file
+	// exists before the line is in it.
+	e := logEntries(t, h, 1)[0]
+	b, err := os.ReadFile(filepath.Join(h.dir, "decisions.jsonl"))
 	if err != nil {
-		t.Fatal(err)
-	}
-	var e Entry
-	if err := json.Unmarshal(b, &e); err != nil {
 		t.Fatal(err)
 	}
 	if e.Client != "laptop" || e.Route != "local/small" || e.Rule != "secrets stay" || e.Status != 200 ||
