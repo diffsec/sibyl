@@ -121,23 +121,30 @@ func cpuInfo(text string) map[string]any {
 
 // bootcSummary keeps the image reference and digest of each slot.
 func (d *Diag) bootcSummary(raw string) map[string]any {
-	var st struct {
-		Status map[string]*struct {
-			Image *struct {
-				Image struct {
-					Image string `json:"image"`
-				} `json:"image"`
-				Digest  string `json:"imageDigest"`
-				Version string `json:"version"`
+	type entry struct {
+		Image *struct {
+			Image struct {
+				Image string `json:"image"`
 			} `json:"image"`
+			Digest  string `json:"imageDigest"`
+			Version string `json:"version"`
+		} `json:"image"`
+	}
+	// status also holds fields that are not slots, such as "type", so the
+	// slots are named fields and not a map.
+	var st struct {
+		Status struct {
+			Booted   *entry `json:"booted"`
+			Staged   *entry `json:"staged"`
+			Rollback *entry `json:"rollback"`
 		} `json:"status"`
 	}
 	out := map[string]any{}
 	if json.Unmarshal([]byte(raw), &st) != nil {
 		return out
 	}
-	for _, slot := range []string{"booted", "staged", "rollback"} {
-		if e := st.Status[slot]; e != nil && e.Image != nil {
+	for slot, e := range map[string]*entry{"booted": st.Status.Booted, "staged": st.Status.Staged, "rollback": st.Status.Rollback} {
+		if e != nil && e.Image != nil {
 			out[slot] = map[string]string{"image": e.Image.Image.Image, "digest": e.Image.Digest, "version": e.Image.Version}
 		}
 	}

@@ -105,6 +105,8 @@ The watchdog runs every 30 seconds. An HTTP probe must fail 3 times in a row bef
 
 The watchdog does not probe while the unit starts or stops, because an image pull at start can take minutes. It does nothing while the unit is `inactive`, because an operator stopped it, for example from Arcane.
 
+sibyl-diag reaches the `sibyl` user manager through `setpriv` to UID 1001 and its user bus, for the probes, the restart and the captures. `systemctl --user -M sibyl@` asks PID 1 for a transient bridge unit. On the test host that failed with "Connection reset by peer" while a PID 1 job hung, and the watchdog lost its restart.
+
 ### Recovery ladder
 
 `diag.Decide` picks the next step from the recovery history:

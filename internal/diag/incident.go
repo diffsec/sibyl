@@ -59,11 +59,10 @@ func (d *Diag) Capture(ctx context.Context, reason string, details map[string]an
 		return cmd(time.Minute, "journalctl", append([]string{"--no-pager", "-o", "short-iso-precise"}, args...)...)
 	}
 	user := func(args ...string) func() (any, error) {
-		return cmd(time.Minute, "systemctl", append([]string{"--user", "-M", "sibyl@", "--no-pager"}, args...)...)
+		return cmd(time.Minute, "setpriv", AsSibyl("systemctl", append([]string{"--user", "--no-pager"}, args...)...)...)
 	}
 	podman := func(args ...string) func() (any, error) {
-		return cmd(time.Minute, "runuser", append([]string{"-u", "sibyl", "--", "env",
-			"XDG_RUNTIME_DIR=/run/user/1001", "podman"}, args...)...)
+		return cmd(time.Minute, "setpriv", AsSibyl("podman", args...)...)
 	}
 
 	safe, why := d.SafeMode()

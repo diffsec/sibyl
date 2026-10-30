@@ -170,7 +170,7 @@ func NewWatchdog(d *Diag) *Watchdog {
 func (w *Watchdog) userSystemctl(ctx context.Context, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	return w.d.Run(ctx, "systemctl", append([]string{"--user", "-M", "sibyl@"}, args...)...)
+	return w.d.Run(ctx, "setpriv", AsSibyl("systemctl", append([]string{"--user"}, args...)...)...)
 }
 
 func (w *Watchdog) unitProperty(ctx context.Context, prop string) string {

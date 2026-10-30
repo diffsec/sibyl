@@ -390,11 +390,11 @@ func TestWatchdogStallAndRestart(t *testing.T) {
 	fs.healthy = false
 	fs.mu.Unlock()
 	w.Tick(ctx)
-	if fr.called("systemctl --user -M sibyl@ restart") {
+	if fr.called(userSystemctl + " restart") {
 		t.Fatal("one failure must not restart")
 	}
 	w.Tick(ctx)
-	if !fr.called("systemctl --user -M sibyl@ restart --no-block llama-swap.service") {
+	if !fr.called(userSystemctl + " restart --no-block llama-swap.service") {
 		t.Fatalf("no restart after two failures; calls: %v", fr.calls)
 	}
 	if st := d.LoadState(); st.LastAction != ActRestart || len(st.Restarts) != 1 {
@@ -407,7 +407,7 @@ func TestWatchdogStallAndRestart(t *testing.T) {
 	// The watchdog waits for llama-swap to start before it acts again.
 	w.Tick(ctx)
 	w.Tick(ctx)
-	if n := fr.count("systemctl --user -M sibyl@ restart"); n != 1 {
+	if n := fr.count(userSystemctl + " restart"); n != 1 {
 		t.Errorf("restarts = %d within the settle time, want 1", n)
 	}
 }
@@ -440,7 +440,7 @@ func TestWatchdogLeavesAStoppedOrStartingUnitAlone(t *testing.T) {
 		fr.active = state
 		w.Tick(context.Background())
 	}
-	if fr.called("systemctl --user -M sibyl@ restart") {
+	if fr.called(userSystemctl + " restart") {
 		t.Fatal("the watchdog restarted a unit that was stopped or starting")
 	}
 }
@@ -740,3 +740,18 @@ func TestSibylOwnedFilesCannotSteerRoot(t *testing.T) {
 		t.Error("readUserFile followed a symlink")
 	}
 }
+
+func TestBootcSummaryReadsTheSlots(t *testing.T) {
+	d, _ := newDiag(t, "http://127.0.0.1:1")
+	raw := `{"apiVersion":"org.containers.bootc/v1","status":{"type":"bootcHost","staged":null,` +
+		`"booted":{"image":{"image":{"image":"ghcr.io/diffsec/sibyl-os:latest-amd"},"version":"sha-1","imageDigest":"sha256:a"}},` +
+		`"rollback":{"image":null},"usrOverlay":null}}`
+	got := d.bootcSummary(raw)
+	b, ok := got["booted"].(map[string]string)
+	if !ok || b["version"] != "sha-1" || len(got) != 1 {
+		t.Fatalf("bootcSummary = %v", got)
+	}
+}
+
+// userSystemctl is how a call to the sibyl user manager starts.
+var userSystemctl = "setpriv " + strings.Join(sibylPrefix, " ") + " systemctl --user"

@@ -45,6 +45,18 @@ func Exec(ctx context.Context, name string, args ...string) (string, error) {
 	return stdout.String(), nil
 }
 
+// sibylPrefix runs a command as the sibyl user with its user bus. setpriv
+// needs no PAM session and no help from PID 1. "systemctl -M sibyl@" asks
+// PID 1 for a transient bridge unit, and that fails while a PID 1 job hangs,
+// which is when the watchdog needs it most.
+var sibylPrefix = []string{"--reuid=1001", "--regid=1001", "--init-groups", "--", "env",
+	"XDG_RUNTIME_DIR=/run/user/1001", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus"}
+
+// AsSibyl returns the setpriv arguments that run name as the sibyl user.
+func AsSibyl(name string, args ...string) []string {
+	return append(append(append([]string{}, sibylPrefix...), name), args...)
+}
+
 // Diag holds the paths, configuration and dependencies of every part.
 type Diag struct {
 	// Root is "/" on the host. Tests point it at a temporary tree.
