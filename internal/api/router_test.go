@@ -675,3 +675,33 @@ func TestEmbeddingReserveSplitAndSlots(t *testing.T) {
 		}
 	}
 }
+
+// TestMoESettings checks that a MoE model gets the expert flags, and that
+// a dense model refuses them.
+func TestMoESettings(t *testing.T) {
+	f := newFixture(t)
+	for id, kv := range map[string]map[string]any{
+		"dense": {"general.architecture": "llama", "llama.context_length": 4096},
+		"moe":   {"general.architecture": "qwen3moe", "qwen3moe.context_length": 4096, "qwen3moe.expert_count": 128},
+	} {
+		data, err := gguf.Encode(kv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(f.paths.Models, id+".gguf"), string(data))
+	}
+	body := `{"moe":{"cpu_layers":-1,"cache_mib":4096}}`
+	if code, b := f.do(t, "PUT", "/models/dense", body, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("dense model = %d %v, want 422", code, b)
+	}
+	if code, b := f.do(t, "PUT", "/models/moe", body, true); code != http.StatusOK {
+		t.Fatalf("moe model = %d %v", code, b)
+	}
+	cfg, err := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "--cpu-moe --moe-cache-mib 4096") {
+		t.Errorf("config:\n%s", cfg)
+	}
+}

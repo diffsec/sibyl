@@ -99,3 +99,25 @@ func TestThousands(t *testing.T) {
 		}
 	}
 }
+
+func TestContextNoteMoE(t *testing.T) {
+	// 40 GiB of weights, of which 36 GiB are experts in 4 layers.
+	m := client.Model{Model: models.Model{ID: "m", Size: 40 << 30}, Meta: &models.Meta{
+		Architecture: "qwen3moe", ContextLength: 32768, KElems: 4 * 4 * 128, VElems: 4 * 4 * 128, MaxLayerKV: 1024,
+		GPUWeights: 40 << 30, ExpertCount: 128, ExpertBytes: []int64{9 << 30, 9 << 30, 9 << 30, 9 << 30},
+	}}
+	hw := hardware.Config{Backend: hardware.BackendHIP, GPUs: []int{0}, Layout: hardware.LayoutSpan}
+	gpus := []gpu.GPU{{Index: 0, VRAMTotal: 24 << 30}}
+
+	if got := contextNote(m, &settingsForm{}, hw, gpus); !strings.Contains(got, "more than the GPUs hold") {
+		t.Errorf("experts on the GPU: %q", got)
+	}
+	got := contextNote(m, &settingsForm{MoELayers: "all", MoECacheMiB: "8192"}, hw, gpus)
+	if strings.Contains(got, "more than the GPUs hold") || !strings.Contains(got, "weights and expert cache 12.0 GiB") {
+		t.Errorf("experts in RAM with an 8 GiB cache: %q", got)
+	}
+	if got := moeNote(m, &settingsForm{MoELayers: "2"}); !strings.Contains(got, "18.0 GiB of experts stay in system RAM") ||
+		!strings.Contains(got, "first N of 4 layers") {
+		t.Errorf("moe note: %q", got)
+	}
+}

@@ -213,3 +213,16 @@ func TestGenerateParallelAndSplit(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateMoE(t *testing.T) {
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), installed[:2], map[string]models.Settings{
+		"big-70b":  {MoE: models.MoE{CPULayers: models.AllLayers, CacheMiB: 8192}},
+		"chat-14b": {MoE: models.MoE{CacheMiB: 512}},
+	})
+	if !strings.Contains(cfg.Models["big-70b"].Cmd, " --cpu-moe --moe-cache-mib 8192") {
+		t.Errorf("cmd = %q", cfg.Models["big-70b"].Cmd)
+	}
+	if len(issues) != 1 || issues[0].ID != "chat-14b" || !issues[0].Skipped {
+		t.Errorf("issues = %+v, want chat-14b skipped for a cache without host experts", issues)
+	}
+}

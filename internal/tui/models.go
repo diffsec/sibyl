@@ -173,6 +173,14 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			huh.NewConfirm().Title("Hide from the model list").Value(&f.Hidden),
 		).Title("Model"),
 		huh.NewGroup(
+			huh.NewInput().Title("Experts in system RAM").Placeholder("none").Value(&f.MoELayers).
+				Validate(func(v string) error { _, err := parseMoELayers(v); return err }).
+				DescriptionFunc(func() string { return moeNote(m, f) }, f),
+			optionalNumber("Expert GPU cache, MiB", "", true, &f.MoECacheMiB).Placeholder("off").
+				Description("GPU memory that keeps the most used experts from system RAM. It needs experts in system RAM.\n"+
+					"Context size counts it, so a larger cache gives a shorter automatic context."),
+		).Title("Mixture of Experts").WithHideFunc(func() bool { return m.Meta == nil || m.Meta.ExpertCount == 0 }),
+		huh.NewGroup(
 			huh.NewSelect[string]().Title("Preset").Inline(true).Options(presetOpts...).Value(&f.Preset).
 				Description(presetNote(m.Meta)),
 			sampleField("Temperature", "0 to 5", false, &f.Temperature, func(s models.Sampling) *float64 { return s.Temperature }, fileSampling.Temperature, "0.8"),

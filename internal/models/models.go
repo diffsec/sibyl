@@ -178,6 +178,7 @@ type Settings struct {
 	Sampling    Sampling    `yaml:"sampling,omitempty" json:"sampling,omitzero"`
 	Speculative Speculative `yaml:"speculative,omitempty" json:"speculative,omitzero"`
 	KVCache     KVCache     `yaml:"kv_cache,omitempty" json:"kv_cache,omitzero"`
+	MoE         MoE         `yaml:"moe,omitempty" json:"moe,omitzero"`
 	// Fit decides what an automatic context gives up when VRAM is short:
 	// quality (the default) or context.
 	Fit FitMode `yaml:"fit,omitempty" json:"fit,omitempty"`
@@ -242,6 +243,9 @@ func (s Settings) Validate(selected int) error {
 		return err
 	}
 	if err := s.KVCache.Validate(); err != nil {
+		return err
+	}
+	if err := s.MoE.Validate(); err != nil {
 		return err
 	}
 	if s.Fit != "" && s.Fit != FitQuality && s.Fit != FitContext {

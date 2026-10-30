@@ -184,6 +184,8 @@ Each model has typed settings in `models.yaml`. The System API checks every valu
 | `speculative.draft_max`, `draft_min` | `--spec-draft-n-max`, `--spec-draft-n-min` | 1 to 64, and 0 to 64 |
 | `speculative.ngram_mod_min`, `ngram_mod_max` | `--spec-ngram-mod-n-min`, `--spec-ngram-mod-n-max` | 1 to 64 |
 | `kv_cache.type_k`, `type_v` | `--cache-type-k`, `--cache-type-v` | `f32`, `f16`, `bf16`, `q8_0`, `q4_0`, `q4_1`, `iq4_nl`, `q5_0`, `q5_1` |
+| `moe.cpu_layers` | `--n-cpu-moe`, or `--cpu-moe` for -1 | -1 (all layers), 0 (off), or 1 to 4096 |
+| `moe.cache_mib` | `--moe-cache-mib` | 0 (off) to 1,048,576, and only with `moe.cpu_layers` |
 
 The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.cpp upgrade must recheck them, because llama.cpp renames speculative flags between releases.
 
@@ -210,6 +212,19 @@ The TUI's context field shows what Sibyl chooses and an estimate of the GPU memo
 - for a quantized cache, 4 bytes for each K and V element of the largest layer.
 
 These terms come from measurements on the test host (llama.cpp b11889, ROCm): the VRAM change between a 32,768 and a 131,072 token context. The estimate matched six of seven measurements within 0.4%, across a dense model, a hybrid model, and a sliding-window model at f16, q8_0 and q4_0. It was 3% low on a model with compressed attention layers. `internal/models/meta_test.go` holds the measured values.
+
+### Mixture of Experts offload
+
+A Mixture of Experts (MoE) model routes each token through a few of its experts, so most expert weights sit idle at any time. The `moe` settings keep the expert weights in system RAM and give the GPUs the rest of the model. This lets a MoE model that is larger than the VRAM run with its attention layers and KV cache on the GPUs. The setting names and flags come from llama.cpp b11889 (`common/arg.cpp`).
+
+- `moe.cpu_layers` keeps the routed experts of the first N layers in system RAM, and -1 keeps all of them there. The expert tensors are those that match `blk.N.ffn_(up|down|gate|gate_up)_(ch|)exps`. Shared experts stay on the GPUs.
+- `moe.cache_mib` is a GPU cache for the experts in system RAM. llama.cpp copies each expert that a token picks into the cache, and keeps the most used ones there (`src/llama-moe-cache.cpp`, a segmented LRU). An expert that is in the cache runs on the GPU. One that is not runs on the CPU. With two GPUs, llama.cpp splits the cache like the layers.
+
+The experts in system RAM stay memory-mapped from the model file. llama.cpp reads the whole file once at load, but the pages are clean, so the kernel can drop them. When RAM is short, the kernel drops the experts that go unused, and reads an expert back from disk when the router picks it again. A model larger than the RAM then still runs, at the speed of the disk for the experts that miss. A `--load-mode` of `mlock` or `none` in `args` turns this off: every expert then stays in RAM.
+
+The context fit counts the moved experts out of the GPU weights, and counts the cache in (`models.Meta.VRAMWeights`). The cache counts up to the size of the experts in system RAM, because llama.cpp gives it no more slots than that. A larger cache therefore gives a shorter automatic context. `GET /models` reports each model's `expert_count` and the expert bytes of each layer (`expert_layer_bytes`).
+
+The System API refuses `moe` settings for a model file with no `expert_count`, because llama.cpp fails to load a dense model with a MoE cache. The TUI shows the Mixture of Experts group only for a MoE model, and its description gives the size of the experts that stay in system RAM. llama.cpp turns off pipeline parallelism with a MoE cache, and refuses a cache with `--split-mode tensor`, which Sibyl does not use.
 
 The sampling fields show the model file's recommendation, or llama.cpp's default, as their placeholder. llama-server applies the file's values when a setting is empty: `/props` on the test host reported the file's temperature 1.0 and top-k 20.
 
@@ -444,4 +459,5 @@ To update a host:
 
 ## Open items
 
+- The MoE offload settings have no measurements on the test host yet. A benchmark must compare `moe.cpu_layers` and `moe.cache_mib` values on a MoE model larger than the VRAM, and record the tokens per second and the VRAM in use.
 - Arcane Git Sync polls and has no webhooks. Compose files pulled from Git are read-only in the Arcane UI.

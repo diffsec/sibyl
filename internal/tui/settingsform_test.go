@@ -15,6 +15,7 @@ func TestSettingsFormRoundTrip(t *testing.T) {
 		Sampling:    models.Sampling{Temperature: &temp, TopP: &topP, TopK: &topK},
 		Speculative: models.Speculative{Types: []string{"draft-simple"}, DraftModel: "drafter", DraftMax: &draftMax},
 		KVCache:     models.KVCache{TypeK: "q8_0", TypeV: "q8_0"},
+		MoE:         models.MoE{CPULayers: models.AllLayers, CacheMiB: 8192},
 		Args:        []string{"--batch-size=2048"},
 	}
 	out, err := formFromSettings(in).toSettings()
@@ -39,6 +40,12 @@ func TestSettingsFormEmptyAndErrors(t *testing.T) {
 	}
 	if _, err := (settingsForm{TopK: "2.5"}).toSettings(); err == nil {
 		t.Error("want an error for a fractional top k")
+	}
+	if out, err := (settingsForm{MoELayers: " 12 "}).toSettings(); err != nil || out.MoE.CPULayers != 12 {
+		t.Errorf("moe layers 12 = %+v, %v", out.MoE, err)
+	}
+	if _, err := (settingsForm{MoELayers: "most"}).toSettings(); err == nil {
+		t.Error("want an error for experts in system RAM that is not all or a number")
 	}
 	// A draft model without a speculative type is dropped, and "none" is not a type.
 	out, _ = settingsForm{SpecTypes: []string{"none"}, DraftModel: "x"}.toSettings()

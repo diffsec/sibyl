@@ -29,6 +29,14 @@ func TestTuningValidate(t *testing.T) {
 		{"raw temp blocked", Settings{Args: []string{"--temp", "0.5"}}, true},
 		{"raw spec-type blocked", Settings{Args: []string{"--spec-type=ngram-mod"}}, true},
 		{"raw ctx blocked", Settings{Args: []string{"-c", "4096"}}, true},
+		{"moe all layers with a cache", Settings{MoE: MoE{CPULayers: AllLayers, CacheMiB: 8192}}, false},
+		{"moe first layers", Settings{MoE: MoE{CPULayers: 12}}, false},
+		{"moe layers below all", Settings{MoE: MoE{CPULayers: -2}}, true},
+		{"moe cache without host experts", Settings{MoE: MoE{CacheMiB: 1024}}, true},
+		{"moe cache negative", Settings{MoE: MoE{CPULayers: 4, CacheMiB: -1}}, true},
+		{"raw cpu-moe blocked", Settings{Args: []string{"--cpu-moe"}}, true},
+		{"raw n-cpu-moe blocked", Settings{Args: []string{"-ncmoe", "4"}}, true},
+		{"raw moe-cache-mib blocked", Settings{Args: []string{"--moe-cache-mib=512"}}, true},
 	}
 	for _, c := range cases {
 		if err := c.s.Validate(2); (err != nil) != c.wantErr {
@@ -55,5 +63,18 @@ func TestTuningFlags(t *testing.T) {
 	want = []string{"--cache-type-k", "q8_0", "--cache-type-v", "q8_0"}
 	if !slices.Equal(got, want) {
 		t.Errorf("kv flags = %v, want %v", got, want)
+	}
+	got = MoE{CPULayers: AllLayers, CacheMiB: 4096}.Flags()
+	want = []string{"--cpu-moe", "--moe-cache-mib", "4096"}
+	if !slices.Equal(got, want) {
+		t.Errorf("moe flags = %v, want %v", got, want)
+	}
+	got = MoE{CPULayers: 20}.Flags()
+	want = []string{"--n-cpu-moe", "20"}
+	if !slices.Equal(got, want) {
+		t.Errorf("moe flags = %v, want %v", got, want)
+	}
+	if got := (MoE{}).Flags(); got != nil {
+		t.Errorf("empty moe flags = %v", got)
 	}
 }

@@ -31,6 +31,8 @@ type settingsForm struct {
 	NgramModMax     string
 	KVTypeK         string
 	KVTypeV         string
+	MoELayers       string // empty, "all", or a number of layers
+	MoECacheMiB     string
 	Fit             string // quality (or empty) or context
 	Preset          string // empty, or one of models.Presets
 	Args            string // space separated
@@ -69,6 +71,7 @@ func formFromSettings(s models.Settings) settingsForm {
 		NgramModMax:     fmtInt(s.Speculative.NgramModMax),
 		KVTypeK:         s.KVCache.TypeK,
 		KVTypeV:         s.KVCache.TypeV,
+		MoELayers:       fmtMoELayers(s.MoE.CPULayers),
 		Fit:             string(s.Fit),
 		Preset:          s.Preset,
 		Args:            strings.Join(s.Args, " "),
@@ -79,12 +82,42 @@ func formFromSettings(s models.Settings) settingsForm {
 	if s.Parallel > 0 {
 		f.Parallel = strconv.Itoa(s.Parallel)
 	}
+	if s.MoE.CacheMiB > 0 {
+		f.MoECacheMiB = strconv.Itoa(s.MoE.CacheMiB)
+	}
 	split := make([]string, len(s.TensorSplit))
 	for i, v := range s.TensorSplit {
 		split[i] = strconv.FormatFloat(v, 'f', -1, 64)
 	}
 	f.TensorSplit = strings.Join(split, ",")
 	return f
+}
+
+func fmtMoELayers(n int) string {
+	switch {
+	case n == models.AllLayers:
+		return "all"
+	case n > 0:
+		return strconv.Itoa(n)
+	}
+	return ""
+}
+
+// parseMoELayers reads the experts field: empty, "all", or a number of
+// layers.
+func parseMoELayers(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if strings.EqualFold(v, "all") {
+		return models.AllLayers, nil
+	}
+	n, err := parseInt("experts in system RAM", v)
+	if err != nil {
+		return 0, fmt.Errorf("experts in system RAM: %q is not \"all\" or a whole number", v)
+	}
+	if n == nil {
+		return 0, nil
+	}
+	return *n, nil
 }
 
 func parseFloat(name, v string) (*float64, error) {
@@ -132,6 +165,14 @@ func (f settingsForm) toSettings() (models.Settings, error) {
 		return s, e
 	} else if n != nil {
 		s.Parallel = *n
+	}
+	if s.MoE.CPULayers, err = parseMoELayers(f.MoELayers); err != nil {
+		return s, err
+	}
+	if n, e := parseInt("expert GPU cache", f.MoECacheMiB); e != nil {
+		return s, e
+	} else if n != nil {
+		s.MoE.CacheMiB = *n
 	}
 	for _, part := range strings.FieldsFunc(f.TensorSplit, func(r rune) bool { return r == ',' || r == ' ' }) {
 		v, e := parseFloat("tensor split", part)

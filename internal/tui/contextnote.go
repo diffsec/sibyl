@@ -22,12 +22,14 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	vram := hardware.VRAM(used)
 	set, _ := strconv.Atoi(strings.TrimSpace(f.CtxSize))
 	weights := m.Meta.Weights(m.Size)
+	moe := formMoE(f)
+	gpuWeights := m.Meta.VRAMWeights(m.Size, moe)
 	var reserved int64
 	if m.Fit != nil {
 		reserved = m.Fit.Reserved
 	}
 	slots, _ := strconv.Atoi(strings.TrimSpace(f.Parallel))
-	fit := m.Meta.FitContext(models.FitInput{Mode: models.FitMode(f.Fit), Weights: weights, VRAM: vram,
+	fit := m.Meta.FitContext(models.FitInput{Mode: models.FitMode(f.Fit), Weights: gpuWeights, VRAM: vram,
 		Reserved: reserved, Ctx: max(set, 0), TypeK: f.KVTypeK, TypeV: f.KVTypeV, Slots: slots})
 	ctx, typeK, typeV := fit.Ctx, fit.TypeK, fit.TypeV
 	if ctx == 0 {
@@ -55,8 +57,11 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 		lines = append(lines, "This is over the native context, so answers can get worse.")
 	}
 	cost := m.Meta.ContextBytes(ctx, typeK, typeV)
-	total := cost + weights + reserved
-	line := fmt.Sprintf("At %s tokens: context about %s + weights %s", thousands(ctx), gib(cost), gib(weights))
+	total := cost + gpuWeights + reserved
+	line := fmt.Sprintf("At %s tokens: context about %s + weights %s", thousands(ctx), gib(cost), gib(gpuWeights))
+	if moe.Enabled() {
+		line = fmt.Sprintf("At %s tokens: context about %s + weights and expert cache %s", thousands(ctx), gib(cost), gib(gpuWeights))
+	}
 	if reserved > 0 {
 		line += fmt.Sprintf(" + embedding models %s", gib(reserved))
 	}
@@ -73,6 +78,33 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	if vram > 0 && float64(total) > models.FitMargin*float64(vram) {
 		lines = append(lines, "This is more than the GPUs hold, so llama.cpp keeps part of it in system RAM, which is slower.\n"+
 			"A smaller context, a q8_0 or q4_0 KV cache, or more GPUs keeps it all on the GPUs.")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// formMoE reads the MoE fields of the form. A value that does not parse
+// counts as not set; the field's validator reports it.
+func formMoE(f *settingsForm) models.MoE {
+	layers, _ := parseMoELayers(f.MoELayers)
+	cache, _ := strconv.Atoi(strings.TrimSpace(f.MoECacheMiB))
+	return models.MoE{CPULayers: layers, CacheMiB: max(cache, 0)}
+}
+
+// moeNote describes where the experts of a MoE model go for the values in
+// the form. It is the description of the experts field.
+func moeNote(m client.Model, f *settingsForm) string {
+	lines := []string{fmt.Sprintf("\"all\", or the first N of %d layers. Empty keeps every expert on the GPUs.",
+		len(m.Meta.ExpertBytes))}
+	moe := formMoE(f)
+	host := m.Meta.HostExperts(moe)
+	if host == 0 {
+		lines = append(lines, "The model has "+strconv.Itoa(m.Meta.ExpertCount)+" experts per layer.")
+		return strings.Join(lines, "\n")
+	}
+	lines = append(lines, fmt.Sprintf("%s of experts stay in system RAM, memory-mapped from the model file. When RAM is\n"+
+		"short, the kernel drops the experts that go unused and reads them back from disk when a token picks them.", gib(host)))
+	if moe.CacheMiB == 0 {
+		lines = append(lines, "The CPU computes them. An expert GPU cache moves the most used ones to the GPUs.")
 	}
 	return strings.Join(lines, "\n")
 }

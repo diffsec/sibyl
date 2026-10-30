@@ -3,6 +3,7 @@ package models
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/diffsec/sibyl/internal/gguf"
@@ -168,5 +169,62 @@ func TestReadMetaGPUWeights(t *testing.T) {
 	alone := write(t.TempDir(), "a-00001-of-00002.gguf", []gguf.Tensor{{Name: "blk.0.ffn_up.weight", Size: 512}})
 	if m, err := ReadMeta(alone); err != nil || m.GPUWeights != 0 || m.Weights(777) != 777 {
 		t.Errorf("missing shard: GPU weights = %d, %v", m.GPUWeights, err)
+	}
+}
+
+func TestReadMetaExperts(t *testing.T) {
+	kv := map[string]any{"general.architecture": "qwen3moe", "qwen3moe.context_length": uint32(4096),
+		"qwen3moe.expert_count": uint32(128)}
+	data, err := gguf.EncodeTensors(kv, []gguf.Tensor{
+		{Name: "token_embd.weight", Size: 1024}, {Name: "output.weight", Size: 1024},
+		{Name: "blk.0.attn_q.weight", Size: 96},
+		{Name: "blk.0.ffn_up_exps.weight", Size: 1024}, {Name: "blk.0.ffn_down_exps.weight", Size: 1024},
+		{Name: "blk.0.ffn_up_shexp.weight", Size: 64}, // shared expert: stays on the GPUs
+		{Name: "blk.1.ffn_gate_up_exps.weight", Size: 3072},
+		{Name: "blk.2.ffn_gate_chexps.weight", Size: 512},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(t.TempDir(), "moe.gguf")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := ReadMeta(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.ExpertCount != 128 {
+		t.Errorf("expert count = %d, want 128", m.ExpertCount)
+	}
+	if want := []int64{2048, 3072, 512}; !slices.Equal(m.ExpertBytes, want) {
+		t.Errorf("expert bytes = %v, want %v", m.ExpertBytes, want)
+	}
+	gpu := int64(1024 + 96 + 2048 + 64 + 3072 + 512)
+	if m.GPUWeights != gpu {
+		t.Fatalf("GPU weights = %d, want %d", m.GPUWeights, gpu)
+	}
+
+	cases := []struct {
+		moe  MoE
+		want int64
+	}{
+		{MoE{}, gpu},
+		{MoE{CPULayers: 1}, gpu - 2048},
+		{MoE{CPULayers: 99}, gpu - 5632}, // more layers than the model has
+		{MoE{CPULayers: AllLayers}, gpu - 5632},
+		// The cache comes back as GPU memory, up to the experts it can hold.
+		{MoE{CPULayers: AllLayers, CacheMiB: 1}, gpu},
+	}
+	for _, c := range cases {
+		if got := m.VRAMWeights(0, c.moe); got != c.want {
+			t.Errorf("%+v: VRAM weights = %d, want %d", c.moe, got, c.want)
+		}
+	}
+
+	// A cache smaller than the host experts counts in full.
+	big := Meta{GPUWeights: 10 << 30, ExpertBytes: []int64{4 << 30, 4 << 30}}
+	if got, want := big.VRAMWeights(0, MoE{CPULayers: AllLayers, CacheMiB: 1024}), int64(2<<30+1<<30); got != want {
+		t.Errorf("cache 1 GiB: VRAM weights = %d, want %d", got, want)
 	}
 }
