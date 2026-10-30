@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,11 +13,13 @@ import (
 	"charm.land/huh/v2"
 
 	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 type routerLoaded struct {
 	r   client.Router
 	st  client.RouterStats
+	cal client.RouterCalibration
 	err error
 }
 
@@ -53,20 +54,27 @@ type routerView struct {
 	c      *client.Client
 	r      client.Router
 	st     client.RouterStats
+	cal    client.RouterCalibration
 	err    error
 	cursor int // selected client
 	ticks  bool
 
 	form *huh.Form
-	mode string // new, edit, delete, rekey, pick, catalog, provider, unprovider
+	mode string // new, edit, delete, rekey, pick, catalog, provider, unprovider, apply
 	// Form values.
-	name, policy, daily, monthly string
-	allowHint, confirm           bool
-	ptype, baseURL, apiKey, mods string
+	name, policy, daily, monthly  string
+	allowHint, calibrate, confirm bool
+	ptype, baseURL, apiKey, mods  string
 	// The models.dev picker: the chosen provider and models.
 	pick     string
 	catModel []string
 	catProv  client.CatalogModels
+	// proposal is the calibration proposal that the apply form picks.
+	proposal string
+	// pf holds the values of the profile, rule and calibration forms, and
+	// models the installed models that they offer.
+	pf     profileForm
+	models []client.Model
 	// key is a new client's key, shown until the next action.
 	key, keyFor string
 }
@@ -82,7 +90,12 @@ func (v *routerView) fetch() tea.Cmd {
 			return routerLoaded{err: err}
 		}
 		st, err := v.c.RouterStats(ctx)
-		return routerLoaded{r, st, err}
+		if err != nil {
+			return routerLoaded{r: r, st: st, err: err}
+		}
+		// An older System API has no calibration report.
+		cal, _ := v.c.RouterCalibration(ctx)
+		return routerLoaded{r: r, st: st, cal: cal}
 	}
 }
 
@@ -100,7 +113,13 @@ func (v *routerView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	h := "n new client · e edit · p add or change provider · x delete provider · ↑/↓ select"
+	h := "n new client · e edit · p add or change provider · x delete provider · m profiles · r rules · c calibration · s classifier · ↑/↓ select"
+	if len(v.cal.Proposals) > 0 {
+		h += " · a apply a calibration proposal"
+	}
+	if v.cal.Samples > 0 {
+		h += " · C delete the samples"
+	}
 	if c, ok := v.selected(); ok && !c.Builtin {
 		h += " · k new key · d delete client"
 	}
@@ -168,7 +187,7 @@ func usd(f float64) string {
 }
 
 func (v *routerView) editForm(c client.RouterClient) tea.Cmd {
-	v.mode, v.name, v.policy, v.allowHint = "edit", c.Name, c.Policy, c.AllowHint
+	v.mode, v.name, v.policy, v.allowHint, v.calibrate = "edit", c.Name, c.Policy, c.AllowHint, c.Calibrate
 	v.daily, v.monthly = "", ""
 	if c.Budget != nil {
 		v.daily, v.monthly = usd(c.Budget.DailyUSD), usd(c.Budget.MonthlyUSD)
@@ -179,6 +198,9 @@ func (v *routerView) editForm(c client.RouterClient) tea.Cmd {
 		huh.NewConfirm().Title("Allow the cloud hint").
 			Description("Lets the client send X-Sibyl-Route: cloud to ask for a provider.").
 			Affirmative("Allow").Negative("No").Value(&v.allowHint),
+		huh.NewConfirm().Title("Calibrate").
+			Description("Keeps 2% of the requests and answers on the host to compare the local model with a provider. Hybrid clients only.").
+			Affirmative("Yes").Negative("No").Value(&v.calibrate),
 	}, budgetFields(&v.daily, &v.monthly)...)
 	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
 	return v.form.Init()
@@ -373,16 +395,33 @@ func (v *routerView) budget() *client.RouterBudget {
 	return &client.RouterBudget{DailyUSD: d, MonthlyUSD: m}
 }
 
-func (v *routerView) submit() tea.Cmd {
-	run := func(what string, fn func(context.Context) (string, error)) tea.Cmd {
-		v.key, v.keyFor = "", ""
-		return tea.Batch(note(true, "%s…", what), func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-			key, err := fn(ctx)
-			return routerDone{what, key, err}
-		})
+// providerPrices returns the prices of a provider that exists, so that a
+// change of the provider keeps them.
+func (v *routerView) providerPrices(name string) map[string]router.Price {
+	for _, p := range v.r.Providers {
+		if p.Name == name {
+			return p.Prices
+		}
 	}
+	return nil
+}
+
+// run sends one change to the System API and reports the result.
+func (v *routerView) run(what string, fn func(context.Context) (string, error)) tea.Cmd {
+	v.key, v.keyFor = "", ""
+	return tea.Batch(note(true, "%s…", what), func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		key, err := fn(ctx)
+		return routerDone{what, key, err}
+	})
+}
+
+func (v *routerView) submit() tea.Cmd {
+	if cmd, ok := v.submitProfiles(); ok {
+		return cmd
+	}
+	run := v.run
 	name, b := strings.TrimSpace(v.name), v.budget()
 	switch v.mode {
 	case "new":
@@ -392,9 +431,9 @@ func (v *routerView) submit() tea.Cmd {
 			return nc.Key, err
 		})
 	case "edit":
-		policy, hint := v.policy, v.allowHint
+		policy, hint, calibrate := v.policy, v.allowHint, v.calibrate
 		return run("change client "+name, func(ctx context.Context) (string, error) {
-			return "", v.c.SetRouterClient(ctx, name, policy, hint, b)
+			return "", v.c.SetRouterClient(ctx, name, policy, hint, b, calibrate)
 		})
 	case "rekey":
 		if !v.confirm {
@@ -403,6 +442,14 @@ func (v *routerView) submit() tea.Cmd {
 		return run("new key for "+name, func(ctx context.Context) (string, error) {
 			nc, err := v.c.NewRouterClientKey(ctx, name)
 			return nc.Key, err
+		})
+	case "apply":
+		if !v.confirm {
+			return note(false, "the rules are unchanged")
+		}
+		id := v.proposal
+		return run("apply calibration proposal", func(ctx context.Context) (string, error) {
+			return "", v.c.ApplyCalibration(ctx, id)
 		})
 	case "delete":
 		if !v.confirm {
@@ -421,14 +468,20 @@ func (v *routerView) submit() tea.Cmd {
 				func(p client.CatalogModels, err error) tea.Msg { return catalogModelsLoaded{p, err} }))
 	case "catalog":
 		p := client.ProviderRequest{Type: v.catProv.Type, BaseURL: v.catProv.BaseURL,
-			APIKey: strings.TrimSpace(v.apiKey), Models: v.catModel, Catalog: v.catProv.ID}
+			APIKey: strings.TrimSpace(v.apiKey), Models: v.catModel, Catalog: v.catProv.ID,
+			Prices: v.providerPrices(name)}
 		v.apiKey = ""
 		return run("set provider "+name+" (checking the key)", func(ctx context.Context) (string, error) {
 			return "", v.c.SetRouterProvider(ctx, name, p)
 		})
 	case "provider":
 		p := client.ProviderRequest{Type: v.ptype, BaseURL: strings.TrimSpace(v.baseURL),
-			APIKey: strings.TrimSpace(v.apiKey), Models: strings.Fields(v.mods)}
+			APIKey: strings.TrimSpace(v.apiKey), Models: strings.Fields(v.mods), Prices: v.providerPrices(name)}
+		for _, old := range v.r.Providers {
+			if old.Name == name {
+				p.Catalog = old.Catalog
+			}
+		}
 		v.apiKey = ""
 		return run("set provider "+name+" (checking the key)", func(ctx context.Context) (string, error) {
 			return "", v.c.SetRouterProvider(ctx, name, p)
@@ -451,12 +504,14 @@ func (v *routerView) update(msg tea.Msg) tea.Cmd {
 	case routerLoaded:
 		v.err = msg.err
 		if msg.err == nil || len(msg.r.Clients) > 0 {
-			v.r, v.st = msg.r, msg.st
+			v.r, v.st, v.cal = msg.r, msg.st, msg.cal
 		}
 		if v.cursor >= len(v.r.Clients) {
 			v.cursor = 0
 		}
 		return nil
+	case modelsForForm:
+		return v.modelsLoaded(msg)
 	case catalogLoaded:
 		if msg.err != nil {
 			// With no index, the picker falls back to the manual form.
@@ -529,8 +584,44 @@ func (v *routerView) keyPress(k string) tea.Cmd {
 		return v.loadCatalog()
 	case "x":
 		return v.unproviderForm()
+	case "a":
+		if len(v.cal.Proposals) > 0 {
+			return v.applyForm()
+		}
+	case "m":
+		return v.loadModels("profilepick")
+	case "r":
+		return v.rulePickForm()
+	case "c":
+		return v.calibrationForm()
+	case "s":
+		return v.loadModels("classifier")
+	case "C":
+		if v.cal.Samples > 0 {
+			return v.clearForm()
+		}
 	}
 	return nil
+}
+
+func proposalText(p client.CalibrationProposal) string {
+	return fmt.Sprintf("%s: %s %s from %s to %s (local won or tied %.0f%% of %d)",
+		p.Profile, p.Task, p.Difficulty, p.Current, p.Route, p.LocalOKRate*100, p.Comparisons)
+}
+
+func (v *routerView) applyForm() tea.Cmd {
+	v.mode, v.proposal, v.confirm = "apply", v.cal.Proposals[0].ID, false
+	opts := make([]huh.Option[string], len(v.cal.Proposals))
+	for i, p := range v.cal.Proposals {
+		opts[i] = huh.NewOption(proposalText(p), p.ID)
+	}
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().Title("Calibration proposal").Options(opts...).Value(&v.proposal),
+		huh.NewConfirm().Title("Add this rule to the profile?").
+			Description("The rule goes after the rules for sensitive and long requests.").
+			Affirmative("Apply").Negative("Keep the rules").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
 }
 
 func money(f float64) string { return fmt.Sprintf("$%.2f", f) }
@@ -569,6 +660,9 @@ func (v *routerView) render(int) string {
 			policy = selSty.Render(c.Policy)
 		}
 		line := fmt.Sprintf("%-16s %-10s %5d req  %s", c.Name, policy, v.st.ByClient[c.Name], budgetText(c, v.st.Spend[c.Name]))
+		if c.Calibrate && c.Policy == "hybrid" {
+			line += "  " + mutedSty.Render("calibrates")
+		}
 		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
 	}
 	if v.key != "" {
@@ -597,30 +691,23 @@ func (v *routerView) render(int) string {
 	}
 
 	b.WriteString("\n" + titleSty.Render("Profiles") + "\n")
-	names := make([]string, 0, len(v.r.Profiles.Profiles))
-	for n := range v.r.Profiles.Profiles {
-		names = append(names, n)
+	if len(v.r.Profiles.Profiles) == 0 {
+		b.WriteString(mutedSty.Render("  none · press m to make one") + "\n")
 	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		b.WriteString(mutedSty.Render("  none · set them with PUT /system/router/profiles") + "\n")
-	}
-	for _, n := range names {
-		p := v.r.Profiles.Profiles[n]
-		model := n
-		if n != "auto" {
-			model = "auto:" + n
-		}
-		var routes []string
-		for _, r := range p.Rules {
-			routes = append(routes, r.Route)
-		}
-		fmt.Fprintf(&b, "  %-14s local %s · %d rules → %s\n", model, p.LocalModel, len(p.Rules), strings.Join(routes, ", "))
-	}
+	v.renderRules(&b)
+
+	v.renderCalibration(&b)
 
 	fmt.Fprintf(&b, "\n%s  %d requests, %d errors", titleSty.Render("Last decisions"), v.st.Requests, v.st.Errors)
 	if v.st.Unpriced > 0 {
 		b.WriteString(badSty.Render(fmt.Sprintf(", %d with no price", v.st.Unpriced)))
+	}
+	regen := 0
+	for _, n := range v.st.Regenerated {
+		regen += n
+	}
+	if regen > 0 {
+		fmt.Fprintf(&b, ", %d asked again within a minute", regen)
 	}
 	b.WriteString("\n")
 	for i, e := range v.st.Last {
@@ -641,4 +728,33 @@ func (v *routerView) render(int) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// renderCalibration shows the calibration report, when there are samples.
+func (v *routerView) renderCalibration(b *strings.Builder) {
+	c := v.cal
+	if c.Samples == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n%s  %d samples, %d judged, %d waiting, %d failed · %s of %s today\n",
+		titleSty.Render("Calibration"), c.Samples, c.Judged, c.Pending, c.Failed, money(c.SpentTodayUSD), money(c.DailyUSD))
+	if st := c.Status; st != nil && (st.State == "waiting" || st.State == "error") {
+		b.WriteString(badSty.Render("  "+st.State+": "+st.Reason) + "\n")
+	}
+	for i, cell := range c.Cells {
+		if i == 10 {
+			b.WriteString(mutedSty.Render(fmt.Sprintf("  and %d more", len(c.Cells)-i)) + "\n")
+			break
+		}
+		rate := fmt.Sprintf("%3.0f%%", cell.LocalOKRate*100)
+		if cell.Comparisons >= 50 {
+			rate = selSty.Render(rate)
+		}
+		fmt.Fprintf(b, "  %-10s %-7s local won or tied %s of %3d  local %5.1fs  provider %5.1fs  $%.4f\n",
+			cell.Task, cell.Difficulty, rate, cell.Comparisons,
+			float64(cell.LocalLatencyMS)/1000, float64(cell.ProviderLatencyMS)/1000, cell.ProviderCostUSD)
+	}
+	for _, p := range c.Proposals {
+		b.WriteString("  " + selSty.Render("proposal") + " " + proposalText(p) + "\n")
+	}
 }

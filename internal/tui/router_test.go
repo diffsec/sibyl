@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 func routerFixture() routerLoaded {
@@ -23,8 +24,12 @@ func routerFixture() routerLoaded {
 	}
 	r.Providers = []client.RouterProvider{{Name: "orcarouter", Type: "openai", BaseURL: "https://api.orcarouter.ai/v1",
 		Models: []string{"deepseek/deepseek-v4.1-flash-1017"}, KeySet: true}}
-	r.Profiles.Profiles = map[string]client.RouterProfile{"auto": {LocalModel: "qwen", Rules: []client.RouterRule{
-		{Name: "secrets", Route: "local"}, {Name: "long", Route: "orcarouter/deepseek/deepseek-v4.1-flash-1017"}}}}
+	yes := true
+	r.Profiles.Profiles = map[string]router.Profile{"auto": {LocalModel: "qwen", Rules: []router.Rule{
+		{Name: "secrets", When: router.When{Sensitive: &yes}, Route: "local"},
+		{Name: "long", When: router.When{PromptTokensOver: &router.Tokens{LocalContext: true}}, Route: "orcarouter/deepseek/deepseek-v4.1-flash-1017"}}}}
+	rate := 0.2
+	r.Profiles.Calibration.SampleRate = &rate
 	st := client.RouterStats{Requests: 12, Errors: 1, Unpriced: 3,
 		ByClient: map[string]int{"open-webui": 7, "laptop": 5},
 		Spend:    map[string]client.RouterSpend{"laptop": {Today: 1.25, Month: 4}, "open-webui": {Today: 0.5, Month: 0.5}},
@@ -42,7 +47,9 @@ func TestRouterRender(t *testing.T) {
 		"open-webui", "$0.50 today, $0.50 this month  no budget",
 		"laptop", "$1.25 today of $2.00, $4.00 this month",
 		"orcarouter", "key set", "deepseek/deepseek-v4.1-flash-1017",
-		"auto", "local qwen · 2 rules → local, orcarouter/deepseek/deepseek-v4.1-flash-1017",
+		"auto           local qwen",
+		"1. secrets", "sensitive=true → local",
+		"2. long", "prompt>local_context → orcarouter/deepseek/deepseek-v4.1-flash-1017",
 		"12 requests, 1 errors, 3 with no price", "$0.0123  long",
 	} {
 		if !strings.Contains(out, want) {
@@ -173,5 +180,190 @@ func TestProviderPicker(t *testing.T) {
 		if got := providerName(in); got != want {
 			t.Errorf("providerName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// profileAPI is a fake System API that records the PUT of the profiles.
+func profileAPI(t *testing.T) (*client.Client, *router.ProfilesFile) {
+	t.Helper()
+	got := &router.ProfilesFile{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPut && r.URL.Path == "/router/profiles":
+			_ = json.NewDecoder(r.Body).Decode(got)
+		case r.URL.Path == "/models":
+			_, _ = w.Write([]byte(`[{"id":"qwen"},{"id":"gemma"},{"id":"embed","settings":{"embedding":true}}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(srv.Close)
+	c, err := client.New(srv.URL, "t", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c, got
+}
+
+// finish submits the open form and runs the API call.
+func finish(v *routerView) {
+	v.form = nil
+	for _, m := range drain(v.submit()) {
+		v.update(m)
+	}
+}
+
+func TestRouterProfileLocalModel(t *testing.T) {
+	c, got := profileAPI(t)
+	v := newRouterView(c)
+	v.update(routerFixture())
+	for _, m := range drain(v.keyPress("m")) {
+		v.update(m)
+	}
+	if v.mode != "profilepick" || v.pf.profile != "auto" {
+		t.Fatalf("mode %q profile %q", v.mode, v.pf.profile)
+	}
+	v.pf.action = "settings"
+	v.form = nil
+	v.submit()
+	if v.mode != "profile" || v.pf.model != "qwen" {
+		t.Fatalf("mode %q model %q", v.mode, v.pf.model)
+	}
+	v.pf.model, v.pf.fallback = "gemma", "local orcarouter/deepseek/deepseek-v4.1-flash-1017"
+	finish(v)
+	p := got.Profiles["auto"]
+	if p.LocalModel != "gemma" || len(p.Fallback) != 2 || len(p.Rules) != 2 {
+		t.Errorf("profile %+v", p)
+	}
+	// The settings that the form does not show are kept.
+	if r := got.Calibration.SampleRate; r == nil || *r != 0.2 {
+		t.Errorf("calibration lost: %+v", got.Calibration)
+	}
+	if s := p.Rules[0].When.Sensitive; s == nil || !*s {
+		t.Errorf("rule condition lost: %+v", p.Rules[0])
+	}
+}
+
+func TestRouterRuleEdits(t *testing.T) {
+	c, got := profileAPI(t)
+	v := newRouterView(c)
+	v.update(routerFixture())
+
+	// Move the second rule up.
+	v.keyPress("r")
+	v.pf.pick, v.pf.action = "auto\x001", "up"
+	finish(v)
+	if r := got.Profiles["auto"].Rules; len(r) != 2 || r[0].Name != "long" {
+		t.Fatalf("rules after move %+v", r)
+	}
+
+	// Add a rule.
+	v.keyPress("r")
+	v.pf.pick = "auto\x00" + addRule
+	v.form = nil
+	v.submit()
+	if v.mode != "rule" {
+		t.Fatalf("mode %q, want rule", v.mode)
+	}
+	v.pf.ruleName, v.pf.route = "hard code", "orcarouter/deepseek/deepseek-v4.1-flash-1017"
+	v.pf.tasks, v.pf.diffs, v.pf.sensitive = []string{"code"}, []string{"hard"}, "false"
+	finish(v)
+	r := got.Profiles["auto"].Rules
+	if len(r) != 3 || r[2].Name != "hard code" || r[2].When.Task[0] != "code" || r[2].When.Sensitive == nil || *r[2].When.Sensitive {
+		t.Fatalf("rules after add %+v", r)
+	}
+
+	// Edit the first rule: its prompt condition stays when the field is kept.
+	v.keyPress("r")
+	v.pf.pick, v.pf.action = "auto\x001", "edit"
+	v.form = nil
+	v.submit()
+	if v.pf.promptOver != "local_context" {
+		t.Fatalf("prompt field %q", v.pf.promptOver)
+	}
+	v.pf.ruleName = "too long"
+	finish(v)
+	if r := got.Profiles["auto"].Rules[1]; r.Name != "too long" || r.When.PromptTokensOver == nil || !r.When.PromptTokensOver.LocalContext {
+		t.Errorf("edited rule %+v", r)
+	}
+
+	// Delete it.
+	v.keyPress("r")
+	v.pf.pick, v.pf.action = "auto\x000", "delete"
+	finish(v)
+	if r := got.Profiles["auto"].Rules; len(r) != 1 || r[0].Name != "long" {
+		t.Errorf("rules after delete %+v", r)
+	}
+}
+
+func TestRouterCalibrationSettings(t *testing.T) {
+	c, got := profileAPI(t)
+	v := newRouterView(c)
+	v.update(routerFixture())
+	v.keyPress("c")
+	if v.pf.rate != "20" || v.pf.daily != "1" || !v.pf.seed {
+		t.Fatalf("form values %+v", v.pf)
+	}
+	v.pf.rate, v.pf.daily, v.pf.judge, v.pf.autoApply, v.pf.seed = "5", "0.5", "local", true, false
+	finish(v)
+	cc := got.Calibration
+	if cc.SampleRate == nil || *cc.SampleRate != 0.05 || cc.Daily() != 0.5 || cc.Judge != "local" || !cc.AutoApply || !cc.NoSeed {
+		t.Errorf("calibration %+v", cc)
+	}
+	if got.Profiles["auto"].LocalModel != "qwen" {
+		t.Errorf("profiles lost: %+v", got.Profiles)
+	}
+}
+
+func TestRouterClassifierAndNewProfile(t *testing.T) {
+	c, got := profileAPI(t)
+	v := newRouterView(c)
+	v.update(routerFixture())
+	for _, m := range drain(v.keyPress("s")) {
+		v.update(m)
+	}
+	if v.mode != "classifier" || !v.pf.useStarter {
+		t.Fatalf("mode %q starter %v", v.mode, v.pf.useStarter)
+	}
+	v.pf.words, v.pf.useStarter, v.pf.clsModel = "project-x, acme corp", false, "embed"
+	finish(v)
+	if len(got.SensitiveWords) != 2 || got.SensitiveWords[1] != "acme corp" || !got.Classifier.NoStarter || got.Classifier.Model != "embed" {
+		t.Errorf("classifier %+v words %q", got.Classifier, got.SensitiveWords)
+	}
+
+	for _, m := range drain(v.keyPress("m")) {
+		v.update(m)
+	}
+	v.pf.profile = newProfile
+	v.form = nil
+	v.submit()
+	v.pf.name, v.pf.model = "coding", "gemma"
+	finish(v)
+	if p, ok := got.Profiles["coding"]; !ok || p.LocalModel != "gemma" || len(got.Profiles) != 2 {
+		t.Errorf("profiles %+v", got.Profiles)
+	}
+}
+
+func TestProviderChangeKeepsPrices(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/router/providers/orcarouter" {
+			_ = json.NewDecoder(r.Body).Decode(&got)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c, err := client.New(srv.URL, "t", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := newRouterView(c)
+	fx := routerFixture()
+	fx.r.Providers[0].Prices = map[string]router.Price{"deepseek/deepseek-v4.1-flash-1017": {Input: 0.44, Output: 1.32}}
+	v.update(fx)
+	v.mode, v.name, v.ptype, v.baseURL, v.mods = "provider", "orcarouter", "openai", "https://api.orcarouter.ai/v1", "deepseek/deepseek-v4.1-flash-1017"
+	finish(v)
+	if p, _ := got["prices"].(map[string]any); p["deepseek/deepseek-v4.1-flash-1017"] == nil {
+		t.Errorf("prices lost: %v", got)
 	}
 }

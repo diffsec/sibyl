@@ -1,6 +1,6 @@
 # Diagnostics, watchdog and fleet design
 
-This document describes failure capture, performance metrics, the hardware inventory and the inference watchdog on the Sibyl host. Diagnostic upload is opt-in. The upload path is the first part of a later fleet service for enterprise customers. [design.md](design.md) holds the rest of the design.
+This document describes failure capture, performance metrics, the hardware inventory and the inference watchdog on the Sibyl host. Diagnostic upload is opt-in. The upload path is the first part of a later fleet service for enterprise customers. [The design overview](overview.md) holds the rest of the design.
 
 ## Goals
 

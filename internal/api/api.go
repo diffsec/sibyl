@@ -137,6 +137,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("PUT /host/hostname", s.putHostname)
 	auth.HandleFunc("PUT /host/network/{iface}", s.putNetwork)
 	auth.HandleFunc("POST /host/network/confirm", s.confirmNetwork)
+	auth.HandleFunc("POST /host/update/check", s.postUpdateCheck)
+	auth.HandleFunc("POST /host/update/apply", s.postUpdateApply)
+	auth.HandleFunc("POST /host/reboot", s.postReboot)
 	auth.HandleFunc("PUT /host/users/{name}", s.putUser)
 	auth.HandleFunc("DELETE /host/users/{name}", s.deleteUser)
 	auth.HandleFunc("GET /pools", s.getPools)
@@ -166,6 +169,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /router/examples", s.getRouterExamples)
 	auth.HandleFunc("PUT /router/examples", s.putRouterExamples)
 	auth.HandleFunc("GET /router/stats", s.getRouterStats)
+	auth.HandleFunc("GET /router/calibration", s.getRouterCalibration)
+	auth.HandleFunc("DELETE /router/calibration", s.deleteRouterCalibration)
+	auth.HandleFunc("POST /router/calibration/apply", s.postRouterCalibrationApply)
 	auth.HandleFunc("GET /router/catalog", s.getCatalog)
 	auth.HandleFunc("GET /router/catalog/{id}", s.getCatalogProvider)
 	auth.HandleFunc("POST /router/catalog/refresh", s.postCatalogRefresh)
@@ -303,9 +309,25 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.findModel(id); err != nil {
+	m, err := s.findModel(id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
+	}
+	// llama.cpp refuses a MoE cache on a dense model, and the model would
+	// not load.
+	meta := s.modelMeta(m)
+	if set.MoE.Enabled() && meta != nil && meta.ExpertCount == 0 {
+		writeError(w, http.StatusUnprocessableEntity, errors.New("moe: the model file has no experts"))
+		return
+	}
+	// The variable and the values differ by model family, so the setting
+	// must match what this model's chat template reads.
+	if set.Reasoning != nil && meta != nil {
+		if err := set.Reasoning.CheckAgainst(meta.Reasoning); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err)
+			return
+		}
 	}
 	if d := set.Speculative.DraftModel; d != "" {
 		if d == id {
@@ -502,7 +524,7 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 		meta := s.modelMeta(m)
 		weights := m.Size
 		if meta != nil {
-			weights = meta.Weights(m.Size)
+			weights = meta.VRAMWeights(m.Size, st.MoE)
 			if st.CtxSize == 0 && meta.ContextLength > 0 {
 				st.CtxSize = min(meta.ContextLength, models.EmbeddingContext)
 			}
@@ -556,7 +578,7 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 		st.TensorSplit = models.SplitFor(sizes, held)
 	}
 	fit := meta.FitContext(models.FitInput{
-		Mode: st.Fit, Weights: meta.Weights(m.Size), VRAM: vram, Reserved: reserved,
+		Mode: st.Fit, Weights: meta.VRAMWeights(m.Size, st.MoE), VRAM: vram, Reserved: reserved,
 		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
 	})
 	fit.TensorSplit = st.TensorSplit

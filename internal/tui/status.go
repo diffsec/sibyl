@@ -38,12 +38,14 @@ type statusView struct {
 	cursor int
 	ticks  bool
 	form   *huh.Form
-	step   int // 0: choose a method, 1: credentials
+	step   int // 0: choose a method, 1: credentials, 2: an update or reboot confirm
 	mode   string
-	key    string
-	name   string
-	email  string
-	pass   string
+	// confirm and reboot are the values of the update and reboot forms.
+	confirm, reboot bool
+	key             string
+	name            string
+	email           string
+	pass            string
 }
 
 func newStatusView(c *client.Client) *statusView { return &statusView{c: c} }
@@ -82,7 +84,7 @@ func (v *statusView) help() string {
 	if v.form != nil {
 		return "enter next · esc discard"
 	}
-	return "↑/↓ select · r restart service · o Open WebUI key"
+	return "↑/↓ select · r restart service · o Open WebUI key · u check for an update · U apply it · B reboot into a staged update"
 }
 
 func (v *statusView) keyForm() tea.Cmd {
@@ -152,6 +154,18 @@ func (v *statusView) update(msg tea.Msg) tea.Cmd {
 		switch msg.String() {
 		case "o":
 			return v.keyForm()
+		case "u":
+			return v.hostCall("update check", func(ctx context.Context) (hostd.Result, error) { return v.c.CheckUpdate(ctx) })
+		case "U":
+			if u := v.data.host.Update; u != nil && u.Available != "" {
+				return v.updateForm(u.Available)
+			}
+			return note(false, "no update is known: press u to check")
+		case "B":
+			if u := v.data.host.Update; u != nil && u.Staged != "" {
+				return v.rebootForm(u.Staged)
+			}
+			return note(false, "no update is staged")
 		case "up", "k":
 			if v.cursor > 0 {
 				v.cursor--
@@ -181,11 +195,61 @@ func (v *statusView) update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
+// hostCall runs a host action and reports its result.
+func (v *statusView) hostCall(what string, fn func(context.Context) (hostd.Result, error)) tea.Cmd {
+	return tea.Batch(note(true, "%s…", what), func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		res, err := fn(ctx)
+		switch {
+		case err != nil:
+			return noteMsg{what + ": " + err.Error(), false}
+		case !res.OK && res.Error != "":
+			return noteMsg{what + ": " + res.Error, false}
+		}
+		return noteMsg{res.Message, true}
+	})
+}
+
+func (v *statusView) updateForm(version string) tea.Cmd {
+	v.step, v.mode, v.confirm, v.reboot = 2, "update", false, true
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title("Reboot into it when it is staged").
+			Description("A reboot stops the models and the APIs for a few minutes. No: press B to reboot later.").
+			Affirmative("Reboot").Negative("Later").Value(&v.reboot),
+		huh.NewConfirm().Title("Apply update "+version+"?").
+			Description("The download runs in the background. If the new version does not boot, the host starts the old one.").
+			Affirmative("Apply").Negative("Not now").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
+func (v *statusView) rebootForm(version string) tea.Cmd {
+	v.step, v.mode, v.confirm = 2, "reboot", false
+	v.form = huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title("Reboot into " + version + " now?").
+			Description("The models and the APIs stop for a few minutes.").
+			Affirmative("Reboot").Negative("Not now").Value(&v.confirm),
+	)).WithShowHelp(false)
+	return v.form.Init()
+}
+
 func (v *statusView) formStep(msg tea.Msg) tea.Cmd {
 	m, cmd := v.form.Update(msg)
 	v.form = m.(*huh.Form)
 	if v.form.State != huh.StateCompleted {
 		return cmd
+	}
+	if v.step == 2 {
+		v.form = nil
+		if !v.confirm {
+			return tea.Batch(cmd, note(false, "nothing changed"))
+		}
+		if v.mode == "reboot" {
+			return tea.Batch(cmd, v.hostCall("reboot", func(ctx context.Context) (hostd.Result, error) { return v.c.Reboot(ctx) }))
+		}
+		reboot := v.reboot
+		return tea.Batch(cmd, v.hostCall("update", func(ctx context.Context) (hostd.Result, error) { return v.c.ApplyUpdate(ctx, reboot) }))
 	}
 	if v.step == 0 {
 		return tea.Batch(cmd, v.credentialsForm())
@@ -245,6 +309,25 @@ func (v *statusView) render(int) string {
 	}
 	if s.Services.Updated != "" {
 		b.WriteString(mutedSty.Render("  updated "+s.Services.Updated) + "\n")
+	}
+	if u := v.data.host.Update; u != nil {
+		b.WriteString("\n" + titleSty.Render("Update") + "\n")
+		fmt.Fprintf(&b, "  running %s\n", u.Booted)
+		if u.Available != "" {
+			b.WriteString("  " + goodSty.Render("available "+u.Available) + " · press U to apply\n")
+		}
+		if u.Staged != "" {
+			b.WriteString("  staged " + u.Staged + " · it starts at the next boot · press B to reboot now\n")
+		}
+		for _, r := range []hostd.UnitRun{u.Check, u.Download, u.DownloadReboot} {
+			if r.Active == "activating" {
+				b.WriteString("  " + mutedSty.Render("an update step is running") + "\n")
+				break
+			}
+		}
+		if u.Available == "" && u.Staged == "" {
+			b.WriteString("  " + mutedSty.Render("press u to check for an update") + "\n")
+		}
 	}
 	b.WriteString("\n" + titleSty.Render("Open WebUI") + "\n")
 	o := v.data.owui

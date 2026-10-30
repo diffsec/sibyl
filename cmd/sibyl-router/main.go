@@ -83,9 +83,10 @@ func run(log *slog.Logger, addr string) error {
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: time.Second,
 		}},
-		Log:    &router.Log{Path: filepath.Join(env("SIBYL_ROUTER_LOG_DIR", "/log"), "decisions.jsonl")},
-		Spend:  &router.Spend{Path: filepath.Join(env("SIBYL_ROUTER_LOG_DIR", "/log"), "usage.json")},
-		Logger: log,
+		Log:            &router.Log{Path: filepath.Join(env("SIBYL_ROUTER_LOG_DIR", "/log"), "decisions.jsonl")},
+		Spend:          &router.Spend{Path: filepath.Join(env("SIBYL_ROUTER_LOG_DIR", "/log"), "usage.json")},
+		CalibrationDir: env("SIBYL_ROUTER_CALIBRATION_DIR", "/calibration"),
+		Logger:         log,
 	}
 	// A configuration error at startup is not fatal: with no configuration
 	// the router serves local models to the built-in clients.
@@ -96,6 +97,7 @@ func run(log *slog.Logger, addr string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go s.Watch(ctx, 2*time.Second)
+	go s.Calibrate(ctx, 30*time.Second)
 
 	srv := &http.Server{
 		Addr:              addr,

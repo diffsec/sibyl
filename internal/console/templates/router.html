@@ -1,0 +1,230 @@
+{{define "title"}}Router{{end}}
+{{define "content"}}
+<h1>Router</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{if .NewKey}}
+<section class="key" role="status">
+  <p>Key for <strong>{{.NewKeyFor}}</strong>. Copy it now. Sibyl keeps only its hash, so it is not shown again.</p>
+  <p class="mono">{{.NewKey}}</p>
+</section>
+{{end}}
+{{if .Router}}
+{{$rt := .Router}}{{$st := .Stats}}
+
+<section class="card" id="clients">
+  <h2>Clients</h2>
+  <table>
+    <thead><tr><th>Client</th><th>Policy</th><th class="num">Requests</th><th>Spend and budget</th><th></th></tr></thead>
+    <tbody>
+    {{range $rt.Clients}}{{$sp := index $st.Spend .Name}}
+    <tr>
+      <td>{{.Name}}{{if .Calibrate}} <span class="muted">calibrates</span>{{end}}</td>
+      <td>{{.Policy}}</td>
+      <td class="num">{{index $st.ByClient .Name}}</td>
+      <td>{{usd $sp.Today}} today, {{usd $sp.Month}} this month{{with .Budget}}<span class="muted"> · budget {{if .DailyUSD}}{{usd .DailyUSD}}/day{{end}} {{if .MonthlyUSD}}{{usd .MonthlyUSD}}/month{{end}}</span>{{else}}{{if eq .Policy "hybrid"}} <span class="bad">no budget</span>{{end}}{{end}}</td>
+      <td>
+        <details><summary>Change</summary>
+          <form method="post" action="/console/router/client/edit" class="stack">
+            <input type="hidden" name="name" value="{{.Name}}">
+            <label>Policy <select name="policy">
+              <option value="local-only"{{if eq .Policy "local-only"}} selected{{end}}>local-only: never leaves this host</option>
+              <option value="hybrid"{{if eq .Policy "hybrid"}} selected{{end}}>hybrid: the rules can use a provider</option>
+            </select></label>
+            <label class="check"><input type="checkbox" name="allow_hint"{{if .AllowHint}} checked{{end}}> Allow the cloud hint header</label>
+            <label class="check"><input type="checkbox" name="calibrate"{{if .Calibrate}} checked{{end}}> Calibrate: keep a share of the requests to compare with a provider</label>
+            <div class="row">
+              <label>Daily budget (US$) <input name="daily_usd" inputmode="decimal" value="{{with .Budget}}{{if .DailyUSD}}{{.DailyUSD}}{{end}}{{end}}"></label>
+              <label>Monthly budget (US$) <input name="monthly_usd" inputmode="decimal" value="{{with .Budget}}{{if .MonthlyUSD}}{{.MonthlyUSD}}{{end}}{{end}}"></label>
+            </div>
+            <button type="submit">Save</button>
+          </form>
+          {{if not .Builtin}}
+          <div class="actions">
+            <form method="post" action="/console/router/client/key"><input type="hidden" name="name" value="{{.Name}}">
+              <button type="submit" class="secondary">New key for {{.Name}} (the old key stops working)</button></form>
+            <form method="post" action="/console/router/client/delete"><input type="hidden" name="name" value="{{.Name}}">
+              <button type="submit" class="danger">Delete {{.Name}} (its key stops working)</button></form>
+          </div>
+          {{end}}
+        </details>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <details><summary>New client</summary>
+    <form method="post" action="/console/router/client" class="stack">
+      <label>Name <input name="name" required pattern="[a-z0-9][a-z0-9-]{0,31}" title="1 to 32 lowercase letters, digits and dashes"></label>
+      <label>Policy <select name="policy">
+        <option value="local-only">local-only: never leaves this host</option>
+        <option value="hybrid">hybrid: the rules can use a provider</option>
+      </select></label>
+      <div class="row">
+        <label>Daily budget (US$) <input name="daily_usd" inputmode="decimal"></label>
+        <label>Monthly budget (US$) <input name="monthly_usd" inputmode="decimal"></label>
+      </div>
+      <button type="submit">Create and show the key</button>
+    </form>
+  </details>
+</section>
+
+<section class="card" id="providers">
+  <h2>Providers</h2>
+  {{if not $rt.Providers}}<p class="muted">None. Every request stays on this host.</p>{{end}}
+  <table>
+    <tbody>
+    {{range $rt.Providers}}
+    <tr>
+      <td>{{.Name}}</td><td>{{.Type}}</td>
+      <td>{{if .KeySet}}<span class="good">key set</span>{{else}}<span class="bad">no key</span>{{end}}</td>
+      <td class="mono hide-narrow">{{.BaseURL}}</td>
+      <td class="mono">{{join .Models " "}}</td>
+      <td><form method="post" action="/console/router/provider/delete"><input type="hidden" name="name" value="{{.Name}}">
+        <details><summary>Delete</summary><button type="submit" class="danger">Delete {{.Name}} and its key</button></details></form></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <details><summary>Add or change a provider</summary>
+    <form method="post" action="/console/router/provider" class="stack" autocomplete="off">
+      <label>Name <input name="name" required pattern="[a-z0-9][a-z0-9-]{0,31}"></label>
+      <label>API <select name="type"><option value="openai">OpenAI-compatible</option><option value="anthropic">Anthropic Messages</option></select></label>
+      <label>Base URL <input name="base_url" placeholder="https://openrouter.ai/api/v1"></label>
+      <label>API key <input name="api_key" type="password" autocomplete="new-password" placeholder="Empty keeps the stored key"></label>
+      <label>Models to list, separated by spaces <input name="models"></label>
+      <p class="muted">Sibyl checks the key with the provider before it stores it. A change keeps the provider's prices.</p>
+      <button type="submit">Save</button>
+    </form>
+  </details>
+</section>
+
+<section class="card" id="profiles">
+  <h2>Profiles and rules</h2>
+  <p class="muted">A client asks for a profile with the model auto or auto:&lt;name&gt;. The first rule that matches picks the route.</p>
+  {{range $name := .ProfileNames}}{{$p := index $rt.Profiles.Profiles $name}}
+  <h3>{{if eq $name "auto"}}auto{{else}}auto:{{$name}}{{end}} <span class="muted">· local {{$p.LocalModel}}{{with $p.Fallback}} · fallback {{join . " "}}{{end}}</span></h3>
+  <div class="actions">
+    <a href="/console/router/profile?name={{$name}}">Change the profile</a>
+    <a href="/console/router/rule?profile={{$name}}&amp;i=new">Add a rule</a>
+  </div>
+  <table>
+    <tbody>
+    {{range $i, $r := $p.Rules}}
+    <tr>
+      <td class="num">{{add $i 1}}</td>
+      <td>{{$r.Name}}</td>
+      <td class="mono">{{whenText $r.When}}</td>
+      <td class="mono">{{$r.Route}}</td>
+      <td><div class="actions">
+        <a href="/console/router/rule?profile={{$name}}&amp;i={{$i}}">Edit</a>
+        <form method="post" action="/console/router/rule/move"><input type="hidden" name="profile" value="{{$name}}"><input type="hidden" name="i" value="{{$i}}"><input type="hidden" name="dir" value="up"><button type="submit" class="link" aria-label="Move {{$r.Name}} up">Up</button></form>
+        <form method="post" action="/console/router/rule/move"><input type="hidden" name="profile" value="{{$name}}"><input type="hidden" name="i" value="{{$i}}"><input type="hidden" name="dir" value="down"><button type="submit" class="link" aria-label="Move {{$r.Name}} down">Down</button></form>
+        <form method="post" action="/console/router/rule/delete"><input type="hidden" name="profile" value="{{$name}}"><input type="hidden" name="i" value="{{$i}}">
+          <details><summary>Delete</summary><button type="submit" class="danger">Delete rule {{$r.Name}}</button></details></form>
+      </div></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+  <p><a href="/console/router/profile">New profile</a></p>
+</section>
+
+<section class="card" id="settings">
+  <h2>Calibration settings</h2>
+  {{$cc := $rt.Profiles.Calibration}}
+  <form method="post" action="/console/router/calibration" class="stack">
+    <div class="row">
+      <label>Sample rate (%) <input name="sample_rate" inputmode="decimal" value="{{.Rate}}"></label>
+      <label>Daily provider budget (US$) <input name="daily_usd" inputmode="decimal" value="{{.Daily}}"></label>
+      <label>Keep samples (days) <input name="keep_days" inputmode="numeric" placeholder="14" value="{{if $cc.KeepDays}}{{$cc.KeepDays}}{{end}}"></label>
+      <label>Most samples <input name="max_samples" inputmode="numeric" placeholder="2000" value="{{if $cc.MaxSamples}}{{$cc.MaxSamples}}{{end}}"></label>
+    </div>
+    <label>Judge <select name="judge">
+      <option value="">default: the listed provider model with the highest output price</option>
+      <option value="local"{{if eq $cc.Judge "local"}} selected{{end}}>local: the profile's local model, which favours its own answers</option>
+      {{range .Routes}}{{if ne . "local"}}<option value="{{.}}"{{if eq $cc.Judge .}} selected{{end}}>{{.}}</option>{{end}}{{end}}
+    </select></label>
+    <label>Compare with <select name="compare">
+      <option value="">default: the profile's first provider route</option>
+      {{range .Routes}}{{if ne . "local"}}<option value="{{.}}"{{if eq $cc.Compare .}} selected{{end}}>{{.}}</option>{{end}}{{end}}
+    </select></label>
+    <label class="check"><input type="checkbox" name="seed"{{if not $cc.NoSeed}} checked{{end}}> Measure a new local model with the 60 labelled requests</label>
+    <label class="check"><input type="checkbox" name="auto_apply"{{if $cc.AutoApply}} checked{{end}}> Apply proposals by themselves, when the profile already names the route</label>
+    <button type="submit">Save</button>
+  </form>
+</section>
+
+<section class="card" id="classifier">
+  <h2>Sensitive words and classifier</h2>
+  {{$cl := $rt.Profiles.Classifier}}
+  <form method="post" action="/console/router/classifier" class="stack">
+    <label>Sensitive words, separated by commas <input name="sensitive_words" value="{{join $rt.Profiles.SensitiveWords ", "}}"></label>
+    <div class="row">
+      <label>Embedding model <input name="model" placeholder="the first embedding model" value="{{$cl.Model}}"></label>
+      <label>Voting examples (k) <input name="k" inputmode="numeric" placeholder="5" value="{{if $cl.K}}{{$cl.K}}{{end}}"></label>
+      <label>Timeout (ms) <input name="timeout_ms" inputmode="numeric" placeholder="300" value="{{if $cl.TimeoutMS}}{{$cl.TimeoutMS}}{{end}}"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="starter"{{if not $cl.NoStarter}} checked{{end}}> Use the 150 starter examples next to mine</label>
+    <button type="submit">Save</button>
+  </form>
+</section>
+
+{{template "live" .}}
+{{end}}
+{{end}}
+
+{{define "live"}}
+<div id="live" hx-get="/console/router/live" hx-trigger="every 5s" hx-swap="outerHTML">
+{{with .Error}}<p class="error">{{.}}</p>{{end}}
+{{if .Router}}{{$cal := .Cal}}
+<section class="card" id="calibration">
+  <h2>Calibration</h2>
+  {{if $cal.Samples}}
+  <p>{{$cal.Samples}} samples: {{$cal.Judged}} judged, {{$cal.Pending}} waiting, {{$cal.Failed}} failed · {{usd $cal.SpentTodayUSD}} of {{usd $cal.DailyUSD}} today</p>
+  {{with $cal.Status}}{{if or (eq .State "waiting") (eq .State "error")}}<p class="warn">{{.State}}: {{.Reason}}</p>{{end}}{{end}}
+  <table>
+    <thead><tr><th>Local model</th><th>Task</th><th>Difficulty</th><th class="num">Local won or tied</th><th class="num">Comparisons</th><th class="num hide-narrow">Local</th><th class="num hide-narrow">Provider</th><th class="num hide-narrow">Cost</th></tr></thead>
+    <tbody>
+    {{range $cal.Cells}}
+    <tr><td class="mono">{{.LocalModel}}</td><td>{{.Task}}</td><td>{{.Difficulty}}</td>
+      <td class="num">{{pct .LocalOKRate}}</td><td class="num">{{.Comparisons}}</td>
+      <td class="num hide-narrow">{{secs .LocalLatencyMS}}</td><td class="num hide-narrow">{{secs .ProviderLatencyMS}}</td><td class="num hide-narrow">{{usd4 .ProviderCostUSD}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{range $cal.Proposals}}
+  <form method="post" action="/console/router/calibration/apply" class="row">
+    <input type="hidden" name="id" value="{{.ID}}">
+    <span>Proposal for {{.Profile}}: {{.Task}} {{.Difficulty}} from {{.Current}} to {{.Route}}. The local answer won or tied {{pct .LocalOKRate}} of {{.Comparisons}}.</span>
+    <button type="submit">Apply</button>
+  </form>
+  {{end}}
+  <form method="post" action="/console/router/calibration/delete">
+    <details><summary>Delete every sample</summary>
+      <p class="muted">The samples are the only message content that Sibyl keeps. The results and the needs_provider votes go with them.</p>
+      <button type="submit" class="danger">Delete {{$cal.Samples}} samples</button>
+    </details>
+  </form>
+  {{else}}
+  <p class="muted">No samples. Turn on Calibrate for a hybrid client to start.</p>
+  {{end}}
+</section>
+
+<section class="card" id="decisions">
+  <h2>Last decisions</h2>
+  <p>{{.Stats.Requests}} requests, {{.Stats.Errors}} errors{{if .Stats.Unpriced}}, <span class="bad">{{.Stats.Unpriced}} with no price</span>{{end}}{{if .Regenerated}}, {{.Regenerated}} asked again within a minute{{end}}</p>
+  <table>
+    <thead><tr><th>Time</th><th>Client</th><th>Route</th><th class="num">Status</th><th class="num hide-narrow">Cost</th><th class="hide-narrow">Rule</th></tr></thead>
+    <tbody>
+    {{range .Stats.Last}}
+    <tr><td>{{clock .Time}}</td><td>{{.Client}}</td><td class="mono">{{if .Route}}{{.Route}}{{else}}refused{{end}}</td>
+      <td class="num">{{.Status}}</td><td class="num hide-narrow">{{if .CostUSD}}{{usd4 .CostUSD}}{{end}}</td><td class="muted hide-narrow">{{.Rule}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+</div>
+{{end}}

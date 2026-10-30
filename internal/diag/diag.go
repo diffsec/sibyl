@@ -1,7 +1,7 @@
 // Package diag records inference metrics, watches inference, captures
 // incidents, and builds redacted diagnostic bundles. It runs on the host as
 // root, as sibyl-diag (cmd/sibyl-diag). The design is in
-// docs/diagnostics-design.md.
+// docs/design/diagnostics.md.
 package diag
 
 import (

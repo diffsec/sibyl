@@ -24,6 +24,7 @@ import (
 	"github.com/diffsec/sibyl/internal/hostd"
 	"github.com/diffsec/sibyl/internal/llamaswap"
 	"github.com/diffsec/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 // Client calls the System API at Base with a bearer token.
@@ -300,6 +301,22 @@ func (c *Client) ConfirmNetwork(ctx context.Context) (hostd.Result, error) {
 	return c.hostAction(ctx, http.MethodPost, "/host/network/confirm", nil)
 }
 
+// CheckUpdate asks the registry for a newer host image.
+func (c *Client) CheckUpdate(ctx context.Context) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/update/check", struct{}{})
+}
+
+// ApplyUpdate downloads and stages the newer host image, and reboots into
+// it when reboot is true.
+func (c *Client) ApplyUpdate(ctx context.Context, reboot bool) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/update/apply", hostd.UpdateRequest{Reboot: reboot})
+}
+
+// Reboot reboots the host after 5 seconds.
+func (c *Client) Reboot(ctx context.Context) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/reboot", struct{}{})
+}
+
 // SetUser creates an operator account or replaces its keys. github, if set,
 // adds the keys that GitHub publishes for that account.
 func (c *Client) SetUser(ctx context.Context, name string, keys []string, github string) (hostd.Result, error) {
@@ -392,6 +409,7 @@ type RouterClient struct {
 	AllowHint bool          `json:"allow_hint"`
 	Builtin   bool          `json:"builtin"`
 	Budget    *RouterBudget `json:"budget,omitempty"`
+	Calibrate bool          `json:"calibrate,omitempty"`
 }
 
 // RouterProvider is one provider of the model router.
@@ -401,28 +419,31 @@ type RouterProvider struct {
 	BaseURL string   `json:"base_url,omitempty"`
 	Models  []string `json:"models,omitempty"`
 	KeySet  bool     `json:"key_set"`
+	// Prices are the owner's prices by model name, and Catalog the
+	// provider's models.dev ID.
+	Prices  map[string]router.Price `json:"prices,omitempty"`
+	Catalog string                  `json:"catalog,omitempty"`
 }
 
-// RouterRule is one rule of a routing profile.
-type RouterRule struct {
-	Name  string `json:"name"`
-	Route string `json:"route"`
-}
-
-// RouterProfile is one routing profile.
-type RouterProfile struct {
-	LocalModel string       `json:"local_model"`
-	Rules      []RouterRule `json:"rules"`
-	Fallback   []string     `json:"fallback"`
-}
-
-// Router is the GET /router response.
+// Router is the GET /router response. Profiles is the whole profiles
+// file, so a change from the TUI keeps every setting it does not touch.
 type Router struct {
-	Clients   []RouterClient   `json:"clients"`
-	Providers []RouterProvider `json:"providers"`
-	Profiles  struct {
-		Profiles map[string]RouterProfile `json:"profiles"`
-	} `json:"profiles"`
+	Clients   []RouterClient      `json:"clients"`
+	Providers []RouterProvider    `json:"providers"`
+	Profiles  router.ProfilesFile `json:"profiles"`
+}
+
+// SetRouterProfiles replaces the profiles file after the router's checks.
+func (c *Client) SetRouterProfiles(ctx context.Context, f router.ProfilesFile) error {
+	return c.do(ctx, http.MethodPut, "/router/profiles", f, nil)
+}
+
+// ClearCalibration deletes every calibration sample and returns the count.
+func (c *Client) ClearCalibration(ctx context.Context) (int, error) {
+	var r struct {
+		Deleted int `json:"deleted"`
+	}
+	return r.Deleted, c.do(ctx, http.MethodDelete, "/router/calibration", nil, &r)
 }
 
 // RouterEntry is one line of the router's decision log.
@@ -445,13 +466,16 @@ type RouterSpend struct {
 
 // RouterStats is the GET /router/stats response.
 type RouterStats struct {
-	Requests int                    `json:"requests"`
-	ByClient map[string]int         `json:"by_client"`
-	ByRoute  map[string]int         `json:"by_route"`
-	Errors   int                    `json:"errors"`
-	Unpriced int                    `json:"unpriced"`
-	Spend    map[string]RouterSpend `json:"spend"`
-	Last     []RouterEntry          `json:"last"`
+	Requests int            `json:"requests"`
+	ByClient map[string]int `json:"by_client"`
+	ByRoute  map[string]int `json:"by_route"`
+	Errors   int            `json:"errors"`
+	Unpriced int            `json:"unpriced"`
+	// Regenerated counts, per route, the answers that a client asked for
+	// again within a minute.
+	Regenerated map[string]int         `json:"regenerated"`
+	Spend       map[string]RouterSpend `json:"spend"`
+	Last        []RouterEntry          `json:"last"`
 }
 
 // NewRouterClient is a created client with its key, which is shown once.
@@ -470,6 +494,9 @@ type ProviderRequest struct {
 	Models  []string `json:"models,omitempty"`
 	// Catalog is the provider's models.dev ID, for prices.
 	Catalog string `json:"catalog,omitempty"`
+	// Prices replace the provider's prices. A change of a provider must
+	// send its current prices, or they are lost.
+	Prices map[string]router.Price `json:"prices,omitempty"`
 }
 
 // Router returns the router's clients, providers and profiles.
@@ -484,6 +511,60 @@ func (c *Client) RouterStats(ctx context.Context) (RouterStats, error) {
 	return r, c.do(ctx, http.MethodGet, "/router/stats", nil, &r)
 }
 
+// CalibrationCell is the calibration result for one local model, task and
+// difficulty.
+type CalibrationCell struct {
+	LocalModel        string  `json:"local_model"`
+	Task              string  `json:"task"`
+	Difficulty        string  `json:"difficulty"`
+	Comparisons       int     `json:"comparisons"`
+	LocalOKRate       float64 `json:"local_ok_rate"`
+	ProviderCostUSD   float64 `json:"provider_cost_usd"`
+	LocalLatencyMS    int64   `json:"local_latency_ms"`
+	ProviderLatencyMS int64   `json:"provider_latency_ms"`
+}
+
+// CalibrationProposal is a rule change that the calibration supports.
+type CalibrationProposal struct {
+	ID          string  `json:"id"`
+	Profile     string  `json:"profile"`
+	Task        string  `json:"task"`
+	Difficulty  string  `json:"difficulty"`
+	Current     string  `json:"current"`
+	Route       string  `json:"route"`
+	Comparisons int     `json:"comparisons"`
+	LocalOKRate float64 `json:"local_ok_rate"`
+	Allowed     bool    `json:"allowed"`
+}
+
+// RouterCalibration is the calibration report.
+type RouterCalibration struct {
+	Samples int `json:"samples"`
+	Pending int `json:"pending"`
+	Judged  int `json:"judged"`
+	Failed  int `json:"failed"`
+	Status  *struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	} `json:"status"`
+	SpentTodayUSD float64               `json:"spent_today_usd"`
+	DailyUSD      float64               `json:"daily_usd"`
+	AutoApply     bool                  `json:"auto_apply"`
+	Cells         []CalibrationCell     `json:"cells"`
+	Proposals     []CalibrationProposal `json:"proposals"`
+}
+
+// RouterCalibration returns the calibration report and the proposals.
+func (c *Client) RouterCalibration(ctx context.Context) (RouterCalibration, error) {
+	var r RouterCalibration
+	return r, c.do(ctx, http.MethodGet, "/router/calibration", nil, &r)
+}
+
+// ApplyCalibration adds the rule of a proposal to its profile.
+func (c *Client) ApplyCalibration(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/router/calibration/apply", map[string]string{"id": id}, nil)
+}
+
 // CreateRouterClient creates a client and returns its key.
 func (c *Client) CreateRouterClient(ctx context.Context, name, policy string, budget *RouterBudget) (NewRouterClient, error) {
 	var r NewRouterClient
@@ -491,9 +572,10 @@ func (c *Client) CreateRouterClient(ctx context.Context, name, policy string, bu
 	return r, c.do(ctx, http.MethodPost, "/router/clients", in, &r)
 }
 
-// SetRouterClient sets a client's policy and budget. A nil budget removes it.
-func (c *Client) SetRouterClient(ctx context.Context, name, policy string, allowHint bool, budget *RouterBudget) error {
-	in := map[string]any{"policy": policy, "allow_hint": allowHint, "budget": budget}
+// SetRouterClient sets a client's policy, budget and calibration. A nil
+// budget removes it.
+func (c *Client) SetRouterClient(ctx context.Context, name, policy string, allowHint bool, budget *RouterBudget, calibrate bool) error {
+	in := map[string]any{"policy": policy, "allow_hint": allowHint, "budget": budget, "calibrate": calibrate}
 	return c.do(ctx, http.MethodPut, "/router/clients/"+url.PathEscape(name), in, nil)
 }
 

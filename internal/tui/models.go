@@ -173,6 +173,14 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			huh.NewConfirm().Title("Hide from the model list").Value(&f.Hidden),
 		).Title("Model"),
 		huh.NewGroup(
+			huh.NewInput().Title("Experts in system RAM").Placeholder("none").Value(&f.MoELayers).
+				Validate(func(v string) error { _, err := parseMoELayers(v); return err }).
+				DescriptionFunc(func() string { return moeNote(m, f) }, f),
+			optionalNumber("Expert GPU cache, MiB", "", true, &f.MoECacheMiB).Placeholder("off").
+				Description("GPU memory that keeps the most used experts from system RAM. It needs experts in system RAM.\n"+
+					"Context size counts it, so a larger cache gives a shorter automatic context."),
+		).Title("Mixture of Experts").WithHideFunc(func() bool { return m.Meta == nil || m.Meta.ExpertCount == 0 }),
+		huh.NewGroup(
 			huh.NewSelect[string]().Title("Preset").Inline(true).Options(presetOpts...).Value(&f.Preset).
 				Description(presetNote(m.Meta)),
 			sampleField("Temperature", "0 to 5", false, &f.Temperature, func(s models.Sampling) *float64 { return s.Temperature }, fileSampling.Temperature, "0.8"),
@@ -182,6 +190,7 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			optionalNumber("Repeat penalty", "0 to 5", false, &f.RepeatPenalty),
 			optionalNumber("Presence penalty", "-2 to 2", false, &f.PresencePenalty),
 		).Title("Sampling defaults").Description("Empty uses the value in grey. Clients can still override these per request."),
+		reasoningGroup(m, f),
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().Title("Speculative decoding types").
 				Description("Tried in order. draft-* types except draft-mtp need a draft model.").
@@ -200,6 +209,33 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 		).Title("Advanced"),
 	).WithShowHelp(false)
 	return v.form.Init()
+}
+
+// reasoningGroup is the reasoning field, in the variable and values that
+// the model's chat template reads. It is hidden when the template has no
+// reasoning control that Sibyl knows.
+func reasoningGroup(m client.Model, f *settingsForm) *huh.Group {
+	var c *models.ReasoningControl
+	if m.Meta != nil {
+		c = m.Meta.Reasoning
+	}
+	if c == nil {
+		return huh.NewGroup(huh.NewNote()).WithHideFunc(func() bool { return true })
+	}
+	f.ReasoningVar = c.Var
+	desc := "The chat template reads " + c.Var + ". A request can still set its own."
+	var field huh.Field
+	if choices := c.Choices(); len(choices) > 0 && (c.Switch || len(c.Values) > 0) {
+		o := []huh.Option[string]{huh.NewOption("Template default", "")}
+		for _, ch := range choices {
+			o = append(o, huh.NewOption(ch.Value, ch.Var+"="+ch.Value))
+		}
+		field = huh.NewSelect[string]().Title("Reasoning").Inline(true).Options(o...).Value(&f.Reasoning).Description(desc)
+	} else {
+		field = huh.NewInput().Title("Reasoning").Placeholder("template default").Value(&f.Reasoning).
+			Description(desc + " Sibyl found no list of its values, so type one.")
+	}
+	return huh.NewGroup(field).Title("Reasoning")
 }
 
 func (v *modelsView) deleteForm(m client.Model) tea.Cmd {
@@ -227,7 +263,7 @@ func (v *modelsView) submit() tea.Cmd {
 			return modelDeleted{id, err}
 		}
 	}
-	s, err := v.fields.toSettings()
+	s, err := v.fields.Settings()
 	if err != nil {
 		return note(false, "%v", err)
 	}
@@ -333,6 +369,9 @@ func summary(s models.Settings) string {
 	}
 	if s.KVCache.TypeK != "" {
 		parts = append(parts, "kv "+s.KVCache.TypeK)
+	}
+	if r := s.Reasoning; r != nil {
+		parts = append(parts, r.Var+" "+r.Value)
 	}
 	return strings.Join(parts, " · ")
 }

@@ -2,7 +2,7 @@
 // incidents, and builds and uploads redacted diagnostic bundles. It runs as
 // root on the host. The systemd units start the daemons; an administrator
 // runs the other commands with sudo. The design is in
-// docs/diagnostics-design.md.
+// docs/design/diagnostics.md.
 package main
 
 import (

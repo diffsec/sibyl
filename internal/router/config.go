@@ -1,6 +1,6 @@
 // Package router is the Sibyl model router. It checks the client key, picks
 // a route for each request (a local model or a provider), and forwards the
-// request. docs/router-design.md describes the design.
+// request. docs/design/router.md describes the design.
 package router
 
 import (
@@ -67,6 +67,10 @@ type Client struct {
 	AllowHint bool `yaml:"allow_hint,omitempty" json:"allow_hint,omitempty"`
 	// Budget limits the client's provider spend. Nil means no limit.
 	Budget *Budget `yaml:"budget,omitempty" json:"budget,omitempty"`
+	// Calibrate lets the router keep a sample of the client's requests and
+	// answers, to compare the local model with a provider. Only a hybrid
+	// client's requests are sampled.
+	Calibrate bool `yaml:"calibrate,omitempty" json:"calibrate,omitempty"`
 }
 
 // ClientsFile is clients.yaml.
@@ -254,6 +258,9 @@ type When struct {
 	Difficulty       []string `yaml:"difficulty,omitempty" json:"difficulty,omitempty"`
 	Hint             []string `yaml:"hint,omitempty" json:"hint,omitempty"`
 	Clients          []string `yaml:"clients,omitempty" json:"clients,omitempty"`
+	// NeedsProvider tests the vote of the nearest calibration outcomes.
+	// It matches neither true nor false while the vote is unknown.
+	NeedsProvider *bool `yaml:"needs_provider,omitempty" json:"needs_provider,omitempty"`
 }
 
 // Rule is one rule of a profile.
@@ -282,8 +289,10 @@ type ProfilesFile struct {
 	// addition to the built-in secret detectors.
 	SensitiveWords []string `yaml:"sensitive_words,omitempty" json:"sensitive_words,omitempty"`
 	// Classifier sets up the task and difficulty labels.
-	Classifier ClassifierConfig   `yaml:"classifier,omitempty" json:"classifier,omitzero"`
-	Profiles   map[string]Profile `yaml:"profiles" json:"profiles"`
+	Classifier ClassifierConfig `yaml:"classifier,omitempty" json:"classifier,omitzero"`
+	// Calibration sets up the comparison of sampled requests.
+	Calibration CalibrationConfig  `yaml:"calibration,omitempty" json:"calibration,omitzero"`
+	Profiles    map[string]Profile `yaml:"profiles" json:"profiles"`
 }
 
 // The labels that the classifier gives, and the hints that a client sends.
@@ -301,6 +310,9 @@ func (f ProfilesFile) Validate(providers ProvidersFile) error {
 		}
 	}
 	if err := f.Classifier.validate(); err != nil {
+		return err
+	}
+	if err := f.Calibration.validate(providers); err != nil {
 		return err
 	}
 	for name, p := range f.Profiles {

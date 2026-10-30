@@ -213,3 +213,39 @@ func TestGenerateParallelAndSplit(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateMoE(t *testing.T) {
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), installed[:2], map[string]models.Settings{
+		"big-70b":  {MoE: models.MoE{CPULayers: models.AllLayers, CacheMiB: 8192}},
+		"chat-14b": {MoE: models.MoE{CacheMiB: 512}},
+	})
+	if !strings.Contains(cfg.Models["big-70b"].Cmd, " --cpu-moe --moe-cache-mib 8192") {
+		t.Errorf("cmd = %q", cfg.Models["big-70b"].Cmd)
+	}
+	if len(issues) != 1 || issues[0].ID != "chat-14b" || !issues[0].Skipped {
+		t.Errorf("issues = %+v, want chat-14b skipped for a cache without host experts", issues)
+	}
+}
+
+func TestGenerateReasoningEffort(t *testing.T) {
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "small", Path: "small.gguf"}, {ID: "embed", Path: "e.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutPin), ms, map[string]models.Settings{
+		"big":   {Reasoning: &models.Reasoning{Var: "reasoning_effort", Value: "high"}},
+		"small": {Reasoning: &models.Reasoning{Var: "enable_thinking", Value: "off"}},
+		"embed": {Embedding: true, Reasoning: &models.Reasoning{Var: "reasoning_effort", Value: "high"}},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	// llama-swap splits cmd with POSIX shell rules, so the quoted JSON is
+	// one argument.
+	if want := `--chat-template-kwargs '{"reasoning_effort":"high"}'`; !strings.Contains(cfg.Models["big"].Cmd, want) {
+		t.Errorf("cmd missing %q:\n%s", want, cfg.Models["big"].Cmd)
+	}
+	if want := `--chat-template-kwargs '{"enable_thinking":false}'`; !strings.Contains(cfg.Models["small"].Cmd, want) {
+		t.Errorf("cmd missing %q:\n%s", want, cfg.Models["small"].Cmd)
+	}
+	if strings.Contains(cfg.Models["embed"].Cmd, "chat-template-kwargs") {
+		t.Errorf("an embedding model got the reasoning effort: %s", cfg.Models["embed"].Cmd)
+	}
+}

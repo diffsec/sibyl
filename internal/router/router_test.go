@@ -34,6 +34,8 @@ type fakeUpstream struct {
 	auth []string
 	// status, when set, is returned for every chat request.
 	status int
+	// verdict, when set, is the answer to a judge request.
+	verdict string
 }
 
 func (f *fakeUpstream) last() map[string]any {
@@ -107,6 +109,14 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", c)
 			}
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if b, _ := json.Marshal(body["messages"]); f.verdict != "" && strings.Contains(string(b), "You compare two answers") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{map[string]any{"message": map[string]string{"content": f.verdict}, "finish_reason": "stop"}},
+				"usage":   map[string]int{"prompt_tokens": 100, "completion_tokens": 10},
+			})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -610,20 +620,11 @@ func TestDecisionLog(t *testing.T) {
 	h := newHarness(t, testProfiles)
 	resp := h.post(t, "/v1/chat/completions", hybridKey, chatBody("auto", "my password=hunter2hunter2"))
 	_, _ = io.ReadAll(resp.Body)
-	// The handler writes the entry after the response ends.
-	var b []byte
-	var err error
-	for i := 0; i < 100; i++ {
-		if b, err = os.ReadFile(filepath.Join(h.dir, "decisions.jsonl")); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// The handler writes the entry after the response ends, and the file
+	// exists before the line is in it.
+	e := logEntries(t, h, 1)[0]
+	b, err := os.ReadFile(filepath.Join(h.dir, "decisions.jsonl"))
 	if err != nil {
-		t.Fatal(err)
-	}
-	var e Entry
-	if err := json.Unmarshal(b, &e); err != nil {
 		t.Fatal(err)
 	}
 	if e.Client != "laptop" || e.Route != "local/small" || e.Rule != "secrets stay" || e.Status != 200 ||

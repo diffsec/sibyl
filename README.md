@@ -1,76 +1,56 @@
 # Sibyl
 
-Sibyl is an all-in-one inference server. It turns a computer with one or more GPUs into a private AI server that you install from a USB stick or over the network, and then run from a web browser and a terminal console.
+Sibyl is an all-in-one inference server. It turns a computer with one or more GPUs into a private AI server. You install it from a USB stick or over the network, and you run it from a web browser or a terminal console.
+
+Sibyl is pre-alpha.
 
 ## What you get
 
-- llama.cpp serves GGUF models through llama-swap, which loads and swaps models on demand. One model can span several GPUs, or several models can each have a GPU.
-- An OpenAI-compatible API (`/v1`) and an Ollama-compatible API (`/api`) sit behind TLS and an API key, so existing clients work unchanged.
-- Open WebUI gives chat, with document search through a local embedding model.
-- The model manager searches Hugging Face, shows which files fit your GPUs, and downloads with resume and checksums. Each model has its own settings: context size, KV cache, sampling and speculative decoding. A built-in benchmark compares the GPU backends on your hardware.
-- Arcane runs other containers next to the inference stack.
-- `sibyl` is a terminal interface for setup, status, models, downloads, network, accounts and storage. `sibyl setup` walks through the first setup.
-- The host is Fedora bootc. The operating system is an image that updates atomically and rolls back. SELinux is enforcing, Secure Boot is on, every Sibyl image is signed, and the host refuses Sibyl images that are not.
-- The installer encrypts the disk with LUKS2 and unlocks it with the TPM2, with a recovery key. Extra disks become encrypted model pools.
-- Updates come online with `bootc upgrade`, or offline from a signed bundle on a USB drive.
+- Local models. llama.cpp serves GGUF models through llama-swap, which loads and swaps models on demand. One model can span several GPUs, or each GPU can run its own model.
+- Standard APIs. Sibyl serves an OpenAI-compatible API (`/v1`), an Anthropic Messages API and an Ollama-compatible API (`/api`), behind TLS and a key for each program. Existing clients work unchanged.
+- A model router. The model `auto` picks a local model or a cloud provider for each request, by rules that you set, with a budget for each program. A rule can keep every request that holds a secret on the host.
+- Chat. Open WebUI gives a chat interface with document search through a local embedding model.
+- Model management. Sibyl searches Hugging Face, shows which files fit your GPUs, and downloads with resume and checksums. Each model has its own context size, cache, sampling, reasoning and speculative decoding settings.
+- Two consoles. The web console at `https://<address>:8443/console/` and the terminal console `sibyl` both cover setup, status, models, downloads, the router, the network, accounts, storage and updates.
+- A secure host. The host is Fedora bootc: the operating system is a signed image that updates in one step and rolls back. SELinux is enforcing, Secure Boot is on, and the disk is encrypted with LUKS2 and unlocked by the TPM2.
+- Other containers. Arcane runs your own containers next to the inference stack.
 
 ## Hardware
 
 Each GPU vendor has its own host image, because the drivers differ.
 
-| Variant | GPUs | Inference backends | Status |
+| Variant | GPUs | Backends | Status |
 |---|---|---|---|
-| `amd` | Radeon and Ryzen AI. HIP runs on RX 6800 and 6900, RX 7000, RX 9000, Radeon PRO W6800, W7000 and AI PRO R9700, and Ryzen AI 300 and Strix Halo APUs. Every other Radeon uses Vulkan | HIP (ROCm) and Vulkan | Tested on two Radeon RX 7900 XTX cards |
-| `nvidia` | GeForce and data-center GPUs from Turing (RTX 20 series) on | CUDA and Vulkan | Builds; not tested on hardware |
-| `intel` | Arc and recent integrated graphics | Vulkan | Builds; not tested on hardware |
+| `amd` | Radeon and Ryzen AI. HIP runs on RX 6800 and 6900, RX 7000, RX 9000, Radeon PRO W6800, W7000 and AI PRO R9700, and Ryzen AI 300 and Strix Halo APUs. Every other Radeon uses Vulkan. | HIP (ROCm) and Vulkan | Tested on two Radeon RX 7900 XTX cards |
+| `nvidia` | GeForce and data-center GPUs from Turing (RTX 20 series) on | CUDA and Vulkan | Builds, not tested on hardware |
+| `intel` | Arc and recent integrated graphics | Vulkan | Builds, not tested on hardware |
 
-The HIP image is built for the ROCm targets `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1150`, `gfx1151`, `gfx1200` and `gfx1201`. Sibyl reads each card's target from the kernel. It refuses HIP for a card outside that list and uses Vulkan for it by default. Only `gfx1100` is tested on hardware.
+The HIP image is built for the ROCm targets `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1150`, `gfx1151`, `gfx1200` and `gfx1201`. Sibyl reads each card's target from the kernel, and it uses Vulkan for a card outside that list. Only `gfx1100` is tested on hardware.
 
-The NVIDIA and Intel variants build in CI and pass the same checks as the AMD one, but no one has run them on real hardware yet. If you can lend or donate an NVIDIA or Intel GPU, or give access to a machine with one, open an issue. We will test that variant and fix what breaks.
+If you can lend an NVIDIA or Intel GPU, or give access to a machine with one, open an issue. That variant can then be tested and fixed.
 
-The NVIDIA driver is built into the image and signed with the project's Machine Owner Key (MOK). Secure Boot loads it only after you enroll that key once: run `sudo mokutil --import /usr/share/sibyl/sibyl-mok.der`, reboot, and confirm the key in the blue MOK screen.
-
-## Documentation
-
-- [User guide](docs/user-guide.md): install, setup, daily use, updates and recovery.
-- [Developer guide](docs/developer-guide.md): how the parts fit, build and test, CI and releases.
-- [Design](docs/design.md): the design decisions and the phase plan.
-
-## Install
-
-The [user guide](docs/user-guide.md) has every step. In short:
+## Quick start
 
 1. Download the live ISO for your variant: `oras pull ghcr.io/diffsec/sibyl-iso:latest-amd`.
 2. Write it to a USB stick, and boot the computer from it with Secure Boot on.
 3. In the menu, choose "Install Sibyl to a disk". The installer erases the disk that you choose and prints a recovery key. Keep that key.
-4. After the reboot, log in as the administrator that you created and run `sibyl setup`.
+4. After the reboot, log in as the administrator that you created, and run `sibyl setup`. You can also open `https://<address>:8443/console/setup` in a browser.
 
-To install over the network instead, see [tools/pxe/README.md](tools/pxe/README.md).
+[Install](docs/getting-started/install.md) has every step, and the network install is in [tools/pxe/README.md](tools/pxe/README.md).
 
-## Status
+## Documentation
 
-Sibyl is pre-alpha.
+The [documentation index](docs/index.md) lists every page. Start here:
 
-## Build
+- [Install](docs/getting-started/install.md) and [First boot](docs/getting-started/first-boot.md) take you from a USB stick to a working server.
+- [Guides](docs/index.md#guides) cover daily use: the consoles, API clients, models, the router, updates and recovery.
+- [Reference](docs/index.md#reference) lists every System API route and every setting.
+- [Development](docs/development.md) and [Design](docs/index.md#design) are for contributors.
 
-The images build for `linux/amd64`. CI builds, pushes and signs them on each push to `main` (see `.github/workflows/bootc.yml`). The NVIDIA and Intel host images build only for release tags, or with `gh workflow run bootc.yml -f variants=true`.
+## Contributing
 
-Build a host image locally:
-
-```bash
-podman build -f os/Containerfile --ignorefile os/Containerfile.dockerignore --build-arg GPU_VARIANT=amd -t sibyl-os:amd .
-```
-
-Build the inference images locally:
-
-```bash
-podman build -f containers/llama-swap/Containerfile.hip -t sibyl-llama-swap:hip containers/llama-swap
-podman build -f containers/llama-swap/Containerfile.vulkan -t sibyl-llama-swap:vulkan containers/llama-swap
-podman build -f containers/llama-swap-cuda/Containerfile -t sibyl-llama-swap:cuda containers
-```
-
-The HIP build needs about 40 GB of free disk space, because the ROCm build image is large. The CUDA image builds on llama.cpp's own CUDA image, so it compiles nothing.
+Contributions need a signed Contributor License Agreement. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to sign it and which checks to run.
 
 ## License
 
-Sibyl is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE). Commercial licenses are available from the copyright holder. Contributions require a contributor license agreement, as described in [CONTRIBUTING.md](CONTRIBUTING.md).
+Sibyl is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE). Commercial licenses are available from the maintainer.

@@ -1,6 +1,6 @@
 # Sibyl live USB: the host image plus what a live system and an ISO need.
 # CI turns this image into an ISO with image-builder's generic-iso type, and
-# embeds the host image for an offline install (see docs/design.md, Storage).
+# embeds the host image for an offline install (see docs/design/overview.md, Storage).
 # Build context: containers/live.
 
 ARG OS_IMAGE=ghcr.io/diffsec/sibyl-os:latest-amd

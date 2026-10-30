@@ -1,0 +1,11 @@
+[Unit]
+Description=Download and stage the Sibyl host update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bootc upgrade
+# The System API reads the result from the host state.
+ExecStopPost=/usr/libexec/sibyl/hostd -state
+TimeoutStartSec=1h

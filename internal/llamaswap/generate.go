@@ -203,8 +203,10 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 		args = append(args, "--parallel", strconv.Itoa(s.Parallel))
 	}
 	args = append(args, s.KVCache.Flags()...)
+	args = append(args, s.MoE.Flags()...)
 	if !s.Embedding {
 		args = append(args, s.Sampling.Flags()...)
+		args = append(args, s.Reasoning.Flags()...)
 		args = append(args, s.Speculative.Flags(draftPath)...)
 	}
 	args = append(args, s.Args...)

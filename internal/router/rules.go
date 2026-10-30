@@ -94,6 +94,9 @@ type resolver struct {
 	// classify labels the text of a request. It is called only when a rule
 	// tests task or difficulty.
 	classify func(cc ClassifierConfig, text string) *Classification
+	// vote sets the label needs_provider from the calibration outcomes. It
+	// is called only when a rule tests needs_provider.
+	vote func(localModel string, k int, cl *Classification)
 }
 
 // decide picks the route for a request that names model. f is the profile
@@ -143,6 +146,10 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 	if rs.classify != nil && p.usesLabels() {
 		d.Classification = rs.classify(rs.cfg.Profiles.Classifier, f.query)
 		f.Task, f.Difficulty = d.Classification.Task, d.Classification.Difficulty
+		if rs.vote != nil && p.usesOutcomes() {
+			rs.vote(p.LocalModel, rs.cfg.Profiles.Classifier.k(), d.Classification)
+			f.NeedsProvider = d.Classification.NeedsProvider
+		}
 	}
 	d.Features = &f
 
@@ -197,7 +204,16 @@ func profileName(model string) (string, bool) {
 
 func (p Profile) usesLabels() bool {
 	for _, r := range p.Rules {
-		if len(r.When.Task) > 0 || len(r.When.Difficulty) > 0 {
+		if len(r.When.Task) > 0 || len(r.When.Difficulty) > 0 || r.When.NeedsProvider != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (p Profile) usesOutcomes() bool {
+	for _, r := range p.Rules {
+		if r.When.NeedsProvider != nil {
 			return true
 		}
 	}
@@ -231,6 +247,14 @@ func (w When) match(f Features) string {
 	} {
 		if c.want != nil && *c.want != c.got {
 			return fmt.Sprintf("%s is %t", c.name, c.got)
+		}
+	}
+	if w.NeedsProvider != nil {
+		switch {
+		case f.NeedsProvider == nil:
+			return "needs_provider is unknown"
+		case *f.NeedsProvider != *w.NeedsProvider:
+			return fmt.Sprintf("needs_provider is %t", *f.NeedsProvider)
 		}
 	}
 	if t := w.PromptTokensOver; t != nil {

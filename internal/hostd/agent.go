@@ -25,6 +25,10 @@ type Runner func(ctx context.Context, stdin, name string, args ...string) (strin
 // Agent processes the request queue.
 type Agent struct {
 	Queue string // request files, writable by sibyl
+	// AuthQueue holds the password checks. It is in memory, under /run.
+	AuthQueue string
+	// Sleep waits after a failed password check. Nil does not wait.
+	Sleep func(time.Duration)
 	Out   string // state.json and results/, written by root, readable by sibyl
 	Data  string // records that only root reads and writes
 	Run   Runner
@@ -139,6 +143,8 @@ func (a *Agent) do(ctx context.Context, act Action, data []byte) (msg, secret st
 		msg, err = a.detachPool(ctx, body.(PoolName).Name)
 	case Refresh:
 		msg = "state refreshed"
+	case UpdateCheck, UpdateApply, Reboot:
+		msg, err = a.update(ctx, act, body)
 	default:
 		err = fmt.Errorf("unknown action %q", act)
 	}
@@ -439,6 +445,8 @@ func (a *Agent) WriteState(ctx context.Context) error {
 		st.Pending = &p
 	}
 	st.Pools = a.poolState(ctx)
+	st.Update, err = a.updateState(ctx)
+	errs = append(errs, err)
 	if out, err := a.Run(ctx, "", "lsblk", disks.LsblkArgs...); err != nil {
 		errs = append(errs, err)
 	} else if st.Disks, err = disks.Parse([]byte(out), nil, MinPoolDisk); err != nil {

@@ -24,7 +24,7 @@ updates:
         patterns: ["chainguard/*", "cgr.dev/chainguard/*"]
     ignore:
       # ROCm and the Ubuntu releases change the llama.cpp build. Move them
-      # by hand after a benchmark (docs/design.md, Build arguments).
+      # by hand after a benchmark (docs/design/overview.md).
       # Dependabot names a Docker Hub image with or without its registry.
       - dependency-name: "*rocm/dev-ubuntu-24.04"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]

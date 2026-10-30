@@ -13,6 +13,8 @@ Volume=/var/lib/sibyl/models:/models:z
 Volume=/var/lib/sibyl-pools:/pools:rslave
 Volume=/var/lib/sibyl/config:/config:z
 Volume=/var/lib/sibyl/run:/run/sibyl:z
+# Web console password checks, in memory. sibyl-hostd -auth reads them.
+Volume=/run/sibyl-auth:/run/sibyl-auth:z
 # Written by sibyl-hostd as root. It labels the files itself, so no :z here.
 Volume=/var/lib/sibyl-host/out:/run/sibyl-host:ro
 Volume=/var/lib/sibyl/home/.config/containers/systemd/llama-swap.container.d:/quadlet:z

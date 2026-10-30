@@ -1,0 +1,33 @@
+[Unit]
+Description=Sibyl web console password checks
+After=systemd-tmpfiles-setup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/hostd -auth
+# The checks run id, getent and unix_chkpwd, which reads /etc/shadow. They
+# write only the results and the failure count, and remove only the
+# requests. NoNewPrivileges is not set: with it, SELinux can refuse the
+# switch to unix_chkpwd's domain, and every sign-in would fail.
+# RestrictSUIDSGID is not set: its seccomp filter cannot read openat2's
+# arguments, so it refuses openat2 with ENOSYS, and the queue reader uses it.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sibyl-host /run/sibyl-auth
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+PrivateDevices=yes
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_CHOWN CAP_FOWNER
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+TimeoutStartSec=30s

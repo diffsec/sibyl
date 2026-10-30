@@ -675,3 +675,117 @@ func TestEmbeddingReserveSplitAndSlots(t *testing.T) {
 		}
 	}
 }
+
+// TestMoESettings checks that a MoE model gets the expert flags, and that
+// a dense model refuses them.
+func TestMoESettings(t *testing.T) {
+	f := newFixture(t)
+	for id, kv := range map[string]map[string]any{
+		"dense": {"general.architecture": "llama", "llama.context_length": 4096},
+		"moe":   {"general.architecture": "qwen3moe", "qwen3moe.context_length": 4096, "qwen3moe.expert_count": 128},
+	} {
+		data, err := gguf.Encode(kv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, filepath.Join(f.paths.Models, id+".gguf"), string(data))
+	}
+	body := `{"moe":{"cpu_layers":-1,"cache_mib":4096}}`
+	if code, b := f.do(t, "PUT", "/models/dense", body, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("dense model = %d %v, want 422", code, b)
+	}
+	if code, b := f.do(t, "PUT", "/models/moe", body, true); code != http.StatusOK {
+		t.Fatalf("moe model = %d %v", code, b)
+	}
+	cfg, err := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "--cpu-moe --moe-cache-mib 4096") {
+		t.Errorf("config:\n%s", cfg)
+	}
+}
+
+func TestRouterCalibration(t *testing.T) {
+	f := newFixture(t)
+	dir := filepath.Join(f.paths.Config, "router", "calibration")
+	mkdir(t, dir)
+	now := time.Now()
+	for i, smp := range []router.Sample{
+		{LocalModel: "a", Task: "code", Difficulty: "hard", Verdict: &router.Verdict{Winner: router.WinProvider},
+			Local: &router.Side{LatencyMS: 900}, Provider: &router.Side{LatencyMS: 300, CostUSD: 0.02}},
+		{LocalModel: "a", Task: "code", Difficulty: "hard", Verdict: &router.Verdict{Winner: router.WinTie, LocalOK: true}},
+		{LocalModel: "a", Task: "chat", Difficulty: "easy"},
+	} {
+		smp.ID = fmt.Sprintf("%019d-0", now.Add(time.Duration(i)*time.Second).UnixNano())
+		b, _ := json.Marshal(smp)
+		write(t, filepath.Join(dir, smp.ID+".json"), string(b))
+	}
+	code, b := f.do(t, "GET", "/router/calibration", "", true)
+	cells, _ := b["cells"].([]any)
+	if code != 200 || b["samples"] != float64(3) || b["judged"] != float64(2) || b["pending"] != float64(1) || len(cells) != 1 {
+		t.Fatalf("report = %d %v", code, b)
+	}
+	if c := cells[0].(map[string]any); c["local_ok_rate"] != 0.5 || c["provider_cost_usd"] != 0.02 || b["daily_usd"] != 1.0 {
+		t.Errorf("cell = %v, daily %v", c, b["daily_usd"])
+	}
+	code, b = f.do(t, "DELETE", "/router/calibration", "", true)
+	if code != 200 || b["deleted"] != float64(3) {
+		t.Fatalf("delete = %d %v", code, b)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Errorf("left %d files", len(ents))
+	}
+}
+
+func TestRouterCalibrationApply(t *testing.T) {
+	f := newFixture(t)
+	rdir := filepath.Join(f.paths.Config, "router")
+	write(t, filepath.Join(rdir, router.ProvidersName), "providers:\n  cloud:\n    type: openai\n    base_url: https://x/v1\n    models: [big]\n")
+	write(t, filepath.Join(rdir, router.KeysDir, "cloud"), "k\n")
+	write(t, filepath.Join(rdir, router.ProfilesName), `profiles:
+  auto:
+    local_model: a
+    rules:
+      - name: hard
+        when: {difficulty: [hard]}
+        route: cloud/big
+      - name: everything else
+        route: local
+`)
+	dir := filepath.Join(rdir, "calibration")
+	mkdir(t, dir)
+	now := time.Now()
+	for i := range router.ProposalComparisons {
+		smp := router.Sample{ID: fmt.Sprintf("%019d-0", now.Add(time.Duration(i)).UnixNano()), LocalModel: "a",
+			Task: "code", Difficulty: "medium", Verdict: &router.Verdict{Winner: router.WinProvider}}
+		b, _ := json.Marshal(smp)
+		write(t, filepath.Join(dir, smp.ID+".json"), string(b))
+	}
+	code, b := f.do(t, "GET", "/router/calibration", "", true)
+	props, _ := b["proposals"].([]any)
+	if code != 200 || len(props) != 1 {
+		t.Fatalf("report = %d %v", code, b)
+	}
+	p := props[0].(map[string]any)
+	if p["route"] != "cloud/big" || p["current"] != "local/a" || p["allowed"] != true {
+		t.Fatalf("proposal %v", p)
+	}
+	if code, b := f.do(t, "POST", "/router/calibration/apply", `{"id":"nope"}`, true); code != 404 {
+		t.Errorf("unknown id = %d %v", code, b)
+	}
+	if code, b := f.do(t, "POST", "/router/calibration/apply", fmt.Sprintf(`{"id":%q}`, p["id"]), true); code != 200 {
+		t.Fatalf("apply = %d %v", code, b)
+	}
+	cfg, err := router.LoadConfig(rdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := cfg.Profiles.Profiles["auto"].Rules
+	if len(rules) != 3 || rules[0].Name != "calibration: code medium" || rules[0].Route != "cloud/big" {
+		t.Errorf("rules %+v", rules)
+	}
+	if _, b := f.do(t, "GET", "/router/calibration", "", true); len(b["proposals"].([]any)) != 0 {
+		t.Errorf("proposals after apply %v", b["proposals"])
+	}
+}

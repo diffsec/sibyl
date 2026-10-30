@@ -3,6 +3,7 @@ package models
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,6 +39,14 @@ type Meta struct {
 	// GPUs, over all shards. It leaves out the input layer, which llama.cpp
 	// keeps in system RAM. Zero means the tensors could not be read.
 	GPUWeights int64 `json:"gpu_weight_bytes,omitempty"`
+	// ExpertCount is the number of experts in each MoE layer, or 0 for a
+	// dense model.
+	ExpertCount int `json:"expert_count,omitempty"`
+	// ExpertBytes is the size of the routed expert tensors of each block,
+	// by block index. GPUWeights includes them.
+	ExpertBytes []int64 `json:"expert_layer_bytes,omitempty"`
+	// Reasoning is how the chat template sets the reasoning, if it can.
+	Reasoning *ReasoningControl `json:"reasoning,omitempty"`
 }
 
 // Weights returns the bytes of weights on the GPUs: GPUWeights, or the
@@ -47,6 +56,28 @@ func (m Meta) Weights(fileSize int64) int64 {
 		return m.GPUWeights
 	}
 	return fileSize
+}
+
+// HostExperts returns the bytes of experts that the MoE settings keep in
+// system RAM: those of the first CPULayers blocks, or of all of them.
+func (m Meta) HostExperts(moe MoE) int64 {
+	n := len(m.ExpertBytes)
+	if moe.CPULayers != AllLayers {
+		n = min(n, max(moe.CPULayers, 0))
+	}
+	var sum int64
+	for _, b := range m.ExpertBytes[:n] {
+		sum += b
+	}
+	return sum
+}
+
+// VRAMWeights returns the GPU memory for the weights and the MoE cache:
+// the weights less the experts in system RAM, plus the cache. llama.cpp
+// gives the cache no more slots than the experts in system RAM need.
+func (m Meta) VRAMWeights(fileSize int64, moe MoE) int64 {
+	host := m.HostExperts(moe)
+	return m.Weights(fileSize) - host + min(int64(moe.CacheMiB)<<20, host)
 }
 
 // hostTensors are the input layer tensors. llama.cpp keeps them in system
@@ -59,17 +90,25 @@ var hostTensors = map[string]bool{
 	"token_types.weight":          true,
 }
 
+// expertTensor matches the routed expert tensors of a block. It is
+// LLM_FFN_EXPS_REGEX in llama.cpp b11889 (common/common.h), which
+// --n-cpu-moe and --cpu-moe use. Shared experts (ffn_*_shexp) stay on
+// the GPUs.
+var expertTensor = regexp.MustCompile(`^blk\.([0-9]+)\.ffn_(up|down|gate|gate_up)_(ch|)exps`)
+
 // gpuWeights sums the tensors that llama.cpp puts on the GPUs, over the
-// shards of the model whose first shard is path. A model with no
-// output.weight uses its token embedding as the output layer, and
-// llama.cpp puts a copy of it on the GPUs.
-func gpuWeights(path string) (int64, error) {
+// shards of the model whose first shard is path, and returns the size of
+// the expert tensors of each block. A model with no output.weight uses its
+// token embedding as the output layer, and llama.cpp puts a copy of it on
+// the GPUs.
+func gpuWeights(path string) (int64, []int64, error) {
 	var gpu, embd int64
+	var experts []int64
 	output := false
 	for _, p := range shardPaths(path) {
 		ts, err := gguf.ReadTensors(p)
 		if err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 		for _, t := range ts {
 			switch t.Name {
@@ -81,12 +120,22 @@ func gpuWeights(path string) (int64, error) {
 			if !hostTensors[t.Name] {
 				gpu += t.Size
 			}
+			if m := expertTensor.FindStringSubmatch(t.Name); m != nil {
+				// block_count bounds the index in a valid file; the
+				// limit keeps a corrupt name from allocating.
+				if b, err := strconv.Atoi(m[1]); err == nil && b < maxMoELayers {
+					for len(experts) <= b {
+						experts = append(experts, 0)
+					}
+					experts[b] += t.Size
+				}
+			}
 		}
 	}
 	if !output {
 		gpu += embd
 	}
-	return gpu, nil
+	return gpu, experts, nil
 }
 
 // shardPaths returns every shard of a split model from its first shard,
@@ -156,12 +205,14 @@ var archKeys = []string{
 	"attention.head_count", "attention.head_count_kv", "attention.key_length", "attention.value_length",
 	"attention.recurrent_layers", "full_attention_interval", "attention.sliding_window", "attention.sliding_window_pattern",
 	"attention.indexer.head_count", "attention.indexer.key_length",
+	"expert_count",
 }
 
 // ReadMeta reads the GGUF header of a model file.
 func ReadMeta(path string) (Meta, error) {
 	vals, err := gguf.ReadFile(path, func(k string) bool {
-		if k == "general.architecture" || k == "general.name" || strings.HasPrefix(k, "general.sampling.") {
+		if k == "general.architecture" || k == "general.name" || k == "tokenizer.chat_template" ||
+			strings.HasPrefix(k, "general.sampling.") {
 			return true
 		}
 		// Architecture names have no dot, so the rest of the key follows
@@ -174,14 +225,17 @@ func ReadMeta(path string) (Meta, error) {
 	}
 	m := metaFrom(vals["general.architecture"].Str, vals)
 	m.Name = vals["general.name"].Str
+	m.Reasoning = DetectReasoning(vals["tokenizer.chat_template"].Str)
 	// Without the tensors, the fit counts the whole file as GPU weights.
-	m.GPUWeights, _ = gpuWeights(path)
+	if gw, experts, err := gpuWeights(path); err == nil {
+		m.GPUWeights, m.ExpertBytes = gw, experts
+	}
 	return m, nil
 }
 
 func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 	get := func(k string) gguf.Value { return vals[arch+"."+k] }
-	m := Meta{Architecture: arch, ContextLength: get("context_length").Int()}
+	m := Meta{Architecture: arch, ContextLength: get("context_length").Int(), ExpertCount: get("expert_count").Int()}
 
 	layers := get("block_count").Int()
 	// The last nextn_predict_layers blocks are multi-token prediction
