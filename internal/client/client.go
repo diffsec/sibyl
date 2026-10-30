@@ -446,13 +446,16 @@ type RouterSpend struct {
 
 // RouterStats is the GET /router/stats response.
 type RouterStats struct {
-	Requests int                    `json:"requests"`
-	ByClient map[string]int         `json:"by_client"`
-	ByRoute  map[string]int         `json:"by_route"`
-	Errors   int                    `json:"errors"`
-	Unpriced int                    `json:"unpriced"`
-	Spend    map[string]RouterSpend `json:"spend"`
-	Last     []RouterEntry          `json:"last"`
+	Requests int            `json:"requests"`
+	ByClient map[string]int `json:"by_client"`
+	ByRoute  map[string]int `json:"by_route"`
+	Errors   int            `json:"errors"`
+	Unpriced int            `json:"unpriced"`
+	// Regenerated counts, per route, the answers that a client asked for
+	// again within a minute.
+	Regenerated map[string]int         `json:"regenerated"`
+	Spend       map[string]RouterSpend `json:"spend"`
+	Last        []RouterEntry          `json:"last"`
 }
 
 // NewRouterClient is a created client with its key, which is shown once.

@@ -59,6 +59,8 @@ type Server struct {
 	// localInflight counts the client requests to llama-swap, so that the
 	// calibration worker runs only when the host is idle.
 	localInflight atomic.Int64
+	// regen spots a client that sends the same conversation again.
+	regen regenTracker
 
 	mu    sync.RWMutex
 	cfg   *Config
@@ -746,6 +748,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e = entryFor(c, "chat", d)
+	conv, _ := json.Marshal(req.Messages)
+	rkey := regenKey(c.Name, conv)
+	e.Regenerates = s.regen.earlier(rkey, start)
 	resp, rt, err := s.send(r, c, d, func(rt Route) ([]byte, string, error) {
 		b, err := withModel(body, rt.Model)
 		if err == nil {
@@ -759,6 +764,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	e.Status = resp.StatusCode
+	if resp.StatusCode == http.StatusOK {
+		s.regen.note(rkey, rt.String(), start)
+	}
 	tap := &usageTap{keep: resp.StatusCode == http.StatusOK && s.samples(c, d)}
 	err = relayTap(w, resp, routeHeader(rt, d), tap)
 	s.account(&e, rt, tap.result())
@@ -846,6 +854,9 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e = entryFor(c, "messages", d)
+	conv, _ := json.Marshal([]any{req.System, req.Messages})
+	rkey := regenKey(c.Name, conv)
+	e.Regenerates = s.regen.earlier(rkey, start)
 	cfg := s.config()
 	anthropicRoute := func(rt Route) bool {
 		return !rt.Local() && cfg.Providers.Providers[rt.Provider].Type == ProviderAnthropic
@@ -867,6 +878,9 @@ func (s *Server) messages(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	e.Status = resp.StatusCode
+	if resp.StatusCode == http.StatusOK {
+		s.regen.note(rkey, rt.String(), start)
+	}
 	if anthropicRoute(rt) {
 		u, err := relay(w, resp, routeHeader(rt, d))
 		s.account(&e, rt, u)

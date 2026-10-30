@@ -674,6 +674,13 @@ func (v *routerView) render(int) string {
 	if v.st.Unpriced > 0 {
 		b.WriteString(badSty.Render(fmt.Sprintf(", %d with no price", v.st.Unpriced)))
 	}
+	regen := 0
+	for _, n := range v.st.Regenerated {
+		regen += n
+	}
+	if regen > 0 {
+		fmt.Fprintf(&b, ", %d asked again within a minute", regen)
+	}
 	b.WriteString("\n")
 	for i, e := range v.st.Last {
 		if i == 8 {

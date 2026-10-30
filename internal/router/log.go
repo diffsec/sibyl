@@ -29,6 +29,10 @@ type Entry struct {
 	Unpriced  bool    `json:"unpriced,omitempty"`
 	LatencyMS int64   `json:"latency_ms"`
 	Error     string  `json:"error,omitempty"`
+	// Regenerates is the route of an answer to the same conversation
+	// within the last minute. The client asked again, so it likely did
+	// not like that answer.
+	Regenerates string `json:"regenerates,omitempty"`
 }
 
 // MaxLogSize is the size at which the decision log rotates. One old file,

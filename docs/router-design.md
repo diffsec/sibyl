@@ -348,7 +348,7 @@ The outcomes belong to one local model. When the profile's `local_model` changes
 
 ### As built
 
-Steps 1 to 5 of the loop are built. The Open WebUI feedback, the regeneration count, the remeasure after a model change and the TUI view come next.
+Steps 1 to 5 of the loop, the regeneration count and the TUI view are built. The Open WebUI feedback and the remeasure after a model change come next.
 
 - The router keeps the samples, and the comparison worker runs in the router, not in the System API. The router already holds the provider adapters, the spend file and the count of local requests in flight, which the worker needs. The router mounts `/var/lib/sibyl/config/router/calibration` read-write, mode 0700.
 - Only `/v1/chat/completions` requests are sampled. A Messages request, and a request with tools or images, is not sampled, because its answer is not plain text that a judge can compare.
@@ -357,6 +357,8 @@ Steps 1 to 5 of the loop are built. The Open WebUI feedback, the regeneration co
 - `status.json` in the same directory holds the worker's last state and the reason it waits. A sample that fails three times is left alone.
 - The label `needs_provider` comes from an outcome index in the classifier. Before each worker tick, the router embeds the last user message of each judged sample that the index does not hold, at most 256 per tick, and drops the samples that are gone. A request's `needs_provider` is true when more than half of its `k` nearest outcomes, for the profile's local model, went to the provider. Below 20 outcomes for that model the label is unknown, and a rule with `needs_provider` matches neither true nor false. The outcomes belong to one local model, so a new local model starts with none.
 - The System API makes the rule proposals from the report. A cell of local model, task and difficulty with at least 50 comparisons gets a proposal when the profile sends it to a provider and the local answer won or tied at least 90% of the time, or when the profile keeps it local and the local answer won or tied less than 60% of the time. The route for a cell is the route that the profile gives a short request with those labels. A proposal to a provider uses the compare route and has `sensitive: false` in its condition.
+- The router keeps a SHA-256 hash of each client's conversation for one minute, with the route that answered it. When the same client sends the same conversation again in that minute, the decision log entry gets `regenerates` with the earlier route, and `GET /router/stats` counts these per route. An agent that retries a request counts too, so the count is a signal, not a verdict.
+- The TUI Router screen shows the calibration samples, the worker's wait reason, the rate per task and difficulty, and the proposals. The `a` key applies a proposal after a confirm.
 - `POST /router/calibration/apply` adds a proposal's rule to its profile. The rule goes before the first rule that tests labels, or before a last rule that matches everything, so the rules for sensitive and long requests still come first. A newer proposal for the same labels replaces the older rule. With `auto_apply: true`, the System API applies every 10 minutes the proposals whose route the profile already names, and logs each change.
 
 ### Decisions for step 6.4

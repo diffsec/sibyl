@@ -336,3 +336,50 @@ func TestNeedsProvider(t *testing.T) {
 		t.Errorf("after the samples went: route %s, want local/small", got)
 	}
 }
+
+// logEntries waits for n decision log entries.
+func logEntries(t *testing.T, h *harness, n int) []Entry {
+	t.Helper()
+	var out []Entry
+	for range 200 {
+		out = nil
+		b, _ := os.ReadFile(filepath.Join(h.dir, "decisions.jsonl"))
+		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			var e Entry
+			if json.Unmarshal([]byte(line), &e) == nil {
+				out = append(out, e)
+			}
+		}
+		if len(out) >= n {
+			return out
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("%d log entries, want %d", len(out), n)
+	return nil
+}
+
+func TestRegenerations(t *testing.T) {
+	h := newHarness(t, testProfiles)
+	for i, c := range []struct {
+		key, text, want string
+	}{
+		{hybridKey, "write a haiku", ""},
+		{hybridKey, "write a haiku", "local/small"},
+		{hybridKey, "write a limerick", ""},
+		{localKey, "write a haiku", ""},
+	} {
+		resp := h.post(t, "/v1/chat/completions", c.key, chatBody("auto", c.text))
+		_, _ = io.ReadAll(resp.Body)
+		e := logEntries(t, h, i+1)[i]
+		if e.Regenerates != c.want {
+			t.Errorf("request %d (%s): regenerates %q, want %q", i, c.text, e.Regenerates, c.want)
+		}
+	}
+	var r regenTracker
+	k := regenKey("a", []byte("x"))
+	r.note(k, "local/small", time.Now().Add(-2*RegenWindow))
+	if got := r.earlier(k, time.Now()); got != "" {
+		t.Errorf("an old conversation counts: %q", got)
+	}
+}

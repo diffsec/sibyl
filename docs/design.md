@@ -108,7 +108,7 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `POST /router/classify` | The classifier's task and difficulty labels for `{"text"}`, with the nearest examples |
 | `GET`, `PUT /router/examples` | The owner's classifier examples, a JSON list of `{text, task, difficulty}` |
 | `GET /router/catalog`, `GET /router/catalog/{id}?q=`, `POST /router/catalog/refresh` | The local models.dev index: providers, one provider's models with prices and limits, or a fetch now |
-| `GET /router/stats` | Requests per client and per route, spend per client, and the last decisions |
+| `GET /router/stats` | Requests per client and per route, spend per client, answers asked for again per route, and the last decisions |
 | `GET`, `DELETE /router/calibration` | The local win-or-tie rate per local model, task and difficulty from the calibration samples with the rule proposals, or delete every sample |
 | `POST /router/calibration/apply` | Add the rule of one proposal, `{"id"}`, to its profile |
 

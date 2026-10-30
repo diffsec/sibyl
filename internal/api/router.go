@@ -614,9 +614,12 @@ type routerStats struct {
 	ByRoute  map[string]int `json:"by_route"`
 	Errors   int            `json:"errors"`
 	// Unpriced counts provider requests whose cost is not known.
-	Unpriced int                    `json:"unpriced"`
-	Spend    map[string]clientSpend `json:"spend"`
-	Last     []router.Entry         `json:"last"`
+	Unpriced int `json:"unpriced"`
+	// Regenerated counts, per route, the answers that the client asked for
+	// again within a minute.
+	Regenerated map[string]int         `json:"regenerated"`
+	Spend       map[string]clientSpend `json:"spend"`
+	Last        []router.Entry         `json:"last"`
 }
 
 // clientSpend is a client's provider spend in US dollars, in UTC.
@@ -655,7 +658,8 @@ func (s *Server) spend() map[string]clientSpend {
 // getRouterStats reads the decision log: totals per client and per route
 // since the log last rotated, and the last decisions.
 func (s *Server) getRouterStats(w http.ResponseWriter, _ *http.Request) {
-	st := routerStats{ByClient: map[string]int{}, ByRoute: map[string]int{}, Last: []router.Entry{}, Spend: s.spend()}
+	st := routerStats{ByClient: map[string]int{}, ByRoute: map[string]int{}, Regenerated: map[string]int{},
+		Last: []router.Entry{}, Spend: s.spend()}
 	f, err := os.Open(s.Paths.routerLog())
 	if errors.Is(err, os.ErrNotExist) {
 		writeJSON(w, http.StatusOK, st)
@@ -684,6 +688,9 @@ func (s *Server) getRouterStats(w http.ResponseWriter, _ *http.Request) {
 		}
 		if e.Unpriced {
 			st.Unpriced++
+		}
+		if e.Regenerates != "" {
+			st.Regenerated[e.Regenerates]++
 		}
 		st.Last = append(st.Last, e)
 		if len(st.Last) > keep {
