@@ -16,9 +16,10 @@ Sibyl is pre-alpha. The AMD variant is tested on one host with two Radeon RX 790
 8. [Host settings and accounts](#host-settings-and-accounts)
 9. [Run other containers with Arcane](#run-other-containers-with-arcane)
 10. [Updates](#updates)
-11. [Disk encryption and recovery](#disk-encryption-and-recovery)
-12. [Try Sibyl from the USB without an install](#try-sibyl-from-the-usb-without-an-install)
-13. [Troubleshooting](#troubleshooting)
+11. [Diagnostics and recovery](#diagnostics-and-recovery)
+12. [Disk encryption and recovery](#disk-encryption-and-recovery)
+13. [Try Sibyl from the USB without an install](#try-sibyl-from-the-usb-without-an-install)
+14. [Troubleshooting](#troubleshooting)
 
 ## What you need
 
@@ -527,6 +528,52 @@ sudo systemctl reboot
 ```
 
 `sibyl-update` checks the bundle's signature and every file before it changes anything. After an offline update, the host follows the bundle. When it has internet again, return to online updates with the command that `sibyl-update` prints.
+
+## Diagnostics and recovery
+
+Sibyl watches inference and brings it back after a failure. It restarts llama-swap, then resets the GPU, then reboots. After each failure it saves an incident with the logs, the GPU state and the speed of each model. Incidents stay on the box. [diagnostics-design.md](diagnostics-design.md) describes how it works.
+
+Show the watchdog state, the upload choice and safe mode:
+
+```bash
+sudo sibyl-diag status
+```
+
+Show the requests and the generation speed of each model over the last day:
+
+```bash
+sudo sibyl-diag perf -since 24h
+```
+
+### Send a problem to support
+
+1. Make a bundle. The command saves an incident now, removes keys, addresses and the hostname, and prints a diagnostic ID such as `SBL-7K2M-9QXD`:
+
+   ```bash
+   sudo sibyl-diag bundle -note "what you saw"
+   ```
+
+   To bundle an incident that the watchdog saved, use `-latest`, or list them with `sudo sibyl-diag incidents`.
+2. Give the diagnostic ID to support.
+3. Send the bundle file from `/var/lib/sibyl-diag/bundles/`, or upload it as below.
+
+Sibyl sends nothing unless you turn uploads on. `manual` sends a bundle only when you run `submit`, and asks first. `automatic` sends every incident:
+
+```bash
+sudo sibyl-diag consent manual
+sudo sibyl-diag submit
+```
+
+`sudo sibyl-diag consent off` turns uploads off again.
+
+### Safe mode
+
+If the host crashes more than twice in 6 hours, Sibyl starts without llama-swap, so that you can read the incidents. The rest of the host works as usual. To start inference again:
+
+```bash
+sudo sibyl-diag safe-mode off
+sudo systemctl --user -M sibyl@ start llama-swap.service
+```
 
 ## Disk encryption and recovery
 

@@ -2,12 +2,17 @@
 Description=Sibyl llama-swap (llama.cpp inference)
 Wants=network-online.target
 After=network-online.target
+# sibyl-diag sets this flag after a boot loop. `sudo sibyl-diag safe-mode off` clears it.
+ConditionPathExists=!/var/lib/sibyl/config/safe-mode
 
 [Container]
 ContainerName=llama-swap
 # The backend drop-in (llama-swap.container.d/backend.conf) sets Image= and
 # the GPU devices, which differ per backend and GPU vendor.
 Network=sibyl.network
+# Host loopback only, for the sibyl-diag watchdog and metrics sampler. No
+# nftables rule forwards to it, so the router stays the only way in from outside.
+PublishPort=127.0.0.1:18080:8080
 GroupAdd=keep-groups
 UserNS=keep-id:uid=10001,gid=10001
 Volume=/var/lib/sibyl/models:/models:ro,z
@@ -28,6 +33,9 @@ PidsLimit=4096
 HealthCmd=["curl","-fsS","http://127.0.0.1:8080/health"]
 HealthInterval=30s
 HealthStartPeriod=20s
+HealthRetries=3
+# A failed health check kills the container, and Restart=always brings it back.
+HealthOnFailure=kill
 Notify=healthy
 
 [Service]

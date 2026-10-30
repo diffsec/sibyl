@@ -5,8 +5,9 @@
 
 
 # sibyl-hostd runs the privileged host actions, sibyl-install is the disk
-# installer, and sibyl-update applies offline bundles. They run on the host,
-# so they are built here.
+# installer, sibyl-update applies offline bundles, and sibyl-diag is the
+# diagnostics and inference watchdog. They run on the host, so they are
+# built here.
 FROM cgr.dev/chainguard/go:latest@sha256:85788137110936acab58b7a2901df787f71377ffac4809a9b04db7401f689580 AS hostd
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,7 +16,8 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/sibyl-hostd \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-diag ./cmd/sibyl-diag
 
 # The variant build scripts, as a stage: a RUN step on an SELinux build host
 # cannot read a bind mount taken straight from the build context.
@@ -50,6 +52,7 @@ COPY os/rootfs/ /
 COPY --from=hostd /out/sibyl-hostd /usr/libexec/sibyl/hostd
 COPY --from=hostd /out/sibyl-install /usr/sbin/sibyl-install
 COPY --from=hostd /out/sibyl-update /usr/sbin/sibyl-update
+COPY --from=hostd /out/sibyl-diag /usr/sbin/sibyl-diag
 
 # render and video live in /usr/lib/group, where systemd-sysusers cannot add
 # members. Copy them to /etc/group so the "m" lines in sysusers.d apply.
@@ -61,6 +64,7 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
     && echo "${GPU_VARIANT}" > /usr/share/sibyl/gpu-variant \
     && systemctl enable nftables.service sibyl-selinux.service sibyl-firstboot.service sibyl-operator-export.service \
         sibyl-hostd.path sibyl-hostd-state.timer sibyl-tls.timer sibyl-provision.service \
+        sibyl-diag-boot.service sibyl-diag-watchdog.service sibyl-diag-metrics.service sibyl-diag-upload.timer \
     && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
     && mkdir -p /etc/containers/systemd/users/1001/llama-swap.container.d \

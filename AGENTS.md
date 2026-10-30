@@ -14,6 +14,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 - `cmd/` and `internal/` are the Go System API. The design is in the "System API and host agent" section of `docs/design.md`.
 - `os/rootfs/usr/libexec/sibyl/agent` is the host agent. It is the only path from a container to systemd. Keep its allowlist in step with `hostctl.Units`.
 - `cmd/sibyl-hostd` is the root agent for hostname, network and accounts. `os/Containerfile` builds it into the host image. Its checks in `internal/hostd` are the security boundary, so keep every new action in `hostd.Decode` and test the refusals.
+- `cmd/sibyl-diag` and `internal/diag` are the diagnostics and inference watchdog. They run as root on the host. The design is in `docs/diagnostics-design.md`. A new capture step must go through the redactor before it can reach a bundle.
 - `.github/workflows/bootc.yml` builds, pushes and signs all images.
 
 ## Rules

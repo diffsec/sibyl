@@ -431,6 +431,10 @@ To update a host:
 - SSH accepts keys only. Root login is off.
 - `bootc` and Podman auto-update are off by default. Updates are explicit, from the TUI, the System API, or `bootc upgrade`.
 
+## Diagnostics and watchdog
+
+`sibyl-diag` (`cmd/sibyl-diag`, `internal/diag`) runs as root on the host. It samples GPU, host and llama-server metrics with tokens per second per request, watches inference, and climbs a recovery ladder: restart llama-swap, reset the GPU, reboot, then stop and report. A hardware watchdog, kernel panic settings, pstore and a persistent journal cover a full lockup. After a boot loop the host comes up in safe mode, without llama-swap. Each failure leaves an incident on the box. A redacted bundle with a diagnostic ID such as `SBL-7K2M-9QXD` carries one to support, and upload is opt-in. [diagnostics-design.md](diagnostics-design.md) describes it, with the ingest API and the plan for a fleet service.
+
 ## Phases
 
 | Phase | Scope | Exit check |
@@ -441,6 +445,7 @@ To update a host:
 | 4 | NVIDIA and Intel variants, offline update bundles, signature policy enforced | Each variant boots. An unsigned image fails to pull. |
 | 5 | User guide (`docs/user-guide.md`) and developer guide (`docs/developer-guide.md`) | A new user installs Sibyl on a fresh host from the guide alone. |
 | 6 | Smart model router: a gateway in front of llama-swap that serves local requests that fit and routes others to frontier providers (Anthropic, OpenAI, OpenRouter and similar), using request profiles and customisable rules, optionally decided by a small local classifier model | Design in `docs/router-design.md`. Exit checks per step there. |
+| 7 | Diagnostics, inference watchdog, opt-in upload, then the ingest and fleet services | Phases D1 to D5 in `docs/diagnostics-design.md`. |
 
 ## Open items
 
