@@ -1,6 +1,6 @@
 // Package router is the Sibyl model router. It checks the client key, picks
 // a route for each request (a local model or a provider), and forwards the
-// request. docs/router-design.md describes the design.
+// request. docs/design/router.md describes the design.
 package router
 
 import (

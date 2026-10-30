@@ -18,7 +18,7 @@ type wizardStep struct {
 	hint  string
 }
 
-// The order follows the setup wizard in docs/design.md. Each step uses the
+// The order follows the setup wizard in docs/design/overview.md. Each step uses the
 // normal screen, so every step can run again later without the wizard.
 var wizardSteps = []wizardStep{
 	{"GPUs, backend and layout", 1, "press e to choose the GPUs, the backend and the default layout"},

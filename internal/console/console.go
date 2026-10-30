@@ -1,5 +1,5 @@
 // Package console is the Sibyl web console: a browser view of the TUI.
-// docs/webui-design.md describes it.
+// docs/design/web-console.md describes it.
 //
 // The console signs the owner in with the password of a wheel account,
 // which sibyl-hostd checks, and keeps a session in a cookie. Every page

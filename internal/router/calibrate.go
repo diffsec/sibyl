@@ -22,7 +22,7 @@ import (
 // CalibrationConfig sets up continuous calibration: the router keeps a
 // sample of real requests, gets the answer of the other side (the local
 // model or a provider) when the host is idle, and asks a judge which answer
-// is better. docs/router-design.md describes the loop.
+// is better. docs/design/router.md describes the loop.
 type CalibrationConfig struct {
 	// SampleRate is the share of a calibrating client's requests that the
 	// router keeps. The default is 0.02.
