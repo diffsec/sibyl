@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -39,6 +40,31 @@ type KVCache struct {
 	TypeV string `yaml:"type_v,omitempty" json:"type_v,omitempty"`
 }
 
+// MoE keeps the expert weights of a Mixture of Experts model in system RAM,
+// and streams the experts that the router picks to the GPUs.
+type MoE struct {
+	// CPULayers keeps the experts of the first N layers in system RAM
+	// (--n-cpu-moe). AllLayers keeps every layer's experts there
+	// (--cpu-moe). They stay memory-mapped from the model file, so when
+	// RAM is short the kernel drops the experts that go unused and reads
+	// them back from disk when the router picks them.
+	CPULayers int `yaml:"cpu_layers,omitempty" json:"cpu_layers,omitempty"`
+	// CacheMiB is a GPU cache for the experts in system RAM
+	// (--moe-cache-mib). llama.cpp copies each expert that a token uses
+	// into it, and keeps the most used ones. 0 turns it off.
+	CacheMiB int `yaml:"cache_mib,omitempty" json:"cache_mib,omitempty"`
+}
+
+// AllLayers is the MoE.CPULayers value that keeps every layer's experts in
+// system RAM.
+const AllLayers = -1
+
+// Limits of the MoE settings.
+const (
+	maxMoELayers   = 4096
+	maxMoECacheMiB = 1 << 20
+)
+
 // SpecTypes are the --spec-type names in llama.cpp b11889
 // (common/speculative.cpp, common_speculative_type_from_name_map).
 var SpecTypes = []string{
@@ -63,6 +89,7 @@ var typedFlags = []string{
 	"-ctk", "--cache-type-k", "-ctv", "--cache-type-v",
 	"-c", "--ctx-size", "--embedding", "--embeddings",
 	"-np", "--parallel", "-ts", "--tensor-split",
+	"-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "--moe-cache-mib",
 }
 
 func checkFloat(name string, v *float64, lo, hi float64) error {
@@ -138,6 +165,39 @@ func (k KVCache) Validate() error {
 		}
 	}
 	return nil
+}
+
+// Validate checks the MoE settings. It does not check that the model has
+// experts; the System API does that against the model file.
+func (m MoE) Validate() error {
+	if m.CPULayers < AllLayers || m.CPULayers > maxMoELayers {
+		return fmt.Errorf("moe.cpu_layers: %d is outside %d (all) to %d", m.CPULayers, AllLayers, maxMoELayers)
+	}
+	if err := checkInt("moe.cache_mib", &m.CacheMiB, 0, maxMoECacheMiB); err != nil {
+		return err
+	}
+	if m.CacheMiB > 0 && m.CPULayers == 0 {
+		return errors.New("moe.cache_mib: needs moe.cpu_layers, because the cache holds experts from system RAM")
+	}
+	return nil
+}
+
+// Enabled reports whether any MoE setting is set.
+func (m MoE) Enabled() bool { return m != MoE{} }
+
+// Flags renders the MoE settings.
+func (m MoE) Flags() []string {
+	var out []string
+	switch {
+	case m.CPULayers == AllLayers:
+		out = append(out, "--cpu-moe")
+	case m.CPULayers > 0:
+		out = append(out, "--n-cpu-moe", strconv.Itoa(m.CPULayers))
+	}
+	if m.CacheMiB > 0 {
+		out = append(out, "--moe-cache-mib", strconv.Itoa(m.CacheMiB))
+	}
+	return out
 }
 
 // Flags renders the sampling settings as llama-server arguments.

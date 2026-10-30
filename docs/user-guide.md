@@ -422,6 +422,8 @@ On the Models screen, select a model and press Enter. The settings apply as soon
 | Tensor split | For a model that spans GPUs, the share of its layers on each GPU, such as `3,2`. Empty lets Sibyl split by the memory that each GPU has left after the embedding models. |
 | KV cache | The precision of the context memory. `q8_0` halves its size with little loss. A type that you choose here is kept, and an automatic context fits around it. |
 | Speculative decoding | Speeds up generation with a small draft model or with n-gram lookup. |
+| Experts in system RAM | Mixture of Experts models only. Keeps the expert weights of the first N layers, or `all` of them, in system RAM. The GPUs then hold the rest of the model and a longer context, and the CPU computes the experts. A model larger than the RAM still runs: the kernel reads unused experts back from disk when a token needs them, which is slow. |
+| Expert GPU cache | Mixture of Experts models only, with experts in system RAM. GPU memory, in MiB, that keeps the most used experts so that the GPUs compute them. The automatic context counts the cache, so a larger cache gives a shorter context. |
 
 ### Sampling presets
 

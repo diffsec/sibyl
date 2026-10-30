@@ -303,8 +303,15 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.findModel(id); err != nil {
+	m, err := s.findModel(id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	// llama.cpp refuses a MoE cache on a dense model, and the model would
+	// not load.
+	if meta := s.modelMeta(m); set.MoE.Enabled() && meta != nil && meta.ExpertCount == 0 {
+		writeError(w, http.StatusUnprocessableEntity, errors.New("moe: the model file has no experts"))
 		return
 	}
 	if d := set.Speculative.DraftModel; d != "" {
@@ -502,7 +509,7 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 		meta := s.modelMeta(m)
 		weights := m.Size
 		if meta != nil {
-			weights = meta.Weights(m.Size)
+			weights = meta.VRAMWeights(m.Size, st.MoE)
 			if st.CtxSize == 0 && meta.ContextLength > 0 {
 				st.CtxSize = min(meta.ContextLength, models.EmbeddingContext)
 			}
@@ -556,7 +563,7 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 		st.TensorSplit = models.SplitFor(sizes, held)
 	}
 	fit := meta.FitContext(models.FitInput{
-		Mode: st.Fit, Weights: meta.Weights(m.Size), VRAM: vram, Reserved: reserved,
+		Mode: st.Fit, Weights: meta.VRAMWeights(m.Size, st.MoE), VRAM: vram, Reserved: reserved,
 		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
 	})
 	fit.TensorSplit = st.TensorSplit
