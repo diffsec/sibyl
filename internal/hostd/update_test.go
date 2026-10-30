@@ -60,3 +60,26 @@ func TestUpdateState(t *testing.T) {
 		t.Errorf("staged update %+v", u)
 	}
 }
+
+func TestUpdateStateWhileBootcIsBusy(t *testing.T) {
+	ta := newAgent(t)
+	ta.host.answers["bootc status --format=json"] = bootcJSON
+	if err := ta.WriteState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// A running upgrade holds bootc's lock, and bootc status times out.
+	ta.host.fail["bootc status"] = context.DeadlineExceeded
+	ta.host.answers["systemctl show -p ActiveState -p Result -- "+DownloadBootUnit] = "ActiveState=activating\nResult=success\n"
+	if err := ta.WriteState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st := ta.state(t)
+	if u := st.Update; u == nil || u.Booted != "sha-old-amd" || u.Available != "sha-new-amd" || u.DownloadReboot.Active != "activating" {
+		t.Errorf("update %+v", st.Update)
+	}
+	for _, e := range st.Errors {
+		if strings.Contains(e, "bootc") || strings.Contains(e, "deadline") {
+			t.Errorf("a busy bootc is an error: %v", st.Errors)
+		}
+	}
+}

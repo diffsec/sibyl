@@ -3,7 +3,10 @@ package hostd
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
 // The online update actions. bootc downloads from the registry, and the
@@ -93,20 +96,34 @@ func (a *Agent) unitRun(ctx context.Context, unit string) UnitRun {
 	return r
 }
 
-// updateState reads bootc's status and the update units.
+// bootcStatusWait limits bootc status. It waits for the lock that a
+// running bootc upgrade holds, and the result of a request waits for the
+// state, so a long wait would hold back the answer to the update request.
+const bootcStatusWait = 5 * time.Second
+
+// updateState reads bootc's status and the update units. When bootc is
+// busy, it keeps the versions of the last state.
 func (a *Agent) updateState(ctx context.Context) (*UpdateState, error) {
-	out, err := a.Run(ctx, "", "bootc", "status", "--format=json")
-	if err != nil {
-		return nil, err
-	}
-	var bs bootcStatus
-	if err := json.Unmarshal([]byte(out), &bs); err != nil {
-		return nil, err
-	}
 	u := &UpdateState{
 		Check:          a.unitRun(ctx, CheckUnit),
 		Download:       a.unitRun(ctx, DownloadUnit),
 		DownloadReboot: a.unitRun(ctx, DownloadBootUnit),
+	}
+	sctx, cancel := context.WithTimeout(ctx, bootcStatusWait)
+	defer cancel()
+	out, err := a.Run(sctx, "", "bootc", "status", "--format=json")
+	if err != nil {
+		var last State
+		if b, rerr := os.ReadFile(filepath.Join(a.Out, "state.json")); rerr == nil && json.Unmarshal(b, &last) == nil && last.Update != nil {
+			l := last.Update
+			u.Image, u.Booted, u.BootedDigest, u.Staged, u.Available = l.Image, l.Booted, l.BootedDigest, l.Staged, l.Available
+			return u, nil
+		}
+		return u, err
+	}
+	var bs bootcStatus
+	if err := json.Unmarshal([]byte(out), &bs); err != nil {
+		return u, err
 	}
 	staged := ""
 	if s := bs.Status.Staged; s != nil && s.Image != nil {
