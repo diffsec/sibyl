@@ -19,7 +19,8 @@ import (
 // captures an incident and then climbs a recovery ladder:
 //
 //  1. Restart llama-swap, at most MaxRestarts times per RestartWindow.
-//  2. Reset each AMD GPU through debugfs, once per RestartWindow, and restart.
+//  2. With gpu_reset on, which is off by default, reset each AMD GPU through
+//     debugfs, once per RestartWindow, and restart.
 //  3. Reboot, at most MaxReboots times per RebootWindow.
 //  4. Stop acting and report "degraded", so a broken box stays up for
 //     diagnosis instead of rebooting forever.

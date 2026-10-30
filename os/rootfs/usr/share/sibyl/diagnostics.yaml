@@ -24,7 +24,9 @@ watchdog:
   # Recovery ladder: restart, GPU reset, reboot, then stop acting.
   max_restarts: 3
   restart_window: 900
-  gpu_reset: true
+  # Off: on the test host's two RX 7900 XTX cards, one reset in two hung the
+  # host, and after the other, generation ran at 41 tok/s against 61.
+  gpu_reset: false
   reboot: true
   max_reboots: 2
   reboot_window: 21600

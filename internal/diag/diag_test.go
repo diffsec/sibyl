@@ -263,6 +263,7 @@ func TestRedactor(t *testing.T) {
 
 func TestDecideLadder(t *testing.T) {
 	cfg := DefaultConfig().Watchdog
+	cfg.GPUReset = true
 	now := int64(100000)
 	st := State{}
 	steps := []struct {
@@ -419,6 +420,7 @@ func TestGPUResetThatHangsIsSavedAndLeadsToReboot(t *testing.T) {
 	defer close(fr.hang)
 	defer func(old time.Duration) { gpuResetTimeout = old }(gpuResetTimeout)
 	gpuResetTimeout = 50 * time.Millisecond
+	d.Cfg.Watchdog.GPUReset = true
 	w := NewWatchdog(d)
 	now := d.Now().Unix()
 	w.st.Restarts = []int64{now - 10, now - 10, now - 10}
@@ -761,7 +763,7 @@ func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
 	ps := filepath.Join(d.Root, pstoreDir)
 	now := time.Now()
 	files := map[string]time.Time{
-		"dmesg-efi_pstore-100001001":        now.Add(-24 * time.Hour), // an older crash
+		"dmesg-efi_pstore-100001001":        now.Add(-30 * time.Minute), // an older crash, before this boot
 		"dmesg-efi_pstore-200001001":        now,
 		"dmesg-efi_pstore-200002001":        now,
 		"8c60eaca/dmesg-efi_pstore-2000031": now.Add(-time.Second),
@@ -781,6 +783,9 @@ func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
 		}
 	}
 	if err := os.Chtimes(ps, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.Root, "proc/uptime"), []byte("600.00 100.00\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()

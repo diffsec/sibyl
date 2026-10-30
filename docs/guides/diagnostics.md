@@ -2,7 +2,7 @@
 
 This guide shows how to read the watchdog state, send a problem to support, and leave safe mode.
 
-Sibyl watches inference and brings it back after a failure. It restarts llama-swap, then resets the GPU, then reboots. After each failure it saves an incident with the logs, the GPU state and the speed of each model. Incidents stay on the host. [Diagnostics design](../design/diagnostics.md) describes how it works.
+Sibyl watches inference and brings it back after a failure. It restarts llama-swap, then reboots. A GPU reset step exists, but it is off by default, because it hung the test host. After each failure it saves an incident with the logs, the GPU state and the speed of each model. Incidents stay on the host. [Diagnostics design](../design/diagnostics.md) describes how it works.
 
 ## Show the state
 

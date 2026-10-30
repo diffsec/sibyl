@@ -153,7 +153,7 @@ func DefaultConfig() Config {
 		Watchdog: WatchdogConfig{
 			Enabled: true, LlamaSwapURL: "http://127.0.0.1:18080", ProbeInterval: 30, ProbeTimeout: 10,
 			FailuresBeforeAction: 3, StallSeconds: 300, MaxRestarts: 3, RestartWindow: 900,
-			GPUReset: true, Reboot: true, MaxReboots: 2, RebootWindow: 21600, IncidentCooldown: 600,
+			GPUReset: false, Reboot: true, MaxReboots: 2, RebootWindow: 21600, IncidentCooldown: 600,
 		},
 		Upload: UploadConfig{MaxBundleBytes: 50 << 20},
 	}

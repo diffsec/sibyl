@@ -112,9 +112,16 @@ sibyl-diag reaches the `sibyl` user manager through `setpriv` to UID 1001 and it
 `diag.Decide` picks the next step from the recovery history:
 
 1. Restart llama-swap, at most 3 times in 15 minutes. A crash loop skips this step, because systemd already restarts the unit.
-2. Reset each AMD GPU by reading `/sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`, then restart llama-swap. Once in 15 minutes. If the read fails or takes over 60 seconds, the driver is stuck, and the watchdog goes to step 3. A read of a wedged GPU can block in the kernel for good. The watchdog then stops waiting after 60 seconds and leaves the read behind. It also saves the reset before the read, so a restart of the watchdog goes to step 3 and does not try a second reset.
+2. Only with `gpu_reset: true`, which is off by default: reset each AMD GPU by reading `/sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`, then restart llama-swap. Once in 15 minutes. If the read fails or takes over 60 seconds, the driver is stuck, and the watchdog goes to step 3. A read of a wedged GPU can block in the kernel for good. The watchdog then stops waiting after 60 seconds and leaves the read behind. It also saves the reset before the read, so a restart of the watchdog goes to step 3 and does not try a second reset.
 3. Reboot, at most 2 times in 6 hours.
 4. Stop acting and report `degraded`. The box stays up, so that an operator can read the state. The flag clears when the probes pass again.
+
+`gpu_reset` is off by default because of the runs on the test host, which has two RX 7900 XTX cards (gfx1100) on kernel 7.2.13:
+
+- The first reset of both cards succeeded, and both models answered after a llama-swap restart. Generation then ran at 41 tokens per second, against 61 after a clean boot.
+- The second reset hung the host in `GPU smu mode1 reset` on the second card. The hardware watchdog reset the board 32 seconds later.
+
+A reboot takes about a minute and gives a clean GPU state, so the ladder goes from restart to reboot.
 
 A `service-failed` or `crash-loop` problem goes from step 1 to step 4 when the kernel log showed no GPU fault in the last 15 minutes. A unit that does not stay up for that reason has a configuration or image problem, such as a typo in the llama-swap config or a missing image. A GPU reset or a reboot does not fix it.
 
@@ -128,8 +135,9 @@ A lockup stops the watchdog too. These parts handle it, in order:
 2. The kernel writes the panic text to pstore (EFI variables), and `panic=10` reboots 10 seconds later.
 3. If the kernel cannot panic, the hardware watchdog resets the board. systemd pets `/dev/watchdog0` every 30 seconds with `RuntimeWatchdogSec=60s`. `RebootWatchdogSec=5min` covers a reboot that hangs on a stuck driver.
 4. At the next boot, `systemd-pstore` archives the panic text to `/var/lib/systemd/pstore`.
-5. `sibyl-diag-boot` finds the `running` marker that a clean shutdown removes. The unit ignores a failed check and stops the check after 4 minutes. A failed unit does not run `ExecStop`, so the next clean boot would count as unclean. It records an `unclean-shutdown` incident with the journal of the crashed boot and the pstore record.
-6. After more than 2 unclean boots in 6 hours, boot check writes `/var/lib/sibyl/config/safe-mode`. `llama-swap.container` has `ConditionPathExists=!` on it, so inference does not start, and the rest of the box comes up for diagnosis. `sudo sibyl-diag safe-mode off` clears it.
+5. A hardware watchdog reset leaves no pstore record, because the kernel did not panic.
+6. `sibyl-diag-boot` finds the `running` marker that a clean shutdown removes. It records an `unclean-shutdown` incident with the journal of the crashed boot and the pstore records. The unit ignores a failed check and stops the check after 4 minutes, because a failed unit does not run `ExecStop`, and the next clean boot would then count as unclean.
+7. After more than 2 unclean boots in 6 hours, boot check writes `/var/lib/sibyl/config/safe-mode`. `llama-swap.container` has `ConditionPathExists=!` on it, so inference does not start, and the rest of the box comes up for diagnosis. `sudo sibyl-diag safe-mode off` clears it.
 
 The flag is in the config directory, not in `/var/lib/sibyl-diag`, because the `sibyl` user manager evaluates the condition and cannot search root's directory. A failed `stat` would count as "no file", and llama-swap would start in safe mode.
 
@@ -235,7 +243,8 @@ The agent has no remote shell. A support session that needs one is a separate, t
 
 ## Open items
 
-- D1 was tested with a fake sysfs, a fake llama-swap and a fake command runner only. The GPU reset, the hardware watchdog and pstore need a run on the test host before D1 closes.
+- D1 ran on the test host on 2026-10-30. A stopped llama-server gave a `model-unresponsive` incident and a restart after 95 seconds. A sysrq crash gave a panic record in EFI pstore and an `unclean-shutdown` incident. A GPU reset that hung the host ended with a hardware watchdog reset and an `unclean-shutdown` incident. `generation-stalled` did not fire in that run, because a stopped process also fails its health probe first. It covers a server that answers health checks but makes no progress.
+- The GPU reset needs a fix or a vendor answer before it is on by default. See the recovery ladder.
 - `kernel.panic_on_oops=1` reboots on any oops, including one that the box can survive. If it causes reboots on the test host, remove it and keep `softlockup_panic`.
 - greenboot can roll back a bootc upgrade that fails a health check at boot, and a check can call `sibyl-diag status`. It needs a test with bootc on Fedora 44 first.
 - kdump gives a full kernel dump but reserves memory at boot. pstore gives the panic text only. Decide after the first real crash if pstore is enough.
