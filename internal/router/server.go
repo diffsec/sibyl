@@ -287,7 +287,8 @@ func errCode(err error) int {
 
 // resolver returns the decision inputs for a client and request.
 func (s *Server) resolver(c Client, h http.Header) resolver {
-	return resolver{cfg: s.config(), client: c, hint: hint(h, c), ready: s.localReady, classify: s.classifier().classify}
+	return resolver{cfg: s.config(), client: c, hint: hint(h, c), ready: s.localReady,
+		classify: s.classifier().classify, vote: s.classifier().vote}
 }
 
 // localReady asks llama-swap whether model is loaded and ready.

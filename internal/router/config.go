@@ -258,6 +258,9 @@ type When struct {
 	Difficulty       []string `yaml:"difficulty,omitempty" json:"difficulty,omitempty"`
 	Hint             []string `yaml:"hint,omitempty" json:"hint,omitempty"`
 	Clients          []string `yaml:"clients,omitempty" json:"clients,omitempty"`
+	// NeedsProvider tests the vote of the nearest calibration outcomes.
+	// It matches neither true nor false while the vote is unknown.
+	NeedsProvider *bool `yaml:"needs_provider,omitempty" json:"needs_provider,omitempty"`
 }
 
 // Rule is one rule of a profile.

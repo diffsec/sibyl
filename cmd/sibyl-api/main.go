@@ -139,6 +139,7 @@ func run(log *slog.Logger) error {
 	go s.SyncOpenWebUIAtStart(ctx, 15*time.Second, 60)
 	go s.SecureArcaneAtStart(ctx, 10*time.Second, 90)
 	go s.KeepCatalog(ctx)
+	go s.KeepCalibration(ctx, 10*time.Minute)
 	errc := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", srv.Addr)

@@ -384,6 +384,17 @@ calibration:
 
 `GET /system/router/calibration` reports, per local model, task and difficulty, how often the local answer won or tied, with the provider cost and the latency of each side. `DELETE /system/router/calibration` deletes every sample.
 
+After 50 comparisons for a task and difficulty, the report proposes a rule change when the results disagree with the profile. A request that the profile sends to a provider is proposed for the local model when the local answer won or tied at least 90% of the time. A request that the profile keeps local is proposed for the provider when the local answer won or tied less than 60% of the time. To apply a proposal, send its `id`:
+
+```bash
+curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
+  https://<address>:8443/system/router/calibration/apply -d '{"id":"<id>"}'
+```
+
+To let Sibyl apply proposals by itself, set `auto_apply: true` in `calibration`. Sibyl then applies a proposal only when the profile already names its route, and it logs each change.
+
+A rule can also test the calibration results of each request directly. `needs_provider: true` matches a request when most of the nearest judged requests went better at the provider. Below 20 judged requests for the local model, the condition matches nothing.
+
 ### The sibyl console
 
 Run `sibyl` on the host, at the console or over SSH. It is a terminal interface with six screens. Press a number or Tab to change screens, and `q` to quit.

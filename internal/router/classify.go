@@ -199,6 +199,13 @@ type Classification struct {
 	Millis     int64      `json:"ms"`
 	// Error is why the labels are unknown, if they are.
 	Error string `json:"error,omitempty"`
+	// NeedsProvider is the vote of the nearest calibration outcomes of the
+	// profile's local model. Nil means unknown.
+	NeedsProvider *bool `json:"needs_provider,omitempty"`
+	// Outcomes counts the calibration outcomes of the local model.
+	Outcomes int `json:"outcomes,omitempty"`
+	// vec is the request's embedding, for the outcome vote.
+	vec []float32
 }
 
 // IndexStatus describes the example index.
@@ -232,6 +239,8 @@ type classifier struct {
 	gen      int
 	// pending is true when the index for sig is not built and no build runs.
 	pending bool
+	// outcomes holds the judged calibration samples.
+	outcomes outcomeIndex
 }
 
 // signature identifies a model, a prefix and an example list.
@@ -385,6 +394,7 @@ func (c *classifier) classify(cc ClassifierConfig, text string) *Classification 
 		return res
 	}
 	query := unit(q[0])
+	res.vec = query
 
 	type scored struct {
 		i   int

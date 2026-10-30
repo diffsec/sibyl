@@ -65,6 +65,8 @@ type Features struct {
 	Task         string `json:"task"`
 	Difficulty   string `json:"difficulty"`
 	Hint         string `json:"hint"`
+	// NeedsProvider is the calibration vote. Nil means unknown.
+	NeedsProvider *bool `json:"needs_provider,omitempty"`
 	// query is the text that the classifier labels: the last user message.
 	query string
 }

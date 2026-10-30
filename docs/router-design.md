@@ -128,7 +128,7 @@ profiles:
 - `route: local` means the profile's `local_model`. A rule can also name a local model ID.
 - `fallback` is the order that the router tries when the chosen route fails. A `local-only` client skips every provider in it.
 - `local_wait_seconds` (default 30) limits the wait for a local route, but only when a next route exists. With no next route, the router waits as long as llama-swap takes to load the model.
-- Conditions: `sensitive`, `has_images`, `has_tools`, `json_schema`, `stream` and `local_ready` take true or false. `prompt_tokens_over` takes a number or `local_context`. `max_tokens_over` takes a number. `task`, `difficulty`, `hint` and `clients` take a list of values.
+- Conditions: `sensitive`, `has_images`, `has_tools`, `json_schema`, `stream`, `local_ready` and `needs_provider` take true or false. `prompt_tokens_over` takes a number or `local_context`. `max_tokens_over` takes a number. `task`, `difficulty`, `hint` and `clients` take a list of values.
 - A rule that names a provider for a `local-only` client does not match, and the next rule runs.
 - `POST /router/explain` on the System API takes `{"client", "format", "hint", "request"}` and returns the profile, every rule with match or no match, and the route, without sending the request. The System API asks the router's `/sibyl/explain`, which only the System API key can call.
 
@@ -346,15 +346,18 @@ The outcomes belong to one local model. When the profile's `local_model` changes
 - The judge is a model, so it can be wrong. The report shows the number of comparisons behind every figure, and a proposal needs at least 50.
 - By default, rules change only when the owner accepts a proposal. The automatic mode applies a proposal only to a route that the owner already allows.
 
-### As built, first part
+### As built
 
-The first part of step 6.4 builds the loop up to the judge and the report. The label `needs_provider`, the rule proposals, the Open WebUI feedback, the regeneration count and the remeasure after a model change come next.
+Steps 1 to 5 of the loop are built. The Open WebUI feedback, the regeneration count, the remeasure after a model change and the TUI view come next.
 
 - The router keeps the samples, and the comparison worker runs in the router, not in the System API. The router already holds the provider adapters, the spend file and the count of local requests in flight, which the worker needs. The router mounts `/var/lib/sibyl/config/router/calibration` read-write, mode 0700.
 - Only `/v1/chat/completions` requests are sampled. A Messages request, and a request with tools or images, is not sampled, because its answer is not plain text that a judge can compare.
 - Each sample is one JSON file, named by its time, with the request, both answers, the labels and the verdict. The worker fills the missing answer, and then the verdict, one step every 30 seconds or at once after a step that worked. It waits while a local request is in flight, and it never makes llama-swap load a model.
 - Provider calls of calibration count in `usage.json` under `@calibration`, which is not a valid client name. A provider model with no price makes the worker wait, because its cost cannot be counted against `daily_usd`.
 - `status.json` in the same directory holds the worker's last state and the reason it waits. A sample that fails three times is left alone.
+- The label `needs_provider` comes from an outcome index in the classifier. Before each worker tick, the router embeds the last user message of each judged sample that the index does not hold, at most 256 per tick, and drops the samples that are gone. A request's `needs_provider` is true when more than half of its `k` nearest outcomes, for the profile's local model, went to the provider. Below 20 outcomes for that model the label is unknown, and a rule with `needs_provider` matches neither true nor false. The outcomes belong to one local model, so a new local model starts with none.
+- The System API makes the rule proposals from the report. A cell of local model, task and difficulty with at least 50 comparisons gets a proposal when the profile sends it to a provider and the local answer won or tied at least 90% of the time, or when the profile keeps it local and the local answer won or tied less than 60% of the time. The route for a cell is the route that the profile gives a short request with those labels. A proposal to a provider uses the compare route and has `sensitive: false` in its condition.
+- `POST /router/calibration/apply` adds a proposal's rule to its profile. The rule goes before the first rule that tests labels, or before a last rule that matches everything, so the rules for sensitive and long requests still come first. A newer proposal for the same labels replaces the older rule. With `auto_apply: true`, the System API applies every 10 minutes the proposals whose route the profile already names, and logs each change.
 
 ### Decisions for step 6.4
 

@@ -41,6 +41,9 @@ type CalibrationConfig struct {
 	// MaxSamples is the most samples kept. The oldest go first. The
 	// default is 2000.
 	MaxSamples int `yaml:"max_samples,omitempty" json:"max_samples,omitempty"`
+	// AutoApply lets the System API apply a rule proposal by itself, when
+	// the profile already names the proposal's route.
+	AutoApply bool `yaml:"auto_apply,omitempty" json:"auto_apply,omitempty"`
 }
 
 // The calibration defaults.
@@ -350,6 +353,7 @@ func (s *Server) Calibrate(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 		}
+		s.classifier().syncOutcomes(LoadSamples(s.CalibrationDir))
 		for ctx.Err() == nil && s.calibrateOne(ctx) {
 		}
 	}

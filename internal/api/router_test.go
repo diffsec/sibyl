@@ -737,3 +737,55 @@ func TestRouterCalibration(t *testing.T) {
 		t.Errorf("left %d files", len(ents))
 	}
 }
+
+func TestRouterCalibrationApply(t *testing.T) {
+	f := newFixture(t)
+	rdir := filepath.Join(f.paths.Config, "router")
+	write(t, filepath.Join(rdir, router.ProvidersName), "providers:\n  cloud:\n    type: openai\n    base_url: https://x/v1\n    models: [big]\n")
+	write(t, filepath.Join(rdir, router.KeysDir, "cloud"), "k\n")
+	write(t, filepath.Join(rdir, router.ProfilesName), `profiles:
+  auto:
+    local_model: a
+    rules:
+      - name: hard
+        when: {difficulty: [hard]}
+        route: cloud/big
+      - name: everything else
+        route: local
+`)
+	dir := filepath.Join(rdir, "calibration")
+	mkdir(t, dir)
+	now := time.Now()
+	for i := range router.ProposalComparisons {
+		smp := router.Sample{ID: fmt.Sprintf("%019d-0", now.Add(time.Duration(i)).UnixNano()), LocalModel: "a",
+			Task: "code", Difficulty: "medium", Verdict: &router.Verdict{Winner: router.WinProvider}}
+		b, _ := json.Marshal(smp)
+		write(t, filepath.Join(dir, smp.ID+".json"), string(b))
+	}
+	code, b := f.do(t, "GET", "/router/calibration", "", true)
+	props, _ := b["proposals"].([]any)
+	if code != 200 || len(props) != 1 {
+		t.Fatalf("report = %d %v", code, b)
+	}
+	p := props[0].(map[string]any)
+	if p["route"] != "cloud/big" || p["current"] != "local/a" || p["allowed"] != true {
+		t.Fatalf("proposal %v", p)
+	}
+	if code, b := f.do(t, "POST", "/router/calibration/apply", `{"id":"nope"}`, true); code != 404 {
+		t.Errorf("unknown id = %d %v", code, b)
+	}
+	if code, b := f.do(t, "POST", "/router/calibration/apply", fmt.Sprintf(`{"id":%q}`, p["id"]), true); code != 200 {
+		t.Fatalf("apply = %d %v", code, b)
+	}
+	cfg, err := router.LoadConfig(rdir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := cfg.Profiles.Profiles["auto"].Rules
+	if len(rules) != 3 || rules[0].Name != "calibration: code medium" || rules[0].Route != "cloud/big" {
+		t.Errorf("rules %+v", rules)
+	}
+	if _, b := f.do(t, "GET", "/router/calibration", "", true); len(b["proposals"].([]any)) != 0 {
+		t.Errorf("proposals after apply %v", b["proposals"])
+	}
+}

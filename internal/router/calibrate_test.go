@@ -282,3 +282,57 @@ func TestCalibrationValidate(t *testing.T) {
 		}
 	}
 }
+
+func judgedSample(t time.Time, text string, ok bool) Sample {
+	b, _ := json.Marshal(chatBody("auto", text))
+	w := WinLocal
+	if !ok {
+		w = WinProvider
+	}
+	return Sample{ID: sampleID(t), LocalModel: "small", Request: b, Verdict: &Verdict{Winner: w, LocalOK: ok}}
+}
+
+func TestNeedsProvider(t *testing.T) {
+	h := newHarness(t, `profiles:
+  auto:
+    local_model: small
+    rules:
+      - name: calibration says provider
+        when: {needs_provider: true}
+        route: cloud/big
+      - name: everything else
+        route: local
+`)
+	calibrating(t, h, keepAll)
+	waitIndex(t, h)
+	route := func(text string) (string, map[string]any) {
+		resp := h.post(t, "/sibyl/explain", adminKey, map[string]any{"client": "laptop", "request": chatBody("auto", text)})
+		var d map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&d)
+		return fmt.Sprint(d["route"]), d
+	}
+	now := time.Now()
+	var samples []Sample
+	for i := range MinOutcomes - 1 {
+		samples = append(samples, judgedSample(now.Add(time.Duration(i)), "prove the theorem about prime gaps", false))
+	}
+	h.router.classifier().syncOutcomes(samples)
+	if got, d := route("prove the theorem about prime gaps"); got != "local/small" {
+		t.Fatalf("with %d outcomes the route is %s, want local while the vote is unknown: %v", len(samples), got, d)
+	}
+	for i := range 5 {
+		samples = append(samples, judgedSample(now.Add(time.Hour+time.Duration(i)), "say hello to my friend", true))
+	}
+	h.router.classifier().syncOutcomes(samples)
+	if got, d := route("prove the theorem about prime gaps"); got != "cloud/big" {
+		t.Errorf("hard request: route %s, want cloud/big: %v", got, d)
+	}
+	if got, d := route("say hello to my friend"); got != "local/small" {
+		t.Errorf("easy request: route %s, want local/small: %v", got, d)
+	}
+	// Deleted samples stop voting.
+	h.router.classifier().syncOutcomes(nil)
+	if got, _ := route("prove the theorem about prime gaps"); got != "local/small" {
+		t.Errorf("after the samples went: route %s, want local/small", got)
+	}
+}
