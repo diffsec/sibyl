@@ -7,7 +7,7 @@
 # sibyl-hostd runs the privileged host actions, sibyl-install is the disk
 # installer, and sibyl-update applies offline bundles. They run on the host,
 # so they are built here.
-FROM cgr.dev/chainguard/go:latest@sha256:85788137110936acab58b7a2901df787f71377ffac4809a9b04db7401f689580 AS hostd
+FROM cgr.dev/chainguard/go:latest@sha256:0d2e83bf723e1edef67732d22b9272dd1311c7a19dff695bd6928a7831c31a9f AS hostd
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
