@@ -26,6 +26,8 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 // Item is one labelled request of the set.
@@ -100,7 +102,7 @@ func main() {
 	apiKeyFile := flag.String("api-key", "api.key", "file with the System API key")
 	keyFile := flag.String("key", "inference.key", "file with an inference key, for -send")
 	caFile := flag.String("ca", "", "file with the box's CA certificate, when the system does not trust it")
-	set := flag.String("set", "tools/router-eval/requests.jsonl", "the labelled request set")
+	set := flag.String("set", "", "the labelled request set; empty means the set built into the router")
 	profiles := flag.String("profiles", "auto", "comma-separated routing profiles to compare")
 	who := flag.String("client", "default", "the router client whose policy explain uses")
 	send := flag.Bool("send", false, "send the requests, which can cost money at providers")
@@ -188,13 +190,19 @@ func run(base, apiKeyFile, keyFile, caFile, set, profileList, out string, o opti
 }
 
 func readSet(path string) ([]Item, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	var in io.Reader = bytes.NewReader(router.HeldOut())
+	if path == "" {
+		path = "the built-in set"
+	} else {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = f.Close() }()
+		in = f
 	}
-	defer func() { _ = f.Close() }()
 	var items []Item
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for n := 1; sc.Scan(); n++ {
 		line := strings.TrimSpace(sc.Text())

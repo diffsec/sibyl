@@ -169,7 +169,7 @@ The labels mean:
 
 ### Accuracy on the test host
 
-The figures below come from `qwen3-embedding-0.6b-q8_0` on the test host, with the 150 starter examples and the 60 held-out requests of `tools/router-eval/requests.jsonl`. The same author wrote both sets, so the figures are likely higher than on real traffic. The owner's own examples are the remedy.
+The figures below come from `qwen3-embedding-0.6b-q8_0` on the test host, with the 150 starter examples and the 60 held-out requests of `internal/router/heldout.jsonl`. The same author wrote both sets, so the figures are likely higher than on real traffic. The owner's own examples are the remedy.
 
 | Setting | Task right | Difficulty right | Hard or not right |
 |---|---|---|---|
@@ -205,7 +205,7 @@ The label rule closes 45% of the gap between local and provider with the DeepSee
 
 ### The evaluation tool
 
-`cmd/sibyl-eval` runs from the owner's computer against the box. It reads a labelled set (`tools/router-eval/requests.jsonl`, 60 requests that are not in the starter set). It sends each prompt to `POST /router/classify` and reports the accuracy and a confusion table for task and difficulty. For each profile, it asks `POST /router/explain` for the route and reports the local share and the estimated provider cost: the router's prompt token estimate times the input price, plus the request's `output_tokens` times the output price. Explain returns the price of a provider route for this. With `-send`, the tool sends the requests with an inference key, records the route that served each one, its usage, its cost and its latency, and writes the answers to `-out`. With `-judge <model>`, a model scores each answer from 1 to 10.
+`cmd/sibyl-eval` runs from the owner's computer against the box. It reads a labelled set (`internal/router/heldout.jsonl`, 60 requests that are not in the starter set). It sends each prompt to `POST /router/classify` and reports the accuracy and a confusion table for task and difficulty. For each profile, it asks `POST /router/explain` for the route and reports the local share and the estimated provider cost: the router's prompt token estimate times the input price, plus the request's `output_tokens` times the output price. Explain returns the price of a provider route for this. With `-send`, the tool sends the requests with an inference key, records the route that served each one, its usage, its cost and its latency, and writes the answers to `-out`. With `-judge <model>`, a model scores each answer from 1 to 10.
 
 Published work supports a learned router. LMSYS reports that its matrix factorization router reached 95% of GPT-4's quality on MT Bench with 26% of the calls going to GPT-4 ([RouteLLM](https://lmsys.org/blog/2024-07-01-routellm/)). The same kind of router can be pushed to the expensive model by text written for that purpose ([Rerouting LLM Routers](https://arxiv.org/pdf/2501.01818)). In Sibyl the budgets limit that cost, because a client's own requests can only spend that client's budget.
 
@@ -348,7 +348,7 @@ The outcomes belong to one local model. When the profile's `local_model` changes
 
 ### As built
 
-Steps 1 to 5 of the loop, the regeneration count and the TUI view are built. The Open WebUI feedback and the remeasure after a model change come next.
+Steps 1 to 5 of the loop, the regeneration count, the remeasure after a model change and the TUI view are built. The Open WebUI feedback comes next.
 
 On 2026-10-30 on `sha-2c7fa2e-amd`, a test client with a sample rate of 1 sent three requests to the REAP local model. The worker got the DeepSeek answers and three verdicts within one minute, for 0.0016 US dollars at a test price of 0.30 and 1.20 US dollars per million tokens. The judge preferred the provider in all three. One local answer named Sydney as the capital of Australia.
 
@@ -359,6 +359,7 @@ On 2026-10-30 on `sha-2c7fa2e-amd`, a test client with a sample rate of 1 sent t
 - `status.json` in the same directory holds the worker's last state and the reason it waits. A sample that fails three times is left alone.
 - The label `needs_provider` comes from an outcome index in the classifier. Before each worker tick, the router embeds the last user message of each judged sample that the index does not hold, at most 256 per tick, and drops the samples that are gone. A request's `needs_provider` is true when more than half of its `k` nearest outcomes, for the profile's local model, went to the provider. Below 20 outcomes for that model the label is unknown, and a rule with `needs_provider` matches neither true nor false. The outcomes belong to one local model, so a new local model starts with none.
 - The System API makes the rule proposals from the report. A cell of local model, task and difficulty with at least 50 comparisons gets a proposal when the profile sends it to a provider and the local answer won or tied at least 90% of the time, or when the profile keeps it local and the local answer won or tied less than 60% of the time. The route for a cell is the route that the profile gives a short request with those labels. A proposal to a provider uses the compare route and has `sensitive: false` in its condition.
+- The remeasure runs in the router, not in the System API. While a hybrid client calibrates, the worker checks the local model of each profile at every tick. A local model that `seeded.json` does not list gets the 60 requests of the step 6.3 set, `internal/router/heldout.jsonl`, as samples with the hand labels and the client `@seed`. The worker then fills both answers and the verdict, as for any sample, under the same daily budget. The seeds expire with the other samples after `keep_days`. A model that comes back keeps its earlier entry and is not seeded again. `no_seed: true` turns this off.
 - The router keeps a SHA-256 hash of each client's conversation for one minute, with the route that answered it. When the same client sends the same conversation again in that minute, the decision log entry gets `regenerates` with the earlier route, and `GET /router/stats` counts these per route. An agent that retries a request counts too, so the count is a signal, not a verdict.
 - The TUI Router screen shows the calibration samples, the worker's wait reason, the rate per task and difficulty, and the proposals. The `a` key applies a proposal after a confirm.
 - `POST /router/calibration/apply` adds a proposal's rule to its profile. The rule goes before the first rule that tests labels, or before a last rule that matches everything, so the rules for sensitive and long requests still come first. A newer proposal for the same labels replaces the older rule. With `auto_apply: true`, the System API applies every 10 minutes the proposals whose route the profile already names, and logs each change.

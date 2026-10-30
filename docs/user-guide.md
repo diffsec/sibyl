@@ -362,7 +362,7 @@ To compare profiles before you trust one, run `sibyl-eval` from a clone of the S
 go run ./cmd/sibyl-eval -url https://<address>:8443 -api-key api.key -ca sibyl-ca.crt -profiles auto,<other profile>
 ```
 
-The default set is `tools/router-eval/requests.jsonl`: 60 requests, 4 for each pair of labels, none of them in the starter examples. `-send -key inference.key -out answers.jsonl` also sends each request and keeps the answers for you to read. Provider requests then cost money. `-judge <model>` adds a score from 1 to 10 for each answer from that model.
+The default set is `internal/router/heldout.jsonl`: 60 requests, 4 for each pair of labels, none of them in the starter examples. `-send -key inference.key -out answers.jsonl` also sends each request and keeps the answers for you to read. Provider requests then cost money. `-judge <model>` adds a score from 1 to 10 for each answer from that model.
 
 ### Calibration
 
@@ -390,6 +390,8 @@ After 50 comparisons for a task and difficulty, the report proposes a rule chang
 curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
   https://<address>:8443/system/router/calibration/apply -d '{"id":"<id>"}'
 ```
+
+When a profile gets a local model that has not been measured, the router measures it first with the 60 labelled requests of `sibyl-eval`. The router answers them with the local model when it is idle, and gets the provider answers and the verdicts under the same daily budget. Set `no_seed: true` in `calibration` to turn this off.
 
 To let Sibyl apply proposals by itself, set `auto_apply: true` in `calibration`. Sibyl then applies a proposal only when the profile already names its route, and it logs each change.
 

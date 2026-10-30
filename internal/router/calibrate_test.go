@@ -383,3 +383,45 @@ func TestRegenerations(t *testing.T) {
 		t.Errorf("an old conversation counts: %q", got)
 	}
 }
+
+func TestSeed(t *testing.T) {
+	h := newHarness(t, testProfiles)
+	calibrating(t, h, keepAll)
+	n := len(heldOutItems())
+	if n != 60 {
+		t.Fatalf("held-out set has %d requests, want 60", n)
+	}
+	h.router.seed(h.router.config())
+	got := LoadSamples(h.router.CalibrationDir)
+	if len(got) != n {
+		t.Fatalf("%d seed samples, want %d", len(got), n)
+	}
+	if s := got[0]; s.Client != SeedClient || s.LocalModel != "small" || s.Task == "" || s.Local != nil {
+		t.Errorf("seed %+v", s)
+	}
+	// A second tick does not seed the same model again.
+	h.router.seed(h.router.config())
+	if len(LoadSamples(h.router.CalibrationDir)) != n {
+		t.Error("the model was seeded twice")
+	}
+	h.provider.verdict = `{"winner": "tie"}`
+	runWorker(h)
+	r := Summarize(LoadSamples(h.router.CalibrationDir))
+	if r.Judged != n {
+		t.Errorf("judged %d of %d seeds: %+v", r.Judged, n, LoadStatus(h.router.CalibrationDir))
+	}
+}
+
+func TestSeedNeedsCalibration(t *testing.T) {
+	h := newHarness(t, testProfiles)
+	h.router.CalibrationDir = filepath.Join(h.dir, "calibration")
+	h.router.seed(h.router.config())
+	if n := len(LoadSamples(h.router.CalibrationDir)); n != 0 {
+		t.Errorf("seeded %d samples with no calibrating client", n)
+	}
+	calibrating(t, h, keepAll+"  no_seed: true\n")
+	h.router.seed(h.router.config())
+	if n := len(LoadSamples(h.router.CalibrationDir)); n != 0 {
+		t.Errorf("seeded %d samples with no_seed", n)
+	}
+}

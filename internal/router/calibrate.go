@@ -41,6 +41,9 @@ type CalibrationConfig struct {
 	// MaxSamples is the most samples kept. The oldest go first. The
 	// default is 2000.
 	MaxSamples int `yaml:"max_samples,omitempty" json:"max_samples,omitempty"`
+	// NoSeed stops the first measurement of a new local model with the
+	// labelled request set.
+	NoSeed bool `yaml:"no_seed,omitempty" json:"no_seed,omitempty"`
 	// AutoApply lets the System API apply a rule proposal by itself, when
 	// the profile already names the proposal's route.
 	AutoApply bool `yaml:"auto_apply,omitempty" json:"auto_apply,omitempty"`
@@ -295,7 +298,7 @@ func sampleFiles(dir string) []string {
 	var names []string
 	for _, e := range ents {
 		n := e.Name()
-		if e.Type().IsRegular() && strings.HasSuffix(n, ".json") && n != StatusName && !strings.HasPrefix(n, ".") {
+		if e.Type().IsRegular() && strings.HasSuffix(n, ".json") && n != StatusName && n != SeededName && !strings.HasPrefix(n, ".") {
 			names = append(names, n)
 		}
 	}
@@ -353,6 +356,7 @@ func (s *Server) Calibrate(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 		}
+		s.seed(s.config())
 		s.classifier().syncOutcomes(LoadSamples(s.CalibrationDir))
 		for ctx.Err() == nil && s.calibrateOne(ctx) {
 		}
