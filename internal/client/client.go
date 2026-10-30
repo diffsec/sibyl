@@ -403,6 +403,10 @@ type RouterProvider struct {
 	BaseURL string   `json:"base_url,omitempty"`
 	Models  []string `json:"models,omitempty"`
 	KeySet  bool     `json:"key_set"`
+	// Prices are the owner's prices by model name, and Catalog the
+	// provider's models.dev ID.
+	Prices  map[string]router.Price `json:"prices,omitempty"`
+	Catalog string                  `json:"catalog,omitempty"`
 }
 
 // Router is the GET /router response. Profiles is the whole profiles
@@ -474,6 +478,9 @@ type ProviderRequest struct {
 	Models  []string `json:"models,omitempty"`
 	// Catalog is the provider's models.dev ID, for prices.
 	Catalog string `json:"catalog,omitempty"`
+	// Prices replace the provider's prices. A change of a provider must
+	// send its current prices, or they are lost.
+	Prices map[string]router.Price `json:"prices,omitempty"`
 }
 
 // Router returns the router's clients, providers and profiles.

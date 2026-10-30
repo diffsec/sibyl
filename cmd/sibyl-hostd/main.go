@@ -24,6 +24,8 @@ import (
 
 func main() {
 	stateOnly := flag.Bool("state", false, "only write the state file")
+	auth := flag.Bool("auth", false, "only handle the password checks of the memory queue")
+	authQueue := flag.String("auth-queue", "/run/sibyl-auth/req", "password checks, written by the System API, in memory")
 	queue := flag.String("queue", "/var/lib/sibyl/run/host", "request queue, written by the System API")
 	out := flag.String("out", "/var/lib/sibyl-host/out", "state and results, read by the System API")
 	data := flag.String("data", "/var/lib/sibyl-host", "records that only root reads")
@@ -44,13 +46,16 @@ func main() {
 		log.Error("exit", "err", err)
 		os.Exit(1)
 	}
-	a := &hostd.Agent{Queue: *queue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid,
+	a := &hostd.Agent{Queue: *queue, AuthQueue: *authQueue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid,
 		Etc: *etc, PoolsDir: *pools}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if *stateOnly {
+	switch {
+	case *auth:
+		err = a.ProcessAuth(ctx)
+	case *stateOnly:
 		err = a.WriteState(ctx)
-	} else {
+	default:
 		err = a.Process(ctx)
 	}
 	if err != nil {

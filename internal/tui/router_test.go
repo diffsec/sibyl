@@ -343,3 +343,27 @@ func TestRouterClassifierAndNewProfile(t *testing.T) {
 		t.Errorf("profiles %+v", got.Profiles)
 	}
 }
+
+func TestProviderChangeKeepsPrices(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/router/providers/orcarouter" {
+			_ = json.NewDecoder(r.Body).Decode(&got)
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c, err := client.New(srv.URL, "t", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := newRouterView(c)
+	fx := routerFixture()
+	fx.r.Providers[0].Prices = map[string]router.Price{"deepseek/deepseek-v4.1-flash-1017": {Input: 0.44, Output: 1.32}}
+	v.update(fx)
+	v.mode, v.name, v.ptype, v.baseURL, v.mods = "provider", "orcarouter", "openai", "https://api.orcarouter.ai/v1", "deepseek/deepseek-v4.1-flash-1017"
+	finish(v)
+	if p, _ := got["prices"].(map[string]any); p["deepseek/deepseek-v4.1-flash-1017"] == nil {
+		t.Errorf("prices lost: %v", got)
+	}
+}

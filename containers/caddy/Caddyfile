@@ -44,6 +44,12 @@
 		reverse_proxy system-api:3001
 	}
 
+	# The web console, served by the System API. It signs the owner in with
+	# the password of a wheel account and keeps a session cookie.
+	handle /console/* {
+		reverse_proxy system-api:3001
+	}
+
 	# The model router checks the client keys itself: each client has its
 	# own key and policy.
 	handle /v1/* {

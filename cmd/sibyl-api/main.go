@@ -15,10 +15,12 @@ import (
 	"github.com/diffsec/sibyl/internal/api"
 	"github.com/diffsec/sibyl/internal/arcane"
 	"github.com/diffsec/sibyl/internal/catalog"
+	"github.com/diffsec/sibyl/internal/console"
 	"github.com/diffsec/sibyl/internal/download"
 	"github.com/diffsec/sibyl/internal/hardware"
 	"github.com/diffsec/sibyl/internal/hf"
 	"github.com/diffsec/sibyl/internal/hostctl"
+	"github.com/diffsec/sibyl/internal/hostd"
 	"github.com/diffsec/sibyl/internal/ollama"
 )
 
@@ -42,6 +44,8 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	hostAgent := hostctl.NewHost(env("SIBYL_RUN_DIR", "/run/sibyl")+"/host", env("SIBYL_HOST_OUT_DIR", "/run/sibyl-host"))
+	hostAgent.AuthQueue = env("SIBYL_AUTH_QUEUE", "/run/sibyl-auth/req")
 	s := &api.Server{
 		Paths: api.Paths{
 			Config:    env("SIBYL_CONFIG_DIR", "/config"),
@@ -51,15 +55,14 @@ func run(log *slog.Logger) error {
 			SysfsRoot: env("SIBYL_SYSFS", "/sys"),
 			MemInfo:   env("SIBYL_MEMINFO", "/proc/meminfo"),
 		},
-		Host: hostctl.New(env("SIBYL_RUN_DIR", "/run/sibyl")),
-		HostAgent: hostctl.NewHost(env("SIBYL_RUN_DIR", "/run/sibyl")+"/host",
-			env("SIBYL_HOST_OUT_DIR", "/run/sibyl-host")),
-		Token:    strings.TrimSpace(string(token)),
-		Registry: env("SIBYL_REGISTRY", "ghcr.io/diffsec"),
-		ImageTag: env("SIBYL_IMAGE_TAG", "latest"),
-		Variant:  hardware.Variant(env("SIBYL_GPU_VARIANT", "amd")),
-		Version:  env("SIBYL_VERSION", "dev"),
-		Log:      log,
+		Host:      hostctl.New(env("SIBYL_RUN_DIR", "/run/sibyl")),
+		HostAgent: hostAgent,
+		Token:     strings.TrimSpace(string(token)),
+		Registry:  env("SIBYL_REGISTRY", "ghcr.io/diffsec"),
+		ImageTag:  env("SIBYL_IMAGE_TAG", "latest"),
+		Variant:   hardware.Variant(env("SIBYL_GPU_VARIANT", "amd")),
+		Version:   env("SIBYL_VERSION", "dev"),
+		Log:       log,
 	}
 	if s.Token == "" {
 		return errors.New("the API key file is empty")
@@ -121,9 +124,22 @@ func run(log *slog.Logger) error {
 		log.Info("startup apply", "models", res.Models, "backend_changed", res.BackendChanged)
 	}
 
+	// The web console calls the API handler in process, with the API key.
+	apiHandler := s.Handler()
+	con := &console.Console{API: apiHandler, Token: s.Token, Log: log,
+		Check: func(ctx context.Context, user, password string) error {
+			err := hostAgent.CheckPassword(ctx, user, password)
+			if errors.Is(err, hostd.ErrDenied) {
+				return console.ErrDenied
+			}
+			return err
+		}}
+	top := http.NewServeMux()
+	top.Handle(console.Prefix, con.Handler())
+	top.Handle("/", apiHandler)
 	srv := &http.Server{
 		Addr:              env("SIBYL_LISTEN", ":3001"),
-		Handler:           s.Handler(),
+		Handler:           top,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      60 * time.Second,

@@ -13,6 +13,7 @@ import (
 	"charm.land/huh/v2"
 
 	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 type routerLoaded struct {
@@ -394,6 +395,17 @@ func (v *routerView) budget() *client.RouterBudget {
 	return &client.RouterBudget{DailyUSD: d, MonthlyUSD: m}
 }
 
+// providerPrices returns the prices of a provider that exists, so that a
+// change of the provider keeps them.
+func (v *routerView) providerPrices(name string) map[string]router.Price {
+	for _, p := range v.r.Providers {
+		if p.Name == name {
+			return p.Prices
+		}
+	}
+	return nil
+}
+
 // run sends one change to the System API and reports the result.
 func (v *routerView) run(what string, fn func(context.Context) (string, error)) tea.Cmd {
 	v.key, v.keyFor = "", ""
@@ -456,14 +468,20 @@ func (v *routerView) submit() tea.Cmd {
 				func(p client.CatalogModels, err error) tea.Msg { return catalogModelsLoaded{p, err} }))
 	case "catalog":
 		p := client.ProviderRequest{Type: v.catProv.Type, BaseURL: v.catProv.BaseURL,
-			APIKey: strings.TrimSpace(v.apiKey), Models: v.catModel, Catalog: v.catProv.ID}
+			APIKey: strings.TrimSpace(v.apiKey), Models: v.catModel, Catalog: v.catProv.ID,
+			Prices: v.providerPrices(name)}
 		v.apiKey = ""
 		return run("set provider "+name+" (checking the key)", func(ctx context.Context) (string, error) {
 			return "", v.c.SetRouterProvider(ctx, name, p)
 		})
 	case "provider":
 		p := client.ProviderRequest{Type: v.ptype, BaseURL: strings.TrimSpace(v.baseURL),
-			APIKey: strings.TrimSpace(v.apiKey), Models: strings.Fields(v.mods)}
+			APIKey: strings.TrimSpace(v.apiKey), Models: strings.Fields(v.mods), Prices: v.providerPrices(name)}
+		for _, old := range v.r.Providers {
+			if old.Name == name {
+				p.Catalog = old.Catalog
+			}
+		}
 		v.apiKey = ""
 		return run("set provider "+name+" (checking the key)", func(ctx context.Context) (string, error) {
 			return "", v.c.SetRouterProvider(ctx, name, p)

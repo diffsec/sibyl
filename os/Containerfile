@@ -60,7 +60,7 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
     && echo "${IMAGE_TAG}" > /usr/share/sibyl/image-tag \
     && echo "${GPU_VARIANT}" > /usr/share/sibyl/gpu-variant \
     && systemctl enable nftables.service sibyl-selinux.service sibyl-firstboot.service sibyl-operator-export.service \
-        sibyl-hostd.path sibyl-hostd-state.timer sibyl-tls.timer sibyl-provision.service \
+        sibyl-hostd.path sibyl-hostd-auth.path sibyl-hostd-state.timer sibyl-tls.timer sibyl-provision.service \
     && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
     && mkdir -p /etc/containers/systemd/users/1001/llama-swap.container.d \

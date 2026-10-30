@@ -109,8 +109,10 @@ func (c *Client) Status() (Status, error) {
 // results and state. See package hostd.
 type HostClient struct {
 	Queue string // the request queue, <run>/host
-	Out   string // sibyl-hostd's state.json and results/, mounted read-only
-	now   func() time.Time
+	// AuthQueue is the memory queue for password checks, /run/sibyl-auth/req.
+	AuthQueue string
+	Out       string // sibyl-hostd's state.json and results/, mounted read-only
+	now       func() time.Time
 	// Poll is how often Wait checks for a result.
 	Poll time.Duration
 }
@@ -199,4 +201,56 @@ func (c *HostClient) State() (hostd.State, error) {
 		return st, err
 	}
 	return st, json.Unmarshal(data, &st)
+}
+
+// CheckPassword asks sibyl-hostd whether user is in the wheel group and
+// password is right. The request goes to AuthQueue, which is in memory, so
+// the password never reaches a disk. It returns hostd.ErrDenied for a wrong
+// user or password, and ErrPending when no answer comes before ctx ends.
+func (c *HostClient) CheckPassword(ctx context.Context, user, password string) error {
+	if c.AuthQueue == "" {
+		return errors.New("password checks are not configured")
+	}
+	p := hostd.PasswordCheck{User: user, Password: password}
+	if err := p.Validate(); err != nil {
+		return hostd.ErrDenied
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	id := strconv.FormatInt(c.now().UnixNano(), 10) + "." + string(hostd.CheckPassword)
+	tmp := filepath.Join(filepath.Dir(c.AuthQueue), ".auth-"+id)
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(c.AuthQueue, id+".json")); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	t := time.NewTicker(c.Poll)
+	defer t.Stop()
+	for {
+		b, err := os.ReadFile(filepath.Join(c.Out, "auth", id+".json"))
+		if err == nil {
+			var r hostd.Result
+			if err := json.Unmarshal(b, &r); err != nil {
+				return err
+			}
+			if !r.OK {
+				return hostd.ErrDenied
+			}
+			return nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			// Take the request back if sibyl-hostd has not read it.
+			_ = os.Remove(filepath.Join(c.AuthQueue, id+".json"))
+			return ErrPending
+		case <-t.C:
+		}
+	}
 }

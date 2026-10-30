@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}'>
+<title>{{template "title" .}} · Sibyl</title>
+<link rel="stylesheet" href="/console/static/console.css">
+<script src="/console/static/htmx-2.0.4.min.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <span class="brand">Sibyl</span>
+  {{if .User}}
+  <nav>
+    <a href="/console/router"{{if eq .Page "router"}} aria-current="page"{{end}}>Router</a>
+    <a href="/console/status"{{if eq .Page "status"}} aria-current="page"{{end}}>Status</a>
+  </nav>
+  <form method="post" action="/console/logout" class="who">
+    <span>{{.User}}</span>
+    <button type="submit" class="link">Sign out</button>
+  </form>
+  {{end}}
+</header>
+<main>
+{{if .Flash}}<p class="flash" role="status">{{.Flash}}</p>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>

@@ -25,11 +25,13 @@ type Runner func(ctx context.Context, stdin, name string, args ...string) (strin
 // Agent processes the request queue.
 type Agent struct {
 	Queue string // request files, writable by sibyl
-	Out   string // state.json and results/, written by root, readable by sibyl
-	Data  string // records that only root reads and writes
-	Run   Runner
-	Now   func() time.Time
-	Log   *slog.Logger
+	// AuthQueue holds the password checks. It is in memory, under /run.
+	AuthQueue string
+	Out       string // state.json and results/, written by root, readable by sibyl
+	Data      string // records that only root reads and writes
+	Run       Runner
+	Now       func() time.Time
+	Log       *slog.Logger
 	// Label is the SELinux context for files in Out, so the System API
 	// container can read them. Empty skips labelling.
 	Label string

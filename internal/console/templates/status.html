@@ -1,0 +1,30 @@
+{{define "title"}}Status{{end}}
+{{define "content"}}
+<h1>Status</h1>
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Status}}
+<section class="card">
+  <dl class="facts">
+    <dt>Version</dt><dd>{{.Version}}</dd>
+    <dt>Image</dt><dd>{{.ImageTag}}</dd>
+    <dt>GPU variant</dt><dd>{{.Variant}}</dd>
+    <dt>GPUs found</dt><dd>{{.GPUs}}</dd>
+    <dt>Backend</dt><dd>{{.Hardware.Backend}}</dd>
+    <dt>Selected GPUs</dt><dd>{{range $i, $g := .Hardware.GPUs}}{{if $i}}, {{end}}{{$g}}{{end}}</dd>
+  </dl>
+  {{range .Errors}}<p class="error">{{.}}</p>{{end}}
+</section>
+<section class="card">
+  <h2>Services</h2>
+  <p class="muted">Updated {{.Services.Updated}}</p>
+  <table>
+    <thead><tr><th>Unit</th><th>State</th><th>Since</th></tr></thead>
+    <tbody>
+    {{range $name, $u := .Services.Units}}
+      <tr><td>{{$name}}</td><td class="{{if eq $u.Active "active"}}good{{else}}bad{{end}}">{{$u.Active}} ({{$u.Sub}})</td><td>{{$u.Since}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{end}}

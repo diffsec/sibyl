@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // The thresholds of a rule proposal.
@@ -146,6 +147,41 @@ func Apply(f *ProfilesFile, prop Proposal) error {
 	p.Rules = slices.Insert(rules, at, prop.Rule)
 	f.Profiles[prop.Profile] = p
 	return nil
+}
+
+// Text describes the conditions in one line, or "always" for none.
+func (w When) Text() string {
+	var parts []string
+	flag := func(name string, b *bool) {
+		if b != nil {
+			parts = append(parts, fmt.Sprintf("%s=%t", name, *b))
+		}
+	}
+	flag("sensitive", w.Sensitive)
+	flag("images", w.HasImages)
+	flag("tools", w.HasTools)
+	flag("json_schema", w.JSONSchema)
+	flag("stream", w.Stream)
+	flag("local_ready", w.LocalReady)
+	flag("needs_provider", w.NeedsProvider)
+	if w.PromptTokensOver != nil {
+		parts = append(parts, "prompt>"+w.PromptTokensOver.String())
+	}
+	if w.MaxTokensOver != nil {
+		parts = append(parts, fmt.Sprintf("max_tokens>%d", *w.MaxTokensOver))
+	}
+	for _, l := range []struct {
+		name string
+		vals []string
+	}{{"task", w.Task}, {"difficulty", w.Difficulty}, {"hint", w.Hint}, {"clients", w.Clients}} {
+		if len(l.vals) > 0 {
+			parts = append(parts, l.name+"="+strings.Join(l.vals, ","))
+		}
+	}
+	if len(parts) == 0 {
+		return "always"
+	}
+	return strings.Join(parts, " ")
 }
 
 func (w When) empty() bool {

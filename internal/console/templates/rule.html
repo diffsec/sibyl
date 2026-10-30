@@ -1,0 +1,38 @@
+{{define "title"}}Rule{{end}}
+{{define "content"}}
+<p><a href="/console/router#profiles">Back to the router</a></p>
+<section class="card">
+  <h1>{{if ge .Index 0}}Rule {{.Rule.Name}}{{else}}New rule{{end}} <span class="muted">in {{.Profile}}</span></h1>
+  <p class="muted">A rule matches when every condition that is set matches. The conditions that this form does not show are kept. A local-only client never leaves the host, whatever the route.</p>
+  <form method="post" action="/console/router/rule" class="stack">
+    <input type="hidden" name="profile" value="{{.Profile}}">
+    <input type="hidden" name="i" value="{{if ge .Index 0}}{{.Index}}{{else}}new{{end}}">
+    <label>Name <input name="rule_name" required value="{{.Rule.Name}}"></label>
+    <label>Route <select name="route">
+      {{range .Routes}}<option value="{{.}}"{{if eq . $.Rule.Route}} selected{{end}}>{{.}}</option>{{end}}
+    </select></label>
+    <div class="row">
+      {{template "tri" (dict "Name" "sensitive" "Label" "Sensitive" "Value" .Sensitive "Tri" .Tri)}}
+      {{template "tri" (dict "Name" "needs_provider" "Label" "Needs a provider (calibration)" "Value" .Needs "Tri" .Tri)}}
+      {{template "tri" (dict "Name" "has_images" "Label" "Has images" "Value" .Images "Tri" .Tri)}}
+      {{template "tri" (dict "Name" "has_tools" "Label" "Has tools" "Value" .Tools "Tri" .Tri)}}
+    </div>
+    <label>Prompt longer than (tokens) <input name="prompt_tokens_over" value="{{.Prompt}}" placeholder="a number, local_context, or empty"></label>
+    <fieldset><legend>Task <span class="muted">(none: any)</span></legend>
+      <div class="row">{{range .Tasks}}<label class="check"><input type="checkbox" name="task" value="{{.}}"{{if has $.Rule.When.Task .}} checked{{end}}> {{.}}</label>{{end}}</div>
+    </fieldset>
+    <fieldset><legend>Difficulty <span class="muted">(none: any)</span></legend>
+      <div class="row">{{range .Difficulties}}<label class="check"><input type="checkbox" name="difficulty" value="{{.}}"{{if has $.Rule.When.Difficulty .}} checked{{end}}> {{.}}</label>{{end}}</div>
+    </fieldset>
+    <fieldset><legend>Clients <span class="muted">(none: any)</span></legend>
+      <div class="row">{{range .Clients}}<label class="check"><input type="checkbox" name="clients" value="{{.}}"{{if has $.Rule.When.Clients .}} checked{{end}}> {{.}}</label>{{end}}</div>
+    </fieldset>
+    <button type="submit">Save</button>
+  </form>
+</section>
+{{end}}
+{{define "tri"}}
+<label>{{.Label}} <select name="{{.Name}}">
+  {{range .Tri}}<option value="{{.}}"{{if eq . $.Value}} selected{{end}}>{{if eq . "true"}}yes{{else if eq . "false"}}no{{else}}any{{end}}</option>{{end}}
+</select></label>
+{{end}}
