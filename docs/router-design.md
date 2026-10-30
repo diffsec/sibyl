@@ -302,13 +302,50 @@ The System API reads the log for `GET /router/stats`, and the TUI's Router scree
 - `local-only` is enforced in the router, after the rules. A rule bug cannot send a `local-only` client's request to a provider. A test covers every rule type against a `local-only` client.
 - Outbound connections verify TLS with the system trust store, and honour `HTTPS_PROXY`.
 
+## Continuous calibration (step 6.4, design)
+
+Step 6.3 measures the routing once, on a fixed set that one author wrote. The result goes stale when the owner changes the local model, and it says nothing about the owner's real requests. Step 6.4 measures the routing all the time, on a small sample of real traffic, and turns the results into labelled examples and rule advice.
+
+The first measurement on 2026-10-30 shows why. With Qwen3.8-27B TurboFCFusion as the local model, DeepSeek as judge gave the local answers 9.60 on easy, 9.00 on medium and 7.38 on hard requests. Only the hard requests showed a gap that is worth a provider call. Another local model or another workload moves that line.
+
+### The loop
+
+1. Sample. The router keeps a copy of a sampled request and its answer in `/var/lib/sibyl/config/router/calibration/`, with the labels, the route and the usage. The default rate is 2% of the requests of a client with `calibrate: true`. A `sensitive` request is never kept. The store keeps 14 days and at most 2,000 requests, and the oldest go first. This is the only place where Sibyl keeps message content, so the client setting is off by default, and `DELETE /router/calibration` empties the store.
+2. Compare. A worker in the System API sends each sampled request to the other side: a local answer gets a provider answer, and a provider answer gets a local answer. The worker runs only when llama-swap has no request in flight, so calibration never delays a client. Provider calls count against a separate `calibration_daily_usd` budget, and the worker stops for the day when it is spent.
+3. Judge. A judge model compares the two answers side by side, in a random order, and says which is better or that they tie. A comparison of two answers is steadier than a score from 1 to 10, and the random order removes the judge's bias toward the first answer. The judge does not see which model wrote which answer. When the judge is also one of the two models, the report says so, because a model tends to prefer its own answers. In the first measurement, the local model scored its own answers 0.3 to 0.8 points higher than DeepSeek did.
+4. Learn. Each judged request becomes a labelled example with a measured outcome: `local_ok` is true when the local answer won or tied. The classifier gets a third label, `needs_provider`, voted by the nearest examples with an outcome, as the RouteLLM routers do. This label describes the owner's local model on the owner's own work, which the hand-written `difficulty` label cannot do.
+5. Advise. For each task and difficulty, the System API reports the local win-or-tie rate, the provider cost per request, and the latency of each side. When a cell crosses a threshold, such as a local win-or-tie rate over 90% for 50 comparisons, the report proposes a rule change. The owner applies it with one key on the TUI Router screen.
+
+### Signals that cost nothing
+
+- Open WebUI keeps the thumbs up and down of its users. The System API can read them from Open WebUI's feedback API and join them to the sampled requests by time and model. A thumbs down on a local answer counts against `local_ok`.
+- A client that sends the same request again within a minute is likely unhappy with the first answer. The router can count these regenerations per route without keeping any text.
+
+### When the local model changes
+
+The outcomes belong to one local model. When the profile's `local_model` changes, the old outcomes stop voting, and the System API runs the step 6.3 set against the new model as a first measurement. The calibration store then fills with comparisons for the new model.
+
+### Limits
+
+- A `local-only` client's requests never go to a provider for comparison. They can only be judged by a local judge, and the comparison then has no provider answer. The default is to not sample them.
+- The judge is a model, so it can be wrong. The report shows the number of comparisons behind every figure, and a proposal needs at least 50.
+- Rules change only when the owner accepts a proposal. An automatic mode can come later, limited to routes that the owner already allows.
+
+### Questions for the owner
+
+1. Is a 2% sample with 14 days of content on the host acceptable, and for which clients?
+2. Which model judges by default: the strongest provider model, or a local model so that no extra content leaves the host?
+3. What is the default `calibration_daily_usd`?
+4. Do proposals wait for the owner, or apply themselves within the allowed routes?
+
 ## Delivery
 
 | Step | Scope | Exit check |
 |---|---|---|
 | 6.1 (built) | Router service with client keys and policies, model names, the OpenAI-compatible adapter for OpenAI and OpenRouter, the Anthropic Messages endpoint for clients, typed rules, `explain`, the decision log. Caddy, Open WebUI and the Ollama shim move to the router. | With no provider, every existing client works unchanged. A `local-only` client's request never leaves the host: a packet capture on the host shows no connection to a provider. |
 | 6.2 (built) | Anthropic adapter, price tables, budgets, fallbacks, the TUI Router screen. | A request longer than the local context goes to the configured provider with tool calls and streaming intact. A spent budget sends the next request to the local model. |
-| 6.3 | Classifier, starter example set, and an evaluation script that replays a labelled request set and reports route, cost and quality per profile. | On the labelled set, the `auto` profile sends fewer requests to providers than an all-provider profile, at a quality that the owner accepts. |
+| 6.3 (built) | Classifier, starter example set, and an evaluation script that replays a labelled request set and reports route, cost and quality per profile. | On the labelled set, the `auto` profile sends fewer requests to providers than an all-provider profile, at a quality that the owner accepts. |
+| 6.4 | Continuous calibration: sampled requests, comparison in idle time, a side-by-side judge, the `needs_provider` label from measured outcomes, rule proposals, Open WebUI feedback, and a remeasure when the local model changes. | After two weeks of use, the report gives a local win-or-tie rate for each task and difficulty with at least 50 comparisons. No sampled request is `sensitive`, and no request of a `local-only` client went to a provider. |
 
 ## Decisions
 
