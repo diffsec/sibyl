@@ -109,9 +109,10 @@ func main() {
 	judgeTokens := flag.Int("judge-tokens", 4096, "the judge's limit; a reasoning judge thinks before the number")
 	out := flag.String("out", "", "a JSON lines file for the results, written as each one ends")
 	rescore := flag.String("rescore", "", "a results file from -out: add the -judge scores that it lacks, and write -out")
+	retry := flag.Bool("retry", false, "with -rescore, send the requests that got no answer again, with -max-tokens")
 	flag.Parse()
 
-	o := options{who: *who, send: *send, maxTokens: *maxTokens, judgeTokens: *judgeTokens}
+	o := options{who: *who, send: *send, maxTokens: *maxTokens, judgeTokens: *judgeTokens, retry: *retry}
 	if *judge != "" {
 		o.judges = strings.Split(*judge, ",")
 	}
@@ -134,6 +135,7 @@ type options struct {
 	maxTokens   int
 	judges      []string
 	judgeTokens int
+	retry       bool
 }
 
 func run(base, apiKeyFile, keyFile, caFile, set, profileList, out string, o options) error {
@@ -590,9 +592,18 @@ func rescoreFile(base, keyFile, caFile, in, out string, o options) error {
 	}
 	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
-	added := 0
+	added, retried := 0, 0
 	for i := range results {
 		r := &results[i]
+		if o.retry && r.Error != "" {
+			// The price is not in the file, so a retried provider answer
+			// counts as unpriced.
+			again := Result{Profile: r.Profile, Prompt: r.Prompt, Task: r.Task, Difficulty: r.Difficulty, Route: r.Route}
+			c.send(&again, profileModel(r.Profile), r.Prompt, o.maxTokens, nil)
+			fmt.Fprintf(os.Stderr, "retried %s %.40q: %s\n", r.Profile, r.Prompt, again.Error)
+			*r = again
+			retried++
+		}
 		for _, j := range o.judges {
 			if r.Error != "" || r.Scores[j] > 0 {
 				continue
@@ -609,7 +620,7 @@ func rescoreFile(base, keyFile, caFile, in, out string, o options) error {
 			return err
 		}
 	}
-	fmt.Fprintf(os.Stderr, "added %d scores\n", added)
+	fmt.Fprintf(os.Stderr, "retried %d requests, added %d scores\n", retried, added)
 	o.send = true
 	reportProfiles(profiles, results, o)
 	return nil

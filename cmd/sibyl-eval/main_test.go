@@ -138,4 +138,18 @@ func TestRescoreFillsMissingScores(t *testing.T) {
 	if err := rescoreFile(box.URL, key, ca, in, in, options{judges: []string{"j"}}); err == nil {
 		t.Error("rescore over its own input was accepted")
 	}
+
+	// With retry, the request that got no answer is sent again with the
+	// larger limit, and then judged.
+	asked = nil
+	captureStdout(t, func() {
+		if err := rescoreFile(box.URL, key, ca, in, out, options{judges: []string{"j"}, judgeTokens: 4096, retry: true, maxTokens: 32768}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	b, _ = os.ReadFile(out)
+	lines = strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(asked) != 3 || asked[1] != 32768 || !strings.Contains(lines[2], `"j":7`) || strings.Contains(lines[2], "error") {
+		t.Errorf("retry: calls %v, file:\n%s", asked, b)
+	}
 }
