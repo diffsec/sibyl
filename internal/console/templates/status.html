@@ -1,6 +1,7 @@
 {{define "title"}}Status{{end}}
 {{define "content"}}
 <h1>Status</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
 {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
 {{with .Status}}
 <section class="card">
@@ -18,13 +19,34 @@
   <h2>Services</h2>
   <p class="muted">Updated {{.Services.Updated}}</p>
   <table>
-    <thead><tr><th>Unit</th><th>State</th><th>Since</th></tr></thead>
+    <thead><tr><th>Unit</th><th>State</th><th class="hide-narrow">Since</th><th></th></tr></thead>
     <tbody>
     {{range $name, $u := .Services.Units}}
-      <tr><td>{{$name}}</td><td class="{{if eq $u.Active "active"}}good{{else}}bad{{end}}">{{$u.Active}} ({{$u.Sub}})</td><td>{{$u.Since}}</td></tr>
+      <tr><td>{{$name}}</td><td class="{{if eq $u.Active "active"}}good{{else}}bad{{end}}">{{$u.Active}} ({{$u.Sub}})</td><td class="hide-narrow">{{$u.Since}}</td>
+        <td><form method="post" action="/console/status/restart"><input type="hidden" name="unit" value="{{$name}}">
+          <details><summary>Restart</summary><button type="submit" class="secondary">Restart {{$name}}</button></details></form></td></tr>
     {{end}}
     </tbody>
   </table>
 </section>
 {{end}}
+<section class="card stack">
+  <h2>Open WebUI</h2>
+  {{with .OWUI}}<p>{{if .Configured}}<span class="good">Connected.</span>{{with .LastSync}} Last sync: {{.}}{{end}}{{with .Error}} <span class="bad">{{.}}</span>{{end}}{{else}}Not connected. Sibyl sets Open WebUI's embedding model through an admin API key.{{end}}</p>{{end}}
+  <details><summary>{{if and .OWUI .OWUI.Configured}}Connect again{{else}}Connect Open WebUI{{end}}</summary>
+    <form method="post" action="/console/status/openwebui" class="stack" autocomplete="off">
+      <label>How <select name="mode">
+        <option value="signin">Sign in with an existing admin account</option>
+        <option value="create">Create the first admin account (fresh install)</option>
+        <option value="key">Paste an API key</option>
+      </select></label>
+      <label>Name, for a new admin <input name="name" placeholder="Admin"></label>
+      <label>Admin email <input name="email" type="email" autocomplete="off"></label>
+      <label>Password <input name="password" type="password" autocomplete="new-password"></label>
+      <label>Or the API key <input name="key" type="password" autocomplete="off"></label>
+      <p class="muted">Sibyl uses the password once to read the admin's API key, and does not keep it.</p>
+      <button type="submit">Connect</button>
+    </form>
+  </details>
+</section>
 {{end}}

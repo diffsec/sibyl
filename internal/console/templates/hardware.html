@@ -1,0 +1,18 @@
+{{define "title"}}Hardware{{end}}
+{{define "content"}}
+<h1>Hardware</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="/console/hardware" class="card stack">
+  <fieldset><legend>GPUs for inference <span class="muted">(leave out a card that drives a display)</span></legend>
+    {{range .GPUs}}<label class="check"><input type="checkbox" name="gpus" value="{{.Index}}"{{if .Selected}} checked{{end}}> {{.Label}}{{if .VulkanOnly}} <span class="muted">Vulkan only</span>{{end}}</label>{{end}}
+  </fieldset>
+  <label>Backend <select name="backend">{{range .Backends}}<option value="{{.}}"{{if eq . $.HW.Backend}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Default layout <select name="layout">
+    <option value="span"{{if eq .HW.Layout "span"}} selected{{end}}>Span: one model across all selected GPUs</option>
+    <option value="pin"{{if eq .HW.Layout "pin"}} selected{{end}}>Pin: one model per GPU</option>
+  </select></label>
+  <p class="muted">A model can override the layout in its own settings. A backend change restarts llama-swap.</p>
+  <button type="submit">Save and apply</button>
+</form>
+{{end}}

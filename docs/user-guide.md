@@ -287,7 +287,7 @@ Each key belongs to a client. A client has one of two policies:
 
 Two clients exist from the start: `default` and `open-webui`. Both are `local-only`.
 
-The Router screen of the `sibyl` console (key `6`) creates clients, sets their policies and budgets, and adds providers. The web console at `https://<address>:8443/console/` has the same controls in a browser. Sign in with the user and password of a host account in the `wheel` group, such as the admin account from the install. After 5 failed sign-ins from one address in a minute, that address must wait a minute. A session ends after 12 hours, or after 1 hour without use. The System API does the same at `https://<address>:8443/system/router`. These examples use the System API key in `$ADMIN`:
+The Router screen of the `sibyl` console (key `6`) creates clients, sets their policies and budgets, and adds providers. The web console at `https://<address>:8443/console/` has the same screens in a browser: Router, Models, Downloads, Hardware, Host, Status, and a Setup page with the steps of `sibyl setup`. Sign in with the user and password of a host account in the `wheel` group, such as the admin account from the install. After 5 failed sign-ins from one address in a minute, that address must wait a minute. A session ends after 12 hours, or after 1 hour without use. The System API does the same at `https://<address>:8443/system/router`. These examples use the System API key in `$ADMIN`:
 
 ```bash
 ADMIN="$(ssh admin@<address> cat /var/lib/sibyl-operator/api.key)"

@@ -1,0 +1,84 @@
+{{define "title"}}Host{{end}}
+{{define "content"}}
+<h1>Host</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{$h := .Host}}
+{{with $h.Pending}}
+<section class="warn stack">
+  <p>The network change on {{.Interface}} rolls back at {{.Expires}} unless you keep it. If the address changed, open the console at the new address and keep it from there.</p>
+  <form method="post" action="/console/host/network/confirm"><button type="submit">Keep the network change</button></form>
+</section>
+{{end}}
+<section class="card stack">
+  <h2>Hostname</h2>
+  <form method="post" action="/console/host/hostname" class="row">
+    <label>Hostname <input name="hostname" required value="{{$h.Hostname}}" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?"></label>
+    <button type="submit">Save</button>
+  </form>
+  <p class="muted">Lowercase letters, digits and hyphens. The TLS certificate keeps its names.</p>
+</section>
+<section class="card stack">
+  <h2>Network</h2>
+  <table>
+    <tbody>{{range $h.Interfaces}}<tr><td>{{.Name}}</td><td>{{.State}}</td><td>{{.Method}}</td><td class="mono">{{join .Addresses " "}}</td><td class="mono hide-narrow">{{.Gateway}}</td></tr>{{end}}</tbody>
+  </table>
+  <details><summary>Change the network</summary>
+    <form method="post" action="/console/host/network" class="stack">
+      <label>Interface <select name="interface">{{range $h.Interfaces}}<option>{{.Name}}</option>{{end}}</select></label>
+      <label>IPv4 <select name="method"><option value="dhcp">DHCP</option><option value="static">Static</option></select></label>
+      <label>Address, for static, with the prefix length <input name="address" placeholder="192.168.1.26/24"></label>
+      <label>Gateway <input name="gateway" placeholder="empty for no default route"></label>
+      <label>DNS servers, up to 3, separated by spaces <input name="dns"></label>
+      <p class="warn">The change rolls back after 120 seconds unless you keep it. If the address changes, open the console at the new address, sign in again, and keep it there.</p>
+      <button type="submit">Change the network</button>
+    </form>
+  </details>
+</section>
+<section class="card stack">
+  <h2>Operator accounts</h2>
+  <p class="muted">An operator is in sibyl-operators: it can run sibyl over SSH, but not sudo.</p>
+  <table>
+    <tbody>
+    {{range $h.Users}}
+    <tr><td>{{.Name}}</td><td class="muted">{{join .Groups ", "}}</td><td class="num">{{.Keys}} key(s)</td>
+      <td>{{if .Managed}}<form method="post" action="/console/host/user/delete"><input type="hidden" name="name" value="{{.Name}}">
+        <details><summary>Delete</summary><button type="submit" class="danger">Delete {{.Name}} and its home directory</button></details></form>{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  <details><summary>Add an operator, or replace an operator's keys</summary>
+    <form method="post" action="/console/host/user" class="stack">
+      <label>User name <input name="name" required pattern="[a-z_][a-z0-9_-]{0,31}"></label>
+      <label>SSH public keys, one per line <textarea name="keys" rows="4"></textarea></label>
+      <label>GitHub user, to add the keys that github.com/&lt;user&gt;.keys lists <input name="github"></label>
+      <button type="submit">Save</button>
+    </form>
+  </details>
+</section>
+<section class="card stack">
+  <h2>Model pools</h2>
+  <table>
+    <tbody>
+    {{range $h.Pools}}
+    <tr><td>{{.Name}}</td><td class="mono">{{.Disk}}</td><td>{{if .Mounted}}<span class="good">mounted</span>{{else}}<span class="bad">not mounted</span>{{end}}</td>
+      <td class="num">{{if .Size}}{{gibs .Free}} free of {{gibs .Size}}{{end}}</td>
+      <td><form method="post" action="/console/host/pool/detach"><input type="hidden" name="name" value="{{.Name}}">
+        <details><summary>Detach</summary><p class="muted">llama-swap unloads its models first. The data and the key file stay.</p><button type="submit" class="secondary">Detach {{.Name}}</button></details></form></td></tr>
+    {{else}}<tr><td class="muted">No pools.</td></tr>{{end}}
+    </tbody>
+  </table>
+  {{if .FreeDisks}}
+  <details><summary>Make a pool from a disk</summary>
+    {{range .FreeDisks}}
+    <form method="post" action="/console/host/pool" class="stack">
+      <input type="hidden" name="disk" value="{{.Path}}">
+      <p class="warn">Everything on {{.Label}} is deleted. The disk is encrypted and unlocks with a key on the system disk.</p>
+      <label>Type {{.Confirm}} to confirm <input name="confirm" required autocomplete="off"></label>
+      <button type="submit" class="danger">Erase {{.Path}} and make a pool</button>
+    </form>
+    {{end}}
+  </details>
+  {{end}}
+</section>
+{{end}}

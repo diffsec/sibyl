@@ -1,0 +1,21 @@
+{{define "title"}}Setup{{end}}
+{{define "content"}}
+<h1>Setup</h1>
+<p class="muted">The same steps as sibyl setup in the TUI. Each step uses the normal page, so you can do any step again later.</p>
+<section class="card">
+  <table>
+    <tbody>
+    {{range $i, $s := .Steps}}
+    <tr><td class="num">{{add $i 1}}</td>
+      <td>{{if $s.Done}}<span class="good">done</span>{{else}}<span class="muted">to do</span>{{end}}</td>
+      <td><a href="{{$s.Link}}">{{$s.Title}}</a><br><span class="muted">{{$s.Hint}}</span></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
+<section class="card">
+  <h2>Then</h2>
+  <p>Programs use a key from the Router page, or the default key in <code>/var/lib/sibyl-operator/inference.key</code>. The API key is for the System API only.</p>
+  <p>Trust <code>/var/lib/sibyl-operator/ca.crt</code> on your computers once. It stays valid when the address changes.</p>
+</section>
+{{end}}

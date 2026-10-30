@@ -14,7 +14,12 @@
   {{if .User}}
   <nav>
     <a href="/console/router"{{if eq .Page "router"}} aria-current="page"{{end}}>Router</a>
+    <a href="/console/models"{{if or (eq .Page "models") (eq .Page "model")}} aria-current="page"{{end}}>Models</a>
+    <a href="/console/downloads"{{if or (eq .Page "downloads") (eq .Page "repo")}} aria-current="page"{{end}}>Downloads</a>
+    <a href="/console/hardware"{{if eq .Page "hardware"}} aria-current="page"{{end}}>Hardware</a>
+    <a href="/console/host"{{if eq .Page "host"}} aria-current="page"{{end}}>Host</a>
     <a href="/console/status"{{if eq .Page "status"}} aria-current="page"{{end}}>Status</a>
+    <a href="/console/setup"{{if eq .Page "setup"}} aria-current="page"{{end}}>Setup</a>
   </nav>
   <form method="post" action="/console/logout" class="who">
     <span>{{.User}}</span>

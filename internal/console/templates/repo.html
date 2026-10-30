@@ -1,0 +1,23 @@
+{{define "title"}}Repository{{end}}
+{{define "content"}}
+<p><a href="/console/downloads">Back to the downloads</a></p>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+<section class="card stack">
+  <h1 class="mono">{{.ID}}</h1>
+  {{if .Repo.Revision}}<p class="muted">Commit {{.Repo.Revision}} · usable VRAM {{.VRAM}}, system RAM {{.RAM}}</p>{{end}}
+  <table>
+    <thead><tr><th>Variant</th><th class="num">Size</th><th>Fit</th><th></th></tr></thead>
+    <tbody>
+    {{range .Variants}}
+    <tr><td class="mono">{{.Name}}</td><td class="num">{{.Size}}{{if gt .Shards 1}} in {{.Shards}} files{{end}}</td>
+      <td>{{if eq .Fit "gpu"}}<span class="good">fits in VRAM</span>{{else if eq .Fit "split"}}needs system RAM too{{else if eq .Fit "unknown"}}<span class="muted">unknown</span>{{else}}<span class="bad">too large</span>{{end}}</td>
+      <td><form method="post" action="/console/downloads" class="row">
+        <input type="hidden" name="repo" value="{{$.ID}}"><input type="hidden" name="revision" value="{{$.Repo.Revision}}"><input type="hidden" name="variant" value="{{.Name}}">
+        {{if $.Pools}}<select name="pool" aria-label="Where"><option value="">Models folder</option>{{range $.Pools}}{{if .Mounted}}<option value="{{.Name}}">{{.Name}}</option>{{end}}{{end}}</select>{{end}}
+        <button type="submit">Download</button>
+      </form></td></tr>
+    {{else}}<tr><td class="muted">No GGUF files in this repository.</td></tr>{{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}

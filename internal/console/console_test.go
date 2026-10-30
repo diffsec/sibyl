@@ -76,7 +76,38 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"comparisons":2,"local_ok_rate":0.5}],"proposals":[{"id":"abc","profile":"auto","task":"code","difficulty":"hard",
 			"current":"local/qwen","route":"cloud/big","comparisons":50,"local_ok_rate":0.4}]}`)
 	case "GET /models":
-		_, _ = io.WriteString(w, `[{"id":"qwen"},{"id":"gemma"},{"id":"embed","settings":{"embedding":true}}]`)
+		_, _ = io.WriteString(w, `[{"id":"qwen","size_bytes":32212254720,"shards":2,"settings":{"ctx_size":65536,"sampling":{"temperature":0.6}},
+			"meta":{"architecture":"qwen3moe","context_length":262144,"expert_count":128},
+			"fit":{"ctx":65536,"slots":2,"slot_ctx":32768,"fits":true},"benchmark":{"status":"done","results":{"hip":{"generation_tokens_per_second":40.5,"prompt_tokens_per_second":900}},"recommended":"hip"}},
+			{"id":"gemma"},{"id":"embed","settings":{"embedding":true}}]`)
+	case "GET /hardware":
+		_, _ = io.WriteString(w, `{"backend":"hip","gpus":[0],"layout":"span"}`)
+	case "GET /gpus":
+		_, _ = io.WriteString(w, `[{"index":0,"pci_address":"0000:03:00.0","vendor":"AMD","vram_total_bytes":25753000000},
+			{"index":1,"pci_address":"0000:07:00.0","vendor":"AMD","vram_total_bytes":25753000000}]`)
+	case "GET /host":
+		_, _ = io.WriteString(w, `{"hostname":"sibyl","interfaces":[{"name":"enp8s0","state":"connected","method":"dhcp","addresses":["192.168.1.26/24"]}],
+			"users":[{"name":"admin","groups":["wheel"],"admin":true},{"name":"ops","groups":["sibyl-operators"],"managed":true,"keys":1}],
+			"pending_network":{"interface":"enp8s0","expires":"soon"},
+			"disks":[{"name":"sdb","path":"/dev/sdb","size":64000000000,"model":"USB","serial":"SER123"}]}`)
+	case "GET /downloads":
+		_, _ = io.WriteString(w, `[{"id":"j1","repo":"org/model-GGUF","variant":"Q8_0","status":"downloading","bytes_done":5368709120,"bytes_total":10737418240},
+			{"id":"j2","repo":"org/other-GGUF","variant":"Q4_K_M","status":"failed","error":"disk full"}]`)
+	case "GET /hf/search":
+		_, _ = io.WriteString(w, `[{"id":"org/model-GGUF","downloads":10,"likes":2}]`)
+	case "GET /hf/repos/org/model-GGUF":
+		_, _ = io.WriteString(w, `{"repo":"org/model-GGUF","revision":"abc123def4567890","vram_bytes":51506000000,"ram_bytes":68719476736,
+			"variants":[{"name":"Q8_0","size_bytes":10737418240,"shards":1,"fit":"gpu"}]}`)
+	case "GET /pools":
+		_, _ = io.WriteString(w, `{"pools":[{"name":"pool-1","mounted":true}]}`)
+	case "GET /integrations/open-webui":
+		_, _ = io.WriteString(w, `{"configured":false}`)
+	case "GET /integrations/huggingface":
+		_, _ = io.WriteString(w, `{"configured":true,"user":"ben"}`)
+	case "PUT /host/hostname", "PUT /host/network/enp8s0", "PUT /host/users/ops", "POST /host/network/confirm":
+		_, _ = io.WriteString(w, `{"ok":true,"message":"done by hostd"}`)
+	case "DELETE /host/users/ops":
+		_, _ = io.WriteString(w, `{"ok":false,"error":"refused by hostd"}`)
 	case "POST /router/clients":
 		_, _ = io.WriteString(w, `{"name":"phone","policy":"hybrid","key":"sib-secret-key"}`)
 	case "DELETE /router/calibration":
@@ -507,5 +538,89 @@ func TestOriginNullUsesFetchSite(t *testing.T) {
 	}
 	if w := h.do("GET", "/console/login", nil, false); w.Header().Get("Referrer-Policy") != "same-origin" {
 		t.Errorf("Referrer-Policy %q", w.Header().Get("Referrer-Policy"))
+	}
+}
+
+func TestMorePagesRender(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	for path, want := range map[string][]string{
+		"/console/models":                           {"qwen", "30.0 GiB", "context 65536 in 2 slots of 32768", "hip 40.5 tok/s"},
+		"/console/models/edit?id=qwen":              {"qwen3moe", "native context 262144", `name="moelayers"`, `value="0.6"`, `value="65536"`},
+		"/console/downloads":                        {"org/model-GGUF", "downloading", "5.0 GiB of 10.0 GiB (50%)", "disk full", "Retry", "Set for ben"},
+		"/console/downloads?q=qwen":                 {`href="/console/downloads/repo?id=org%2fmodel-GGUF"`},
+		"/console/downloads/repo?id=org/model-GGUF": {"Q8_0", "fits in VRAM", "pool-1", "abc123def4567890"},
+		"/console/hardware":                         {"GPU 0", "GPU 1", `value="0" checked`, "hip"},
+		"/console/host":                             {"enp8s0", "192.168.1.26/24", "ops", "Type SER123 to confirm", "Keep the network change"},
+		"/console/status":                           {"router.service", "Restart router.service", "Not connected"},
+		"/console/setup":                            {"GPUs, backend and layout", "done", "to do"},
+	} {
+		w := h.do("GET", path, nil, false)
+		if w.Code != 200 {
+			t.Errorf("%s = %d %s", path, w.Code, w.Body)
+			continue
+		}
+		for _, s := range want {
+			if !strings.Contains(w.Body.String(), s) {
+				t.Errorf("%s lacks %q", path, s)
+			}
+		}
+	}
+	// An exact owner/name opens the repository without a search.
+	if w := h.do("GET", "/console/downloads?q=org/model-GGUF", nil, false); w.Code != http.StatusSeeOther ||
+		!strings.Contains(w.Header().Get("Location"), "/console/downloads/repo?id=org%2Fmodel-GGUF") {
+		t.Errorf("exact repo = %d %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+func TestModelAndHostChanges(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	w := h.do("POST", "/console/models/edit", url.Values{"id": {"qwen"}, "ctxsize": {"131072"}, "temperature": {"0.7"},
+		"spectypes": {"ngram-mod"}, "moelayers": {"all"}, "embedding": {"on"}}, true)
+	if !strings.Contains(w.Header().Get("Location"), "done=saved+qwen") {
+		t.Fatalf("save model %q", w.Header().Get("Location"))
+	}
+	b := h.api.body("PUT /models/qwen")
+	if b["ctx_size"] != 131072.0 || b["embedding"] != true || b["sampling"].(map[string]any)["temperature"] != 0.7 ||
+		b["moe"].(map[string]any)["cpu_layers"] == nil {
+		t.Errorf("settings %v", b)
+	}
+	w = h.do("POST", "/console/models/edit", url.Values{"id": {"qwen"}, "temperature": {"warm"}}, true)
+	if loc := w.Header().Get("Location"); !strings.Contains(loc, "models/edit?id=qwen&error=") {
+		t.Errorf("bad value %q", loc)
+	}
+
+	h.do("POST", "/console/hardware", url.Values{"gpus": {"0", "1"}, "backend": {"vulkan"}, "layout": {"pin"}}, true)
+	if b := h.api.body("PUT /hardware"); b["backend"] != "vulkan" || len(b["gpus"].([]any)) != 2 || b["layout"] != "pin" {
+		t.Errorf("hardware %v", b)
+	}
+	if w := h.do("POST", "/console/hardware", url.Values{"backend": {"hip"}}, true); !strings.Contains(w.Header().Get("Location"), "error=") {
+		t.Error("hardware with no GPU passed")
+	}
+
+	w = h.do("POST", "/console/host/network", url.Values{"interface": {"enp8s0"}, "method": {"static"}, "address": {"192.168.1.30/24"},
+		"gateway": {"192.168.1.1"}, "dns": {"1.1.1.1 9.9.9.9"}}, true)
+	if b := h.api.body("PUT /host/network/enp8s0"); b["address"] != "192.168.1.30/24" || len(b["dns"].([]any)) != 2 {
+		t.Errorf("network %v", b)
+	}
+	if !strings.Contains(w.Header().Get("Location"), "done+by+hostd") {
+		t.Errorf("network result %q", w.Header().Get("Location"))
+	}
+	w = h.do("POST", "/console/host/user/delete", url.Values{"name": {"ops"}}, true)
+	if !strings.Contains(w.Header().Get("Location"), "error=refused+by+hostd") {
+		t.Errorf("a refusal from hostd is lost: %q", w.Header().Get("Location"))
+	}
+	if w := h.do("POST", "/console/host/user", url.Values{"name": {"ops"}}, true); !strings.Contains(w.Header().Get("Location"), "error=") {
+		t.Error("an operator with no key passed")
+	}
+
+	h.do("POST", "/console/downloads", url.Values{"repo": {"org/model-GGUF"}, "revision": {"abc"}, "variant": {"Q8_0"}, "pool": {"pool-1"}}, true)
+	if b := h.api.body("POST /downloads"); b["repo"] != "org/model-GGUF" || b["variant"] != "Q8_0" || b["pool"] != "pool-1" {
+		t.Errorf("download %v", b)
+	}
+	h.do("POST", "/console/status/openwebui", url.Values{"mode": {"create"}, "name": {"Ben"}, "email": {"b@x"}, "password": {"pw"}}, true)
+	if b := h.api.body("POST /integrations/open-webui/connect"); b["create_admin"] != true || b["password"] != "pw" {
+		t.Errorf("connect %v", b)
 	}
 }

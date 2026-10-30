@@ -1,0 +1,29 @@
+{{define "title"}}Models{{end}}
+{{define "content"}}
+<h1>Models</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<section class="card">
+  {{if not .Models}}<p class="muted">No models yet. Download one on the <a href="/console/downloads">Downloads</a> page.</p>{{end}}
+  <table>
+    <thead><tr><th>Model</th><th class="num">Size</th><th>Settings and fit</th><th></th></tr></thead>
+    <tbody>
+    {{range .Models}}
+    <tr>
+      <td class="mono">{{.ID}}{{if .Settings.Embedding}} <span class="muted">embedding</span>{{end}}{{if .Settings.Hidden}} <span class="muted">hidden</span>{{end}}</td>
+      <td class="num">{{.SizeText}}</td>
+      <td>{{.Fit}}{{with .Bench}}<br><span class="muted">{{.}}</span>{{end}}</td>
+      <td><div class="actions">
+        <a href="/console/models/edit?id={{.ID}}">Settings</a>
+        <form method="post" action="/console/models/bench"><input type="hidden" name="id" value="{{.ID}}">
+          <button type="submit" class="link">Benchmark</button></form>
+        <form method="post" action="/console/models/delete"><input type="hidden" name="id" value="{{.ID}}">
+          <details><summary>Delete</summary><button type="submit" class="danger">Delete {{.ID}} and its {{.SizeText}} of files</button></details></form>
+      </div></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <p class="muted">A benchmark unloads the running models and takes a few minutes.</p>
+</section>
+{{end}}

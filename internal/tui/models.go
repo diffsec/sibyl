@@ -235,7 +235,7 @@ func (v *modelsView) submit() tea.Cmd {
 			return modelDeleted{id, err}
 		}
 	}
-	s, err := v.fields.toSettings()
+	s, err := v.fields.Settings()
 	if err != nil {
 		return note(false, "%v", err)
 	}

@@ -53,6 +53,7 @@ func (t inProcess) RoundTrip(req *http.Request) (*http.Response, error) {
 var funcs = template.FuncMap{
 	"join": strings.Join,
 	"usd":  func(f float64) string { return fmt.Sprintf("$%.2f", f) },
+	"gibs": func(b int64) string { return gib(b) },
 	"usd4": func(f float64) string { return fmt.Sprintf("$%.4f", f) },
 	"pct":  func(f float64) string { return fmt.Sprintf("%.0f%%", f*100) },
 	"secs": func(ms int64) string { return fmt.Sprintf("%.1f s", float64(ms)/1000) },

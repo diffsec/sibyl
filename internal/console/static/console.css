@@ -59,3 +59,8 @@ details > summary { cursor: pointer; color: var(--accent); }
   th, td { padding: 6px 4px; }
   .hide-narrow { display: none; }
 }
+textarea { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 6px 8px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--bg); color: var(--text); width: 100%; }
+fieldset { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; margin: 0; }
+legend { padding: 0 4px; }
+h3 { font-size: 15px; margin: 16px 0 6px; }

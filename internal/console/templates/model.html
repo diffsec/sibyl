@@ -1,0 +1,76 @@
+{{define "title"}}Model settings{{end}}
+{{define "content"}}
+<p><a href="/console/models">Back to the models</a></p>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{$f := .Form}}
+<form method="post" action="/console/models/edit" class="stack">
+<input type="hidden" name="id" value="{{.Model.ID}}">
+<section class="card stack">
+  <h1 class="mono">{{.Model.ID}}</h1>
+  <p class="muted">{{.Head}}{{with .Fit}}<br>Now: {{.}}{{end}}</p>
+  <div class="row">
+    <label>Layout <select name="layout">{{range .Layouts}}<option value="{{index . 0}}"{{if eq (index . 0) $f.Layout}} selected{{end}}>{{index . 1}}</option>{{end}}</select></label>
+    <label>When VRAM is short <select name="fit">
+      <option value=""{{if eq $f.Fit ""}} selected{{end}}>Quality: f16 cache, shorter context</option>
+      <option value="context"{{if eq $f.Fit "context"}} selected{{end}}>Context: quantize the cache to keep the context</option>
+    </select></label>
+  </div>
+  <div class="row">
+    <label>Context size <input name="ctxsize" inputmode="numeric" placeholder="auto" value="{{$f.CtxSize}}"></label>
+    <label>Parallel requests <input name="parallel" inputmode="numeric" placeholder="llama.cpp default" value="{{$f.Parallel}}"></label>
+    <label>Tensor split <input name="tensorsplit" placeholder="by free memory" value="{{$f.TensorSplit}}"></label>
+  </div>
+  <p class="muted">Parallel slots share the context. The tensor split is the share of the layers on each GPU, such as 3,2.</p>
+  <div class="row">
+    <label>KV cache K type <select name="kvtypek"><option value="">Default (f16)</option>{{range .CacheTypes}}<option{{if eq . $f.KVTypeK}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <label>KV cache V type <select name="kvtypev"><option value="">Default (f16)</option>{{range .CacheTypes}}<option{{if eq . $f.KVTypeV}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  </div>
+  <label class="check"><input type="checkbox" name="embedding"{{if $f.Embedding}} checked{{end}}> Embedding model</label>
+  <label class="check"><input type="checkbox" name="hidden"{{if $f.Hidden}} checked{{end}}> Hide from the model list</label>
+</section>
+{{if .MoE}}
+<section class="card stack">
+  <h2>Mixture of Experts</h2>
+  <div class="row">
+    <label>Experts in system RAM <input name="moelayers" placeholder="none, all, or a number of layers" value="{{$f.MoELayers}}"></label>
+    <label>Expert GPU cache (MiB) <input name="moecachemib" inputmode="numeric" placeholder="off" value="{{$f.MoECacheMiB}}"></label>
+  </div>
+  <p class="muted">The cache keeps the most used experts on the GPU. It needs experts in system RAM, and it counts against the automatic context.</p>
+</section>
+{{else}}
+<input type="hidden" name="moelayers" value="{{$f.MoELayers}}"><input type="hidden" name="moecachemib" value="{{$f.MoECacheMiB}}">
+{{end}}
+<section class="card stack">
+  <h2>Sampling defaults</h2>
+  <p class="muted">Empty uses the preset, then the model file, then llama.cpp. Clients can still set these per request.</p>
+  <label>Preset <select name="preset"><option value="">None</option>{{range .Presets}}<option{{if eq . $f.Preset}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <div class="row">
+    <label>Temperature <input name="temperature" inputmode="decimal" placeholder="0 to 5" value="{{$f.Temperature}}"></label>
+    <label>Top K <input name="topk" inputmode="numeric" placeholder="0 to 1000" value="{{$f.TopK}}"></label>
+    <label>Top P <input name="topp" inputmode="decimal" placeholder="0 to 1" value="{{$f.TopP}}"></label>
+    <label>Min P <input name="minp" inputmode="decimal" placeholder="0 to 1" value="{{$f.MinP}}"></label>
+    <label>Repeat penalty <input name="repeatpenalty" inputmode="decimal" placeholder="0 to 5" value="{{$f.RepeatPenalty}}"></label>
+    <label>Presence penalty <input name="presencepenalty" inputmode="decimal" placeholder="-2 to 2" value="{{$f.PresencePenalty}}"></label>
+  </div>
+</section>
+<section class="card stack">
+  <h2>Speculative decoding</h2>
+  <fieldset><legend>Types, tried in order <span class="muted">(draft types except draft-mtp need a draft model)</span></legend>
+    <div class="row">{{range .SpecTypes}}<label class="check"><input type="checkbox" name="spectypes" value="{{.}}"{{if has $f.SpecTypes .}} checked{{end}}> {{.}}</label>{{end}}</div>
+  </fieldset>
+  <div class="row">
+    <label>Draft model <select name="draftmodel"><option value="">None</option>{{range .Drafts}}<option{{if eq . $f.DraftModel}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <label>Draft tokens, max <input name="draftmax" inputmode="numeric" value="{{$f.DraftMax}}"></label>
+    <label>Draft tokens, min <input name="draftmin" inputmode="numeric" value="{{$f.DraftMin}}"></label>
+    <label>ngram-mod n min <input name="ngrammodmin" inputmode="numeric" value="{{$f.NgramModMin}}"></label>
+    <label>ngram-mod n max <input name="ngrammodmax" inputmode="numeric" value="{{$f.NgramModMax}}"></label>
+  </div>
+</section>
+<section class="card stack">
+  <h2>Advanced</h2>
+  <label>Extra llama-server arguments, separated by spaces <input name="args" class="mono" value="{{$f.Args}}"></label>
+  <p class="muted">Flags that a setting above sets are refused.</p>
+</section>
+<button type="submit">Save and apply</button>
+</form>
+{{end}}

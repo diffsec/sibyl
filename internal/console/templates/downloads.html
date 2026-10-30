@@ -1,0 +1,52 @@
+{{define "title"}}Downloads{{end}}
+{{define "content"}}
+<h1>Downloads</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+<section class="card stack">
+  <form method="get" action="/console/downloads" class="row">
+    <label>Search Hugging Face, or give owner/name <input name="q" value="{{.Query}}" placeholder="qwen3 gguf"></label>
+    <button type="submit">Search</button>
+  </form>
+  {{if .Query}}
+  <table>
+    <thead><tr><th>Repository</th><th class="num">Downloads</th><th class="num hide-narrow">Likes</th></tr></thead>
+    <tbody>
+    {{range .Results}}<tr><td><a class="mono" href="/console/downloads/repo?id={{.ID}}">{{.ID}}</a>{{if .Gated}} <span class="muted">gated</span>{{end}}</td><td class="num">{{.Downloads}}</td><td class="num hide-narrow">{{.Likes}}</td></tr>
+    {{else}}<tr><td colspan="3" class="muted">No GGUF repositories found.</td></tr>{{end}}
+    </tbody>
+  </table>
+  {{end}}
+</section>
+{{template "jobs" .}}
+<section class="card stack">
+  <h2>Hugging Face token</h2>
+  {{with .HF}}<p class="muted">{{if .Configured}}Set{{with .User}} for {{.}}{{end}}{{with .SetAt}} on {{.}}{{end}}. It opens gated and private repositories.{{else}}None. Gated and private repositories need one.{{end}}</p>{{end}}
+  <form method="post" action="/console/downloads/token" class="row" autocomplete="off">
+    <label>Token <input name="token" type="password" autocomplete="new-password" placeholder="hf_…"></label>
+    <button type="submit">Save</button>
+  </form>
+  {{if and .HF .HF.Configured}}
+  <form method="post" action="/console/downloads/token"><input type="hidden" name="clear" value="1">
+    <details><summary>Remove the token</summary><button type="submit" class="danger">Remove the Hugging Face token</button></details></form>
+  {{end}}
+</section>
+{{end}}
+
+{{define "jobs"}}
+<section class="card" id="jobs" hx-get="/console/downloads/live" hx-trigger="every 5s" hx-swap="outerHTML">
+  <h2>Queue</h2>
+  {{with .Error}}<p class="error">{{.}}</p>{{end}}
+  <table>
+    <tbody>
+    {{range .Jobs}}
+    <tr><td class="mono">{{.Repo}} <span class="muted">{{.Variant}}</span></td>
+      <td>{{.Status}}{{with .Progress}} · {{.}}{{end}}{{with .Error}}<br><span class="bad">{{.}}</span>{{end}}</td>
+      <td><div class="actions">
+        {{if not .Done}}<form method="post" action="/console/downloads/cancel"><input type="hidden" name="id" value="{{.ID}}"><button type="submit" class="link">Cancel</button></form>{{end}}
+        {{if or (eq .Status "failed") (eq .Status "canceled")}}<form method="post" action="/console/downloads/retry"><input type="hidden" name="id" value="{{.ID}}"><button type="submit" class="link">Retry</button></form>{{end}}
+      </div></td></tr>
+    {{else}}<tr><td class="muted">No downloads.</td></tr>{{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}

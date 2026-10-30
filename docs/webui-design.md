@@ -81,8 +81,8 @@ The Router screen shows the calibration cells per local model as a table. The ru
 |---|---|---|
 | 7.1 (built) | Sign-in, sessions, the Caddy route, the page frame, and the Status screen as read-only | A request without a session gets the sign-in page. A request with a session from another `Origin` gets 403. The Status screen matches the TUI. |
 | 7.2 (built) | The Router screen with every control | Each Router control of the TUI works in the console, and a change in one shows in the other within 5 seconds. |
-| 7.3 | The Models and Downloads screens | A model downloads, gets its settings and runs from the console alone. |
-| 7.4 | The Hardware and Host screens, and the update | A fresh install can be set up from the console after the TUI setup wizard. |
+| 7.3 (built) | The Models and Downloads screens | A model downloads, gets its settings and runs from the console alone. |
+| 7.4 (built, except the update) | The Hardware and Host screens, and the update | A fresh install can be set up from the console after the TUI setup wizard. |
 
 ## Decisions for the owner
 
@@ -92,3 +92,10 @@ The owner chose on 2026-10-30:
 2. The pages are Go templates with htmx.
 3. The Router screen comes first after sign-in.
 4. The setup wizard runs in both the TUI and the console.
+
+## As built
+
+- The console has the pages Router, Models, Downloads, Hardware, Host, Status and Setup. The model settings form and the TUI's form share `internal/modelform`, so both check a value the same way.
+- The Setup page lists the six steps of `sibyl setup` in the same order. Each step shows whether it is done, from the System API's state, and links to its page.
+- A network change shows a warning with the rollback time. If the address changes, the owner opens the console at the new address, signs in again, and keeps the change there, because the session cookie belongs to the old address.
+- The update control is not built. The TUI has none either, and `bootc upgrade` runs from the host.
