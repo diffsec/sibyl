@@ -45,6 +45,8 @@ type Meta struct {
 	// ExpertBytes is the size of the routed expert tensors of each block,
 	// by block index. GPUWeights includes them.
 	ExpertBytes []int64 `json:"expert_layer_bytes,omitempty"`
+	// Reasoning is how the chat template sets the reasoning, if it can.
+	Reasoning *ReasoningControl `json:"reasoning,omitempty"`
 }
 
 // Weights returns the bytes of weights on the GPUs: GPUWeights, or the
@@ -209,7 +211,8 @@ var archKeys = []string{
 // ReadMeta reads the GGUF header of a model file.
 func ReadMeta(path string) (Meta, error) {
 	vals, err := gguf.ReadFile(path, func(k string) bool {
-		if k == "general.architecture" || k == "general.name" || strings.HasPrefix(k, "general.sampling.") {
+		if k == "general.architecture" || k == "general.name" || k == "tokenizer.chat_template" ||
+			strings.HasPrefix(k, "general.sampling.") {
 			return true
 		}
 		// Architecture names have no dot, so the rest of the key follows
@@ -222,6 +225,7 @@ func ReadMeta(path string) (Meta, error) {
 	}
 	m := metaFrom(vals["general.architecture"].Str, vals)
 	m.Name = vals["general.name"].Str
+	m.Reasoning = DetectReasoning(vals["tokenizer.chat_template"].Str)
 	// Without the tensors, the fit counts the whole file as GPU weights.
 	if gw, experts, err := gpuWeights(path); err == nil {
 		m.GPUWeights, m.ExpertBytes = gw, experts

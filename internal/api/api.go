@@ -316,9 +316,18 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 	}
 	// llama.cpp refuses a MoE cache on a dense model, and the model would
 	// not load.
-	if meta := s.modelMeta(m); set.MoE.Enabled() && meta != nil && meta.ExpertCount == 0 {
+	meta := s.modelMeta(m)
+	if set.MoE.Enabled() && meta != nil && meta.ExpertCount == 0 {
 		writeError(w, http.StatusUnprocessableEntity, errors.New("moe: the model file has no experts"))
 		return
+	}
+	// The variable and the values differ by model family, so the setting
+	// must match what this model's chat template reads.
+	if set.Reasoning != nil && meta != nil {
+		if err := set.Reasoning.CheckAgainst(meta.Reasoning); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err)
+			return
+		}
 	}
 	if d := set.Speculative.DraftModel; d != "" {
 		if d == id {

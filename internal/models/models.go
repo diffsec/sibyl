@@ -185,10 +185,9 @@ type Settings struct {
 	// Preset is the sampling preset for the model's default use. The
 	// sampling fields above override its values.
 	Preset string `yaml:"preset,omitempty" json:"preset,omitempty"`
-	// ReasoningEffort is the default reasoning effort: low, medium or high.
-	// It goes to the chat template as reasoning_effort, so it works for a
-	// model whose template reads it. A request's reasoning_effort wins.
-	ReasoningEffort string `yaml:"reasoning_effort,omitempty" json:"reasoning_effort,omitempty"`
+	// Reasoning is the default reasoning, in the variable that the model's
+	// chat template reads. Nil leaves the template's default.
+	Reasoning *Reasoning `yaml:"reasoning,omitempty" json:"reasoning,omitempty"`
 	// Parallel is the number of requests that llama-server runs at once
 	// (--parallel). The slots share the context. 0 leaves llama-server's
 	// default.
@@ -199,19 +198,6 @@ type Settings struct {
 	TensorSplit []float64 `yaml:"tensor_split,omitempty" json:"tensor_split,omitempty"`
 	// Args are extra llama-server flags for anything the typed fields do not cover.
 	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
-}
-
-// ReasoningEfforts are the reasoning effort values. Empty leaves the chat
-// template's default.
-var ReasoningEfforts = []string{"", "low", "medium", "high"}
-
-// ReasoningFlags returns the llama-server flags of the reasoning effort.
-func (s Settings) ReasoningFlags() []string {
-	if s.ReasoningEffort == "" || s.Embedding {
-		return nil
-	}
-	// llama-swap splits the command with shell rules, so the JSON is quoted.
-	return []string{"--chat-template-kwargs", `'{"reasoning_effort":"` + s.ReasoningEffort + `"}'`}
 }
 
 // MaxParallel is the most parallel slots that a model can have.
@@ -243,8 +229,10 @@ func (s Settings) Validate(selected int) error {
 	if s.CtxSize < 0 {
 		return errors.New("ctx_size: must not be negative")
 	}
-	if !slices.Contains(ReasoningEfforts, s.ReasoningEffort) {
-		return fmt.Errorf("reasoning_effort %q: use low, medium, high or nothing", s.ReasoningEffort)
+	if s.Reasoning != nil {
+		if err := s.Reasoning.Validate(); err != nil {
+			return err
+		}
 	}
 	if s.Parallel < 0 || s.Parallel > MaxParallel {
 		return fmt.Errorf("parallel: must be 0 to %d", MaxParallel)

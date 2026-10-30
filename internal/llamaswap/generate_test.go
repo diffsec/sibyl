@@ -228,10 +228,11 @@ func TestGenerateMoE(t *testing.T) {
 }
 
 func TestGenerateReasoningEffort(t *testing.T) {
-	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "embed", Path: "e.gguf"}}
-	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
-		"big":   {ReasoningEffort: "high"},
-		"embed": {Embedding: true, ReasoningEffort: "high"},
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "small", Path: "small.gguf"}, {ID: "embed", Path: "e.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutPin), ms, map[string]models.Settings{
+		"big":   {Reasoning: &models.Reasoning{Var: "reasoning_effort", Value: "high"}},
+		"small": {Reasoning: &models.Reasoning{Var: "enable_thinking", Value: "off"}},
+		"embed": {Embedding: true, Reasoning: &models.Reasoning{Var: "reasoning_effort", Value: "high"}},
 	})
 	if len(issues) != 0 {
 		t.Fatalf("issues = %+v", issues)
@@ -240,6 +241,9 @@ func TestGenerateReasoningEffort(t *testing.T) {
 	// one argument.
 	if want := `--chat-template-kwargs '{"reasoning_effort":"high"}'`; !strings.Contains(cfg.Models["big"].Cmd, want) {
 		t.Errorf("cmd missing %q:\n%s", want, cfg.Models["big"].Cmd)
+	}
+	if want := `--chat-template-kwargs '{"enable_thinking":false}'`; !strings.Contains(cfg.Models["small"].Cmd, want) {
+		t.Errorf("cmd missing %q:\n%s", want, cfg.Models["small"].Cmd)
 	}
 	if strings.Contains(cfg.Models["embed"].Cmd, "chat-template-kwargs") {
 		t.Errorf("an embedding model got the reasoning effort: %s", cfg.Models["embed"].Cmd)

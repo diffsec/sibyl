@@ -157,7 +157,7 @@ func (c *Console) modelPage(w http.ResponseWriter, r *http.Request) {
 	for k, v := range map[string]any{
 		"Model": m, "Head": head, "Fit": fitText(m.Fit), "Form": modelform.FromSettings(m.Settings),
 		"Layouts": layouts, "Drafts": drafts, "CacheTypes": models.CacheTypes, "Presets": models.Presets,
-		"SpecTypes": spec, "MoE": moe, "Efforts": models.ReasoningEfforts[1:],
+		"SpecTypes": spec, "MoE": moe, "Reasoning": reasoningControl(m),
 	} {
 		data[k] = v
 	}
@@ -176,8 +176,15 @@ func formFromPost(r *http.Request) modelform.Form {
 		SpecTypes: r.PostForm["spectypes"], DraftModel: v("draftmodel"), DraftMax: v("draftmax"), DraftMin: v("draftmin"),
 		NgramModMin: v("ngrammodmin"), NgramModMax: v("ngrammodmax"), KVTypeK: v("kvtypek"), KVTypeV: v("kvtypev"),
 		MoELayers: v("moelayers"), MoECacheMiB: v("moecachemib"), Fit: v("fit"), Preset: v("preset"), Args: v("args"),
-		ReasoningEffort: v("reasoningeffort"),
+		ReasoningVar: v("reasoningvar"), Reasoning: v("reasoning"),
 	}
+}
+
+func reasoningControl(m client.Model) *models.ReasoningControl {
+	if m.Meta == nil {
+		return nil
+	}
+	return m.Meta.Reasoning
 }
 
 func (c *Console) saveModel(w http.ResponseWriter, r *http.Request) {

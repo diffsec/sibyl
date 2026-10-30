@@ -187,14 +187,10 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			sampleField("Top K", "0 to 1000", true, &f.TopK, func(s models.Sampling) *float64 { return intAsFloat(s.TopK) }, fileTopK, "40"),
 			sampleField("Top P", "0 to 1", false, &f.TopP, func(s models.Sampling) *float64 { return s.TopP }, fileSampling.TopP, "0.95"),
 			sampleField("Min P", "0 to 1", false, &f.MinP, func(s models.Sampling) *float64 { return s.MinP }, fileSampling.MinP, "0.05"),
-			huh.NewSelect[string]().Title("Reasoning effort").Inline(true).Options(
-				huh.NewOption("Template default", ""), huh.NewOption("low", "low"),
-				huh.NewOption("medium", "medium"), huh.NewOption("high", "high"),
-			).Value(&f.ReasoningEffort).
-				Description("For a model whose chat template reads reasoning_effort. A request can still set its own."),
 			optionalNumber("Repeat penalty", "0 to 5", false, &f.RepeatPenalty),
 			optionalNumber("Presence penalty", "-2 to 2", false, &f.PresencePenalty),
 		).Title("Sampling defaults").Description("Empty uses the value in grey. Clients can still override these per request."),
+		reasoningGroup(m, f),
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().Title("Speculative decoding types").
 				Description("Tried in order. draft-* types except draft-mtp need a draft model.").
@@ -213,6 +209,33 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 		).Title("Advanced"),
 	).WithShowHelp(false)
 	return v.form.Init()
+}
+
+// reasoningGroup is the reasoning field, in the variable and values that
+// the model's chat template reads. It is hidden when the template has no
+// reasoning control that Sibyl knows.
+func reasoningGroup(m client.Model, f *settingsForm) *huh.Group {
+	var c *models.ReasoningControl
+	if m.Meta != nil {
+		c = m.Meta.Reasoning
+	}
+	if c == nil {
+		return huh.NewGroup(huh.NewNote()).WithHideFunc(func() bool { return true })
+	}
+	f.ReasoningVar = c.Var
+	desc := "The chat template reads " + c.Var + ". A request can still set its own."
+	var field huh.Field
+	if opts := c.Options(); len(opts) > 0 {
+		o := []huh.Option[string]{huh.NewOption("Template default", "")}
+		for _, v := range opts {
+			o = append(o, huh.NewOption(v, v))
+		}
+		field = huh.NewSelect[string]().Title("Reasoning").Inline(true).Options(o...).Value(&f.Reasoning).Description(desc)
+	} else {
+		field = huh.NewInput().Title("Reasoning").Placeholder("template default").Value(&f.Reasoning).
+			Description(desc + " Sibyl found no list of its values, so type one.")
+	}
+	return huh.NewGroup(field).Title("Reasoning")
 }
 
 func (v *modelsView) deleteForm(m client.Model) tea.Cmd {
@@ -347,8 +370,8 @@ func summary(s models.Settings) string {
 	if s.KVCache.TypeK != "" {
 		parts = append(parts, "kv "+s.KVCache.TypeK)
 	}
-	if s.ReasoningEffort != "" {
-		parts = append(parts, "effort "+s.ReasoningEffort)
+	if r := s.Reasoning; r != nil {
+		parts = append(parts, r.Var+" "+r.Value)
 	}
 	return strings.Join(parts, " · ")
 }

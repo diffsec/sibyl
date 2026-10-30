@@ -38,8 +38,11 @@ type Form struct {
 	MoECacheMiB     string
 	Fit             string // quality (or empty) or context
 	Preset          string // empty, or one of models.Presets
-	ReasoningEffort string // empty, low, medium or high
-	Args            string // space separated
+	// ReasoningVar is the template variable of the reasoning, and
+	// Reasoning its value. An empty value leaves the template's default.
+	ReasoningVar string
+	Reasoning    string
+	Args         string // space separated
 }
 
 func FmtFloat(v *float64) string {
@@ -78,11 +81,14 @@ func FromSettings(s models.Settings) Form {
 		MoELayers:       FmtMoELayers(s.MoE.CPULayers),
 		Fit:             string(s.Fit),
 		Preset:          s.Preset,
-		ReasoningEffort: s.ReasoningEffort,
-		Args:            strings.Join(s.Args, " "),
+
+		Args: strings.Join(s.Args, " "),
 	}
 	if s.CtxSize > 0 {
 		f.CtxSize = strconv.Itoa(s.CtxSize)
+	}
+	if s.Reasoning != nil {
+		f.ReasoningVar, f.Reasoning = s.Reasoning.Var, s.Reasoning.Value
 	}
 	if s.Parallel > 0 {
 		f.Parallel = strconv.Itoa(s.Parallel)
@@ -159,8 +165,10 @@ func (f Form) Settings() (models.Settings, error) {
 		KVCache:   models.KVCache{TypeK: f.KVTypeK, TypeV: f.KVTypeV},
 		Fit:       models.FitMode(f.Fit),
 		Preset:    f.Preset,
-		// The API checks the value.
-		ReasoningEffort: f.ReasoningEffort,
+	}
+	if v := strings.TrimSpace(f.Reasoning); v != "" && f.ReasoningVar != "" {
+		// The API checks the value against the model's template.
+		s.Reasoning = &models.Reasoning{Var: f.ReasoningVar, Value: v}
 	}
 	var err error
 	if ctx, e := ParseInt("context size", f.CtxSize); e != nil {

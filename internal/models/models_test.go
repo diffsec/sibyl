@@ -96,8 +96,11 @@ func TestSettingsValidate(t *testing.T) {
 		{"reserved flag", Settings{Args: []string{"--port=1"}}, true},
 		{"reserved short flag", Settings{Args: []string{"-m"}}, true},
 		{"negative ctx", Settings{CtxSize: -1}, true},
-		{"reasoning effort", Settings{ReasoningEffort: "medium"}, false},
-		{"bad reasoning effort", Settings{ReasoningEffort: "max'"}, true},
+		{"reasoning level", Settings{Reasoning: &Reasoning{Var: "reasoning_effort", Value: "xhigh"}}, false},
+		{"reasoning switch", Settings{Reasoning: &Reasoning{Var: "enable_thinking", Value: "off"}}, false},
+		{"switch with a level", Settings{Reasoning: &Reasoning{Var: "enable_thinking", Value: "high"}}, true},
+		{"quote in a level", Settings{Reasoning: &Reasoning{Var: "reasoning_effort", Value: "max'"}}, true},
+		{"unknown variable", Settings{Reasoning: &Reasoning{Var: "effort", Value: "high"}}, true},
 		{"template kwargs by hand", Settings{Args: []string{"--chat-template-kwargs"}}, true},
 	}
 	for _, c := range cases {

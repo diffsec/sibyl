@@ -45,12 +45,20 @@
   <p class="muted">Empty uses the preset, then the model file, then llama.cpp. Clients can still set these per request.</p>
   <div class="row">
     <label>Preset <select name="preset"><option value="">None</option>{{range .Presets}}<option{{if eq . $f.Preset}} selected{{end}}>{{.}}</option>{{end}}</select></label>
-    <label>Reasoning effort <select name="reasoningeffort">
+    {{with .Reasoning}}
+    <input type="hidden" name="reasoningvar" value="{{.Var}}">
+    {{if .Options}}
+    <label>Reasoning <select name="reasoning">
       <option value="">Template default</option>
-      {{range .Efforts}}<option{{if eq . $f.ReasoningEffort}} selected{{end}}>{{.}}</option>{{end}}
+      {{range .Options}}<option{{if eq . $f.Reasoning}} selected{{end}}>{{.}}</option>{{end}}
     </select></label>
+    {{else}}
+    <label>Reasoning <input name="reasoning" placeholder="template default" pattern="[A-Za-z0-9_-]{1,32}" value="{{$f.Reasoning}}"></label>
+    {{end}}
+    {{end}}
   </div>
-  <p class="muted">The reasoning effort works for a model whose chat template reads reasoning_effort. A request can still set its own.</p>
+  {{with .Reasoning}}<p class="muted">The chat template reads {{.Var}}{{if not .Options}}, and Sibyl found no list of its values, so type one{{end}}. A request can still set its own.</p>
+  {{else}}<p class="muted">The chat template has no reasoning control that Sibyl knows.</p>{{end}}
   <div class="row">
     <label>Temperature <input name="temperature" inputmode="decimal" placeholder="0 to 5" value="{{$f.Temperature}}"></label>
     <label>Top K <input name="topk" inputmode="numeric" placeholder="0 to 1000" value="{{$f.TopK}}"></label>

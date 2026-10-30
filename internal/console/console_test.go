@@ -78,7 +78,7 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"current":"local/qwen","route":"cloud/big","comparisons":50,"local_ok_rate":0.4}]}`)
 	case "GET /models":
 		_, _ = io.WriteString(w, `[{"id":"qwen","size_bytes":32212254720,"shards":2,"settings":{"ctx_size":65536,"sampling":{"temperature":0.6}},
-			"meta":{"architecture":"qwen3moe","context_length":262144,"expert_count":128},
+			"meta":{"architecture":"qwen3moe","context_length":262144,"expert_count":128,"reasoning":{"var":"reasoning_effort","values":["low","high","xhigh"]}},
 			"fit":{"ctx":65536,"slots":2,"slot_ctx":32768,"fits":true},"benchmark":{"status":"done","results":{"hip":{"generation_tokens_per_second":40.5,"prompt_tokens_per_second":900}},"recommended":"hip"}},
 			{"id":"gemma"},{"id":"embed","settings":{"embedding":true}}]`)
 	case "GET /hardware":
@@ -550,7 +550,7 @@ func TestMorePagesRender(t *testing.T) {
 	h.login()
 	for path, want := range map[string][]string{
 		"/console/models":                           {"qwen", "30.0 GiB", "context 65536 in 2 slots of 32768", "hip 40.5 tok/s"},
-		"/console/models/edit?id=qwen":              {"qwen3moe", "native context 262144", `name="moelayers"`, `value="0.6"`, `value="65536"`},
+		"/console/models/edit?id=qwen":              {"qwen3moe", "native context 262144", `name="moelayers"`, `value="0.6"`, `value="65536"`, "<option>xhigh</option>", "reads reasoning_effort"},
 		"/console/downloads":                        {"org/model-GGUF", "downloading", "5.0 GiB of 10.0 GiB (50%)", "disk full", "Retry", "Set for ben"},
 		"/console/downloads?q=qwen":                 {`href="/console/downloads/repo?id=org%2fmodel-GGUF"`},
 		"/console/downloads/repo?id=org/model-GGUF": {"Q8_0", "fits in VRAM", "pool-1", "abc123def4567890"},
@@ -581,13 +581,13 @@ func TestModelAndHostChanges(t *testing.T) {
 	h := newHarness(t)
 	h.login()
 	w := h.do("POST", "/console/models/edit", url.Values{"id": {"qwen"}, "ctxsize": {"131072"}, "temperature": {"0.7"},
-		"spectypes": {"ngram-mod"}, "moelayers": {"all"}, "embedding": {"on"}, "reasoningeffort": {"medium"}}, true)
+		"spectypes": {"ngram-mod"}, "moelayers": {"all"}, "embedding": {"on"}, "reasoningvar": {"reasoning_effort"}, "reasoning": {"xhigh"}}, true)
 	if !strings.Contains(w.Header().Get("Location"), "done=saved+qwen") {
 		t.Fatalf("save model %q", w.Header().Get("Location"))
 	}
 	b := h.api.body("PUT /models/qwen")
 	if b["ctx_size"] != 131072.0 || b["embedding"] != true || b["sampling"].(map[string]any)["temperature"] != 0.7 ||
-		b["moe"].(map[string]any)["cpu_layers"] == nil || b["reasoning_effort"] != "medium" {
+		b["moe"].(map[string]any)["cpu_layers"] == nil || b["reasoning"].(map[string]any)["value"] != "xhigh" {
 		t.Errorf("settings %v", b)
 	}
 	w = h.do("POST", "/console/models/edit", url.Values{"id": {"qwen"}, "temperature": {"warm"}}, true)
