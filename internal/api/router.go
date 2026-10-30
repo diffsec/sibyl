@@ -129,6 +129,7 @@ type routerClientView struct {
 	AllowHint bool           `json:"allow_hint"`
 	Builtin   bool           `json:"builtin"`
 	Budget    *router.Budget `json:"budget,omitempty"`
+	Calibrate bool           `json:"calibrate,omitempty"`
 }
 
 type routerProviderView struct {
@@ -151,14 +152,15 @@ func clientList(f router.ClientsFile) []routerClientView {
 		v := routerClientView{Name: name, Policy: router.LocalOnly, Builtin: true}
 		for _, c := range f.Clients {
 			if c.Name == name {
-				v.Policy, v.AllowHint, v.Budget = c.Policy, c.AllowHint, c.Budget
+				v.Policy, v.AllowHint, v.Budget, v.Calibrate = c.Policy, c.AllowHint, c.Budget, c.Calibrate
 			}
 		}
 		out = append(out, v)
 	}
 	for _, c := range f.Clients {
 		if !router.Builtin(c.Name) {
-			out = append(out, routerClientView{Name: c.Name, Policy: c.Policy, AllowHint: c.AllowHint, Budget: c.Budget})
+			out = append(out, routerClientView{Name: c.Name, Policy: c.Policy, AllowHint: c.AllowHint,
+				Budget: c.Budget, Calibrate: c.Calibrate})
 		}
 	}
 	return out
@@ -183,6 +185,8 @@ type clientRequest struct {
 	Policy    router.Policy  `json:"policy"`
 	AllowHint bool           `json:"allow_hint"`
 	Budget    *router.Budget `json:"budget,omitempty"`
+	// Calibrate lets the router keep samples of the client's requests.
+	Calibrate bool `json:"calibrate,omitempty"`
 }
 
 // postRouterClient creates a client and returns its key. The key is shown
@@ -221,7 +225,7 @@ func (s *Server) postRouterClient(w http.ResponseWriter, r *http.Request) {
 	}
 	c.Clients.Clients = append(c.Clients.Clients, router.Client{
 		Name: req.Name, KeySHA256: hash, Policy: req.Policy, AllowHint: req.AllowHint,
-		Budget: req.Budget,
+		Budget: req.Budget, Calibrate: req.Calibrate,
 	})
 	if err := s.saveClients(c.Clients); err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
@@ -303,10 +307,10 @@ func (s *Server) putRouterClient(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case i >= 0:
 		cl := &c.Clients.Clients[i]
-		cl.Policy, cl.AllowHint, cl.Budget = req.Policy, req.AllowHint, req.Budget
+		cl.Policy, cl.AllowHint, cl.Budget, cl.Calibrate = req.Policy, req.AllowHint, req.Budget, req.Calibrate
 	case router.Builtin(name):
 		c.Clients.Clients = append(c.Clients.Clients, router.Client{Name: name, Policy: req.Policy,
-			AllowHint: req.AllowHint, Budget: req.Budget})
+			AllowHint: req.AllowHint, Budget: req.Budget, Calibrate: req.Calibrate})
 	default:
 		writeError(w, http.StatusNotFound, fmt.Errorf("no client %q", name))
 		return

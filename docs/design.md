@@ -100,7 +100,7 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `GET /host/requests/{id}` | The result of a host request that took longer than 45 seconds |
 | `GET, POST /pools`, `DELETE /pools/{name}` | Model pools and candidate disks, make a pool, or detach one |
 | `GET /router` | Router clients, providers and profiles |
-| `POST /router/clients`, `PUT, DELETE /router/clients/{name}` | Create a client and show its key once, change its policy and budget, or delete it |
+| `POST /router/clients`, `PUT, DELETE /router/clients/{name}` | Create a client and show its key once, change its policy, budget and calibration, or delete it |
 | `POST /router/clients/{name}/key` | Give a client a new key, shown once. The old key stops working. |
 | `PUT, DELETE /router/providers/{name}` | Add or change a provider after a check of its key, or delete it |
 | `PUT /router/profiles` | Replace the routing profiles after the router's checks |
@@ -109,6 +109,7 @@ The host agent (`/usr/libexec/sibyl/agent`) does the unit control. The System AP
 | `GET`, `PUT /router/examples` | The owner's classifier examples, a JSON list of `{text, task, difficulty}` |
 | `GET /router/catalog`, `GET /router/catalog/{id}?q=`, `POST /router/catalog/refresh` | The local models.dev index: providers, one provider's models with prices and limits, or a fetch now |
 | `GET /router/stats` | Requests per client and per route, spend per client, and the last decisions |
+| `GET`, `DELETE /router/calibration` | The local win-or-tie rate per local model, task and difficulty from the calibration samples, or delete every sample |
 
 Extra llama-server arguments must match `^[A-Za-z0-9_.,:=/+-]+$`. Flags that Sibyl sets, such as `--model`, `--port` and `--device`, are rejected.
 

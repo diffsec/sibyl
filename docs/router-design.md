@@ -317,7 +317,7 @@ The System API reads the log for `GET /router/stats`, and the TUI's Router scree
 - `local-only` is enforced in the router, after the rules. A rule bug cannot send a `local-only` client's request to a provider. A test covers every rule type against a `local-only` client.
 - Outbound connections verify TLS with the system trust store, and honour `HTTPS_PROXY`.
 
-## Continuous calibration (step 6.4, design)
+## Continuous calibration (step 6.4)
 
 Step 6.3 measures the routing once, on a fixed set that one author wrote. The result goes stale when the owner changes the local model, and it says nothing about the owner's real requests. Step 6.4 measures the routing all the time, on a small sample of real traffic, and turns the results into labelled examples and rule advice.
 
@@ -345,6 +345,16 @@ The outcomes belong to one local model. When the profile's `local_model` changes
 - A `local-only` client's requests never go to a provider for comparison. They can only be judged by a local judge, and the comparison then has no provider answer. The default is to not sample them.
 - The judge is a model, so it can be wrong. The report shows the number of comparisons behind every figure, and a proposal needs at least 50.
 - By default, rules change only when the owner accepts a proposal. The automatic mode applies a proposal only to a route that the owner already allows.
+
+### As built, first part
+
+The first part of step 6.4 builds the loop up to the judge and the report. The label `needs_provider`, the rule proposals, the Open WebUI feedback, the regeneration count and the remeasure after a model change come next.
+
+- The router keeps the samples, and the comparison worker runs in the router, not in the System API. The router already holds the provider adapters, the spend file and the count of local requests in flight, which the worker needs. The router mounts `/var/lib/sibyl/config/router/calibration` read-write, mode 0700.
+- Only `/v1/chat/completions` requests are sampled. A Messages request, and a request with tools or images, is not sampled, because its answer is not plain text that a judge can compare.
+- Each sample is one JSON file, named by its time, with the request, both answers, the labels and the verdict. The worker fills the missing answer, and then the verdict, one step every 30 seconds or at once after a step that worked. It waits while a local request is in flight, and it never makes llama-swap load a model.
+- Provider calls of calibration count in `usage.json` under `@calibration`, which is not a valid client name. A provider model with no price makes the worker wait, because its cost cannot be counted against `daily_usd`.
+- `status.json` in the same directory holds the worker's last state and the reason it waits. A sample that fails three times is left alone.
 
 ### Decisions for step 6.4
 

@@ -249,18 +249,16 @@ func (c *classifier) update(cfg *Config) {
 	model, prefix, ex := cfg.classifierModel(), cfg.Profiles.Classifier.prefix(), cfg.examples()
 	sig := signature(model, prefix, ex)
 	c.mu.Lock()
-	if sig == c.sig {
-		c.mu.Unlock()
-		return
-	}
-	c.gen++
-	c.sig, c.model, c.prefix, c.examples, c.vecs, c.ready, c.err = sig, model, prefix, ex, nil, false, nil
-	c.pending = model != "" && len(ex) > 0
-	if model == "" {
-		c.err = errors.New("no embedding model: set classifier.model or install an embedding model")
+	if sig != c.sig {
+		c.gen++
+		c.sig, c.model, c.prefix, c.examples, c.vecs, c.ready, c.err = sig, model, prefix, ex, nil, false, nil
+		c.pending = model != "" && len(ex) > 0
+		if model == "" {
+			c.err = errors.New("no embedding model: set classifier.model or install an embedding model")
+		}
 	}
 	c.mu.Unlock()
-	if cfg.usesLabels() {
+	if cfg.usesLabels() || cfg.calibrates() {
 		c.start()
 	}
 }
@@ -275,6 +273,17 @@ func (c *classifier) start() {
 	}
 	c.pending = false
 	go c.build(c.gen, c.model, c.prefix, c.examples)
+}
+
+// calibrates reports whether a client keeps calibration samples, which
+// carry the labels.
+func (c *Config) calibrates() bool {
+	for _, cl := range c.Clients.Clients {
+		if cl.Calibrate && cl.Policy == Hybrid {
+			return true
+		}
+	}
+	return false
 }
 
 // usesLabels reports whether a profile has a task or difficulty rule.

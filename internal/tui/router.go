@@ -60,9 +60,9 @@ type routerView struct {
 	form *huh.Form
 	mode string // new, edit, delete, rekey, pick, catalog, provider, unprovider
 	// Form values.
-	name, policy, daily, monthly string
-	allowHint, confirm           bool
-	ptype, baseURL, apiKey, mods string
+	name, policy, daily, monthly  string
+	allowHint, calibrate, confirm bool
+	ptype, baseURL, apiKey, mods  string
 	// The models.dev picker: the chosen provider and models.
 	pick     string
 	catModel []string
@@ -168,7 +168,7 @@ func usd(f float64) string {
 }
 
 func (v *routerView) editForm(c client.RouterClient) tea.Cmd {
-	v.mode, v.name, v.policy, v.allowHint = "edit", c.Name, c.Policy, c.AllowHint
+	v.mode, v.name, v.policy, v.allowHint, v.calibrate = "edit", c.Name, c.Policy, c.AllowHint, c.Calibrate
 	v.daily, v.monthly = "", ""
 	if c.Budget != nil {
 		v.daily, v.monthly = usd(c.Budget.DailyUSD), usd(c.Budget.MonthlyUSD)
@@ -179,6 +179,9 @@ func (v *routerView) editForm(c client.RouterClient) tea.Cmd {
 		huh.NewConfirm().Title("Allow the cloud hint").
 			Description("Lets the client send X-Sibyl-Route: cloud to ask for a provider.").
 			Affirmative("Allow").Negative("No").Value(&v.allowHint),
+		huh.NewConfirm().Title("Calibrate").
+			Description("Keeps 2% of the requests and answers on the host to compare the local model with a provider. Hybrid clients only.").
+			Affirmative("Yes").Negative("No").Value(&v.calibrate),
 	}, budgetFields(&v.daily, &v.monthly)...)
 	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
 	return v.form.Init()
@@ -392,9 +395,9 @@ func (v *routerView) submit() tea.Cmd {
 			return nc.Key, err
 		})
 	case "edit":
-		policy, hint := v.policy, v.allowHint
+		policy, hint, calibrate := v.policy, v.allowHint, v.calibrate
 		return run("change client "+name, func(ctx context.Context) (string, error) {
-			return "", v.c.SetRouterClient(ctx, name, policy, hint, b)
+			return "", v.c.SetRouterClient(ctx, name, policy, hint, b, calibrate)
 		})
 	case "rekey":
 		if !v.confirm {

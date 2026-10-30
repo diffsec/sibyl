@@ -34,6 +34,8 @@ type fakeUpstream struct {
 	auth []string
 	// status, when set, is returned for every chat request.
 	status int
+	// verdict, when set, is the answer to a judge request.
+	verdict string
 }
 
 func (f *fakeUpstream) last() map[string]any {
@@ -107,6 +109,14 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", c)
 			}
 			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if b, _ := json.Marshal(body["messages"]); f.verdict != "" && strings.Contains(string(b), "You compare two answers") {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []any{map[string]any{"message": map[string]string{"content": f.verdict}, "finish_reason": "stop"}},
+				"usage":   map[string]int{"prompt_tokens": 100, "completion_tokens": 10},
+			})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

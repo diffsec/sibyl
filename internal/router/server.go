@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diffsec/sibyl/internal/models"
@@ -51,6 +52,13 @@ type Server struct {
 	Logger *slog.Logger
 	// Spend keeps the provider spend per client, for the budgets.
 	Spend *Spend
+	// CalibrationDir holds the calibration samples. Empty turns
+	// calibration off.
+	CalibrationDir string
+
+	// localInflight counts the client requests to llama-swap, so that the
+	// calibration worker runs only when the host is idle.
+	localInflight atomic.Int64
 
 	mu    sync.RWMutex
 	cfg   *Config
@@ -382,6 +390,11 @@ func (b cancelBody) Close() error { err := b.ReadCloser.Close(); b.cancel(); ret
 // response headers arrive.
 func (s *Server) try(ctx context.Context, cfg *Config, rt Route, path string, body []byte, in http.Header, wait time.Duration) (*http.Response, error) {
 	reqCtx, cancel := context.WithCancel(ctx)
+	if rt.Local() {
+		s.localInflight.Add(1)
+		inner := cancel
+		cancel = sync.OnceFunc(func() { s.localInflight.Add(-1); inner() })
+	}
 	var timer *time.Timer
 	if wait > 0 {
 		timer = time.AfterFunc(wait, cancel)
@@ -581,6 +594,11 @@ type usageTap struct {
 	line  []byte
 	buf   bytes.Buffer
 	usage Usage
+	// keep collects the answer text and the finish reason, for a
+	// calibration sample.
+	keep   bool
+	text   strings.Builder
+	finish string
 }
 
 const maxTapBody = 8 << 20
@@ -599,12 +617,16 @@ func (u *usageTap) Write(p []byte) (int, error) {
 			}
 			continue
 		}
-		if data, ok := bytes.CutPrefix(u.line, []byte("data:")); ok && bytes.Contains(data, []byte(`"usage"`)) {
+		data, ok := bytes.CutPrefix(u.line, []byte("data:"))
+		if ok && bytes.Contains(data, []byte(`"usage"`)) {
 			var d usageDoc
 			if json.Unmarshal(bytes.TrimSpace(data), &d) == nil {
 				u.usage.merge(d.Usage)
 				u.usage.merge(d.Message.Usage)
 			}
+		}
+		if ok && u.keep {
+			u.addText(data)
 		}
 		u.line = u.line[:0]
 	}
@@ -617,12 +639,22 @@ func (u *usageTap) result() Usage {
 		if json.Unmarshal(u.buf.Bytes(), &d) == nil {
 			u.usage.merge(d.Usage)
 		}
+		if u.keep && u.text.Len() == 0 {
+			u.addText(u.buf.Bytes())
+		}
 	}
 	return u.usage
 }
 
 // relay copies an upstream response to the client, flushing as it goes.
 func relay(w http.ResponseWriter, resp *http.Response, routeHdr string) (Usage, error) {
+	tap := &usageTap{}
+	err := relayTap(w, resp, routeHdr, tap)
+	return tap.result(), err
+}
+
+// relayTap is relay with a tap that the caller makes.
+func relayTap(w http.ResponseWriter, resp *http.Response, routeHdr string, tap *usageTap) error {
 	for _, h := range []string{"Content-Type", "Content-Length", "Cache-Control", "Retry-After", "X-Sibyl-Dropped"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)
@@ -630,7 +662,7 @@ func relay(w http.ResponseWriter, resp *http.Response, routeHdr string) (Usage, 
 	}
 	w.Header().Set("X-Sibyl-Route", routeHdr)
 	w.WriteHeader(resp.StatusCode)
-	tap := &usageTap{sse: strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")}
+	tap.sse = strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 	rc := http.NewResponseController(w)
 	buf := make([]byte, 32<<10)
 	for {
@@ -638,15 +670,15 @@ func relay(w http.ResponseWriter, resp *http.Response, routeHdr string) (Usage, 
 		if n > 0 {
 			_, _ = tap.Write(buf[:n])
 			if _, werr := w.Write(buf[:n]); werr != nil {
-				return tap.result(), werr
+				return werr
 			}
 			_ = rc.Flush()
 		}
 		if errors.Is(err, io.EOF) {
-			return tap.result(), nil
+			return nil
 		}
 		if err != nil {
-			return tap.result(), err
+			return err
 		}
 	}
 }
@@ -726,12 +758,16 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	e.Status = resp.StatusCode
-	u, err := relay(w, resp, routeHeader(rt, d))
-	s.account(&e, rt, u)
+	tap := &usageTap{keep: resp.StatusCode == http.StatusOK && s.samples(c, d)}
+	err = relayTap(w, resp, routeHeader(rt, d), tap)
+	s.account(&e, rt, tap.result())
 	if err != nil {
 		e.Error = err.Error()
 	}
 	s.record(e, start)
+	if tap.keep && err == nil && tap.text.Len() > 0 {
+		s.keepSample(c, d, rt, body, tap, start)
+	}
 }
 
 func (s *Server) embeddings(w http.ResponseWriter, r *http.Request) {
@@ -917,7 +953,9 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request) {
 			writeOpenAIError(w, status, err.Error())
 		},
 	}
+	s.localInflight.Add(1)
 	p.ServeHTTP(w, r)
+	s.localInflight.Add(-1)
 	s.record(Entry{Client: c.Name, Endpoint: strings.TrimPrefix(r.URL.Path, "/v1/"), Route: "local", Status: status}, start)
 }
 

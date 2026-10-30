@@ -392,6 +392,7 @@ type RouterClient struct {
 	AllowHint bool          `json:"allow_hint"`
 	Builtin   bool          `json:"builtin"`
 	Budget    *RouterBudget `json:"budget,omitempty"`
+	Calibrate bool          `json:"calibrate,omitempty"`
 }
 
 // RouterProvider is one provider of the model router.
@@ -491,9 +492,10 @@ func (c *Client) CreateRouterClient(ctx context.Context, name, policy string, bu
 	return r, c.do(ctx, http.MethodPost, "/router/clients", in, &r)
 }
 
-// SetRouterClient sets a client's policy and budget. A nil budget removes it.
-func (c *Client) SetRouterClient(ctx context.Context, name, policy string, allowHint bool, budget *RouterBudget) error {
-	in := map[string]any{"policy": policy, "allow_hint": allowHint, "budget": budget}
+// SetRouterClient sets a client's policy, budget and calibration. A nil
+// budget removes it.
+func (c *Client) SetRouterClient(ctx context.Context, name, policy string, allowHint bool, budget *RouterBudget, calibrate bool) error {
+	in := map[string]any{"policy": policy, "allow_hint": allowHint, "budget": budget, "calibrate": calibrate}
 	return c.do(ctx, http.MethodPut, "/router/clients/"+url.PathEscape(name), in, nil)
 }
 

@@ -166,6 +166,8 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("GET /router/examples", s.getRouterExamples)
 	auth.HandleFunc("PUT /router/examples", s.putRouterExamples)
 	auth.HandleFunc("GET /router/stats", s.getRouterStats)
+	auth.HandleFunc("GET /router/calibration", s.getRouterCalibration)
+	auth.HandleFunc("DELETE /router/calibration", s.deleteRouterCalibration)
 	auth.HandleFunc("GET /router/catalog", s.getCatalog)
 	auth.HandleFunc("GET /router/catalog/{id}", s.getCatalogProvider)
 	auth.HandleFunc("POST /router/catalog/refresh", s.postCatalogRefresh)

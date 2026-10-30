@@ -67,6 +67,10 @@ type Client struct {
 	AllowHint bool `yaml:"allow_hint,omitempty" json:"allow_hint,omitempty"`
 	// Budget limits the client's provider spend. Nil means no limit.
 	Budget *Budget `yaml:"budget,omitempty" json:"budget,omitempty"`
+	// Calibrate lets the router keep a sample of the client's requests and
+	// answers, to compare the local model with a provider. Only a hybrid
+	// client's requests are sampled.
+	Calibrate bool `yaml:"calibrate,omitempty" json:"calibrate,omitempty"`
 }
 
 // ClientsFile is clients.yaml.
@@ -282,8 +286,10 @@ type ProfilesFile struct {
 	// addition to the built-in secret detectors.
 	SensitiveWords []string `yaml:"sensitive_words,omitempty" json:"sensitive_words,omitempty"`
 	// Classifier sets up the task and difficulty labels.
-	Classifier ClassifierConfig   `yaml:"classifier,omitempty" json:"classifier,omitzero"`
-	Profiles   map[string]Profile `yaml:"profiles" json:"profiles"`
+	Classifier ClassifierConfig `yaml:"classifier,omitempty" json:"classifier,omitzero"`
+	// Calibration sets up the comparison of sampled requests.
+	Calibration CalibrationConfig  `yaml:"calibration,omitempty" json:"calibration,omitzero"`
+	Profiles    map[string]Profile `yaml:"profiles" json:"profiles"`
 }
 
 // The labels that the classifier gives, and the hints that a client sends.
@@ -301,6 +307,9 @@ func (f ProfilesFile) Validate(providers ProvidersFile) error {
 		}
 	}
 	if err := f.Classifier.validate(); err != nil {
+		return err
+	}
+	if err := f.Calibration.validate(providers); err != nil {
 		return err
 	}
 	for name, p := range f.Profiles {

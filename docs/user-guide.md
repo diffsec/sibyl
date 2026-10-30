@@ -364,6 +364,26 @@ go run ./cmd/sibyl-eval -url https://<address>:8443 -api-key api.key -ca sibyl-c
 
 The default set is `tools/router-eval/requests.jsonl`: 60 requests, 4 for each pair of labels, none of them in the starter examples. `-send -key inference.key -out answers.jsonl` also sends each request and keeps the answers for you to read. Provider requests then cost money. `-judge <model>` adds a score from 1 to 10 for each answer from that model.
 
+### Calibration
+
+Calibration measures the local model against a provider on your own requests. Turn it on per client with `"calibrate": true` in `PUT /system/router/clients/{name}`, or with the Calibrate field on the TUI Router screen. The router then keeps 2% of that client's chat requests to a profile, with the answers, in `/var/lib/sibyl/config/router/calibration/`. These samples are the only message content that Sibyl keeps. The router never keeps a request that is sensitive, that has images or tools, or that comes from a `local-only` client.
+
+When no local request is in flight, the router gets the answer of the other side for each sample. A local answer gets an answer from the profile's first provider route, and a provider answer gets one from the local model. The router does not load a local model for this. A judge then compares the two answers in a random order, without the model names. The judge is the provider model with the highest output price.
+
+Calibration has its own provider budget, 1 US dollar per UTC day by default. A provider model with no price cannot be counted against it, so calibration waits until you add a price for it in the provider's `prices`. Set the calibration in the profiles:
+
+```yaml
+calibration:
+  sample_rate: 0.02     # share of requests kept
+  daily_usd: 1          # 0 stops all provider calls
+  judge: openrouter/<model>   # default: the provider model with the highest output price
+  compare: openrouter/<model> # default: the profile's first provider route
+  keep_days: 14
+  max_samples: 2000
+```
+
+`GET /system/router/calibration` reports, per local model, task and difficulty, how often the local answer won or tied, with the provider cost and the latency of each side. `DELETE /system/router/calibration` deletes every sample.
+
 ### The sibyl console
 
 Run `sibyl` on the host, at the console or over SSH. It is a terminal interface with six screens. Press a number or Tab to change screens, and `q` to quit.

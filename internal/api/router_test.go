@@ -705,3 +705,35 @@ func TestMoESettings(t *testing.T) {
 		t.Errorf("config:\n%s", cfg)
 	}
 }
+
+func TestRouterCalibration(t *testing.T) {
+	f := newFixture(t)
+	dir := filepath.Join(f.paths.Config, "router", "calibration")
+	mkdir(t, dir)
+	now := time.Now()
+	for i, smp := range []router.Sample{
+		{LocalModel: "a", Task: "code", Difficulty: "hard", Verdict: &router.Verdict{Winner: router.WinProvider},
+			Local: &router.Side{LatencyMS: 900}, Provider: &router.Side{LatencyMS: 300, CostUSD: 0.02}},
+		{LocalModel: "a", Task: "code", Difficulty: "hard", Verdict: &router.Verdict{Winner: router.WinTie, LocalOK: true}},
+		{LocalModel: "a", Task: "chat", Difficulty: "easy"},
+	} {
+		smp.ID = fmt.Sprintf("%019d-0", now.Add(time.Duration(i)*time.Second).UnixNano())
+		b, _ := json.Marshal(smp)
+		write(t, filepath.Join(dir, smp.ID+".json"), string(b))
+	}
+	code, b := f.do(t, "GET", "/router/calibration", "", true)
+	cells, _ := b["cells"].([]any)
+	if code != 200 || b["samples"] != float64(3) || b["judged"] != float64(2) || b["pending"] != float64(1) || len(cells) != 1 {
+		t.Fatalf("report = %d %v", code, b)
+	}
+	if c := cells[0].(map[string]any); c["local_ok_rate"] != 0.5 || c["provider_cost_usd"] != 0.02 || b["daily_usd"] != 1.0 {
+		t.Errorf("cell = %v, daily %v", c, b["daily_usd"])
+	}
+	code, b = f.do(t, "DELETE", "/router/calibration", "", true)
+	if code != 200 || b["deleted"] != float64(3) {
+		t.Fatalf("delete = %d %v", code, b)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Errorf("left %d files", len(ents))
+	}
+}
