@@ -177,6 +177,15 @@ func TestDownloadChecksumMismatch(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(m.ModelsDir, "Bad")); !os.IsNotExist(err) {
 		t.Error("a model that failed its checksum was installed")
 	}
+	// The worker saves the state file after the status changes. Wait for
+	// that save, or TempDir cleanup races its temporary file.
+	deadline := time.Now().Add(10 * time.Second)
+	for b, _ := os.ReadFile(m.StateFile); !strings.Contains(string(b), string(Failed)); b, _ = os.ReadFile(m.StateFile) {
+		if time.Now().After(deadline) {
+			t.Fatal("the failed job never reached the state file")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestDownloadIntoPool(t *testing.T) {
