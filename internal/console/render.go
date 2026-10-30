@@ -118,7 +118,9 @@ func (c *Console) renderBlock(w http.ResponseWriter, r *http.Request, code int, 
 	}
 	data["Page"] = page
 	data["User"] = userOf(r)
-	if _, set := data["Flash"]; !set {
+	// The flash text comes from the URL, so it shows only to a signed-in
+	// user. A link from another site arrives without the session cookie.
+	if _, set := data["Flash"]; !set && data["User"] != "" {
 		data["Flash"] = r.URL.Query().Get("done")
 	}
 	var b bytes.Buffer

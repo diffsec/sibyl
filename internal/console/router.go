@@ -101,6 +101,8 @@ func (c *Console) routerPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		data = map[string]any{"Error": err.Error()}
 	}
+	// Only a signed-in user reaches this page, so the error text from the
+	// URL never shows to a visitor.
 	data["FlashError"] = r.URL.Query().Get("error")
 	c.render(w, r, http.StatusOK, "router", data)
 }

@@ -46,7 +46,7 @@ func main() {
 		log.Error("exit", "err", err)
 		os.Exit(1)
 	}
-	a := &hostd.Agent{Queue: *queue, AuthQueue: *authQueue, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid,
+	a := &hostd.Agent{Queue: *queue, AuthQueue: *authQueue, Sleep: time.Sleep, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid,
 		Etc: *etc, PoolsDir: *pools}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

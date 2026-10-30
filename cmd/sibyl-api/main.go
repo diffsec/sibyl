@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -126,7 +128,14 @@ func run(log *slog.Logger) error {
 
 	// The web console calls the API handler in process, with the API key.
 	apiHandler := s.Handler()
+	proxy := env("SIBYL_CONSOLE_PROXY", "caddy")
 	con := &console.Console{API: apiHandler, Token: s.Token, Log: log,
+		// Only Caddy's X-Forwarded-For names the browser. The name resolves
+		// on the sibyl network, and the address can change at a restart.
+		TrustProxy: func(ip string) bool {
+			addrs, err := net.LookupHost(proxy)
+			return err == nil && slices.Contains(addrs, ip)
+		},
 		Check: func(ctx context.Context, user, password string) error {
 			err := hostAgent.CheckPassword(ctx, user, password)
 			if errors.Is(err, hostd.ErrDenied) {

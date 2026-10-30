@@ -6,8 +6,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // authAgent is a test agent with a memory queue and two accounts: admin
@@ -128,5 +130,67 @@ func TestAuthResultsExpire(t *testing.T) {
 	}
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Errorf("an old result is kept: %v", err)
+	}
+}
+
+func TestPasswordCheckLimits(t *testing.T) {
+	ta := authAgent(t)
+	var slept time.Duration
+	ta.Sleep = func(d time.Duration) { slept += d }
+	ta.host.fail["unix_chkpwd"] = errors.New("unix_chkpwd: exit status 7")
+	for i := range FailsPerUser {
+		if r, _ := ta.check(t, strconv.Itoa(i+1), string(CheckPassword), `{"user":"admin","password":"guess"}`); r.OK {
+			t.Fatal("a wrong password passed")
+		}
+	}
+	if slept != FailsPerUser*FailDelay {
+		t.Errorf("slept %s, want %s", slept, FailsPerUser*FailDelay)
+	}
+	// Now even the right password is refused without a try.
+	delete(ta.host.fail, "unix_chkpwd")
+	ta.host.calls = nil
+	if r, _ := ta.check(t, "100", string(CheckPassword), `{"user":"admin","password":"right"}`); r.OK {
+		t.Fatal("a check passed over the limit")
+	}
+	if ta.host.ran("unix_chkpwd") {
+		t.Error("unix_chkpwd ran over the limit")
+	}
+	// The count is in Data, so a new process keeps it, and it ends with
+	// the window.
+	ta.now = ta.now.Add(FailWindow)
+	if r, _ := ta.check(t, "101", string(CheckPassword), `{"user":"admin","password":"right"}`); !r.OK {
+		t.Errorf("after the window: %+v", r)
+	}
+}
+
+func TestPasswordCheckExpiredAccount(t *testing.T) {
+	ta := authAgent(t)
+	// Expired on day 20000, 2024-10-04.
+	ta.host.answers["getent shadow -- admin"] = "admin:$y$hash:20000:0:99999:7::20000:\n"
+	if r, _ := ta.check(t, "1", string(CheckPassword), `{"user":"admin","password":"right"}`); r.OK {
+		t.Error("an expired account passed")
+	}
+	if ta.host.ran("unix_chkpwd") {
+		t.Error("unix_chkpwd ran for an expired account")
+	}
+	ta.host.answers["getent shadow -- admin"] = "admin:$y$hash:20000:0:99999:7::99999:\n"
+	if r, _ := ta.check(t, "2", string(CheckPassword), `{"user":"admin","password":"right"}`); !r.OK {
+		t.Errorf("an account that expires later: %+v", r)
+	}
+}
+
+func TestPasswordCheckBadNameWritesNothing(t *testing.T) {
+	ta := authAgent(t)
+	if err := os.WriteFile(filepath.Join(ta.AuthQueue, "evil-name"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ta.ProcessAuth(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(ta.Out, "auth")); len(ents) != 0 {
+		t.Errorf("results %v, want none", ents)
+	}
+	if left, _ := os.ReadDir(ta.AuthQueue); len(left) != 0 {
+		t.Errorf("queue %v, want empty", left)
 	}
 }

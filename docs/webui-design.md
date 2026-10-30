@@ -32,7 +32,8 @@ The System API key is a bearer token for programs. A browser must not keep it in
 2. The System API checks the secret, and creates a session with a random 32-byte ID. It keeps the session in memory, so a restart signs everyone out.
 3. The response sets a cookie `sibyl_console` with `Secure`, `HttpOnly`, `SameSite=Strict` and `Path=/console/`. A session ends after 12 hours, or after 1 hour without a request.
 4. Every console request that changes something must carry an `Origin` header that matches the host. This check and `SameSite=Strict` stop a cross-site request.
-5. The sign-in route allows 5 failures per minute per client address. Each sign-in and each failure goes to the System API log.
+5. The sign-in route allows 5 tries per minute per browser address. A try counts before its check runs, so parallel requests cannot pass the limit, and at most 2 checks run at once. The address comes from Caddy's `X-Forwarded-For`, which the console trusts only from Caddy's own address. Each sign-in and each failure goes to the System API log.
+6. An htmx poll does not refresh a session, so a page left open still ends after 1 hour without use. A message in the URL shows only on a signed-in page.
 
 The secret is the open decision. The plan recommends the host's `admin` password. `sibyl-hostd` does not check passwords today, so this needs a new hostd action that checks one through PAM, with tests of its refusals. The owner already knows the password, and a phone can type it. The other choice is the System API key, which the owner must copy from the host.
 
@@ -40,7 +41,7 @@ The secret is the open decision. The plan recommends the host's `admin` password
 
 `sibyl-hostd` has a second queue for the password checks, `/run/sibyl-auth/req`. It is in memory, so a password never reaches a disk. The `sibyl` user owns it, as it owns the disk queue, so the System API container can mount it with `:z`. `sibyl-hostd-auth.path` starts `sibyl-hostd -auth` when a request arrives. The disk queue refuses the action `password-check`, because `hostd.Decode` does not know it, and the memory queue refuses every other action.
 
-The check passes when the account is in the `wheel` group and `unix_chkpwd`, PAM's own helper, accepts the password. Every failure gives the same error, so a check does not tell whether an account exists. The result holds only the outcome. It goes to `/var/lib/sibyl-host/out/auth/` and is deleted after one minute. The unit `sibyl-hostd-auth.service` has no network, a read-only system and four capabilities.
+The check passes when the account is in the `wheel` group and `unix_chkpwd`, PAM's own helper, accepts the password. Every failure gives the same error, so a check does not tell whether an account exists. `unix_chkpwd` run as root skips the PAM stack, so `sibyl-hostd` adds what PAM would give: it refuses an account whose expiry date has passed, it waits 1 second after each failure, and after 10 failures for one account in 10 minutes it refuses that account's checks without a try. It keeps the failures in `/var/lib/sibyl-host`, which only root can write, so a compromised System API cannot reset them by writing to the queue directly. A request with an invalid name gets no result file. The result holds only the outcome. It goes to `/var/lib/sibyl-host/out/auth/` and is deleted after one minute. The unit `sibyl-hostd-auth.service` has no network, a read-only system and four capabilities.
 
 ## Technology
 
@@ -72,7 +73,7 @@ The Router screen shows the calibration cells per local model as a table. The ru
 - A delete, a reboot, an update and a key change ask for confirmation in the page. The confirmation names the thing that changes.
 - A new client key shows once, in the response to its creation, as in the TUI.
 - The console logs each change with the session ID and the client address.
-- The console needs a security review before the first image that ships it. The review covers the session code, the `Origin` check and the templates.
+- A security review on 2026-10-30, before the first image that ships the console, covered the sessions, the `Origin` check, the templates and the password check. It found no critical bug. Its 2 medium and 5 low findings are fixed: the limits above, the session poll, the URL message, the result names and `NoNewPrivileges` on the check unit. One risk stays: a device on the LAN can lock the owner's account out of the console for 10 minutes with 10 wrong passwords. SSH and the TUI still work.
 
 ## Delivery
 

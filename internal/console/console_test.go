@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -105,7 +106,8 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{t: t, api: newFakeAPI(), now: time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC), addr: "192.168.1.50"}
 	h.con = &Console{API: h.api, Token: "api-key", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Now: func() time.Time { return h.now },
+		Now:        func() time.Time { return h.now },
+		TrustProxy: func(ip string) bool { return ip == "192.0.2.1" },
 		Check: func(_ context.Context, user, password string) error {
 			if user == "admin" && password == "right" {
 				return nil
@@ -390,4 +392,83 @@ func TestProfileAndSettings(t *testing.T) {
 	if !strings.Contains(w.Header().Get("Location"), "delete+2+calibration+samples") {
 		t.Errorf("delete samples %q", w.Header().Get("Location"))
 	}
+}
+
+func TestForwardedForOnlyFromProxy(t *testing.T) {
+	h := newHarness(t)
+	h.con.TrustProxy = func(string) bool { return false }
+	// Each request names another address, but none comes from the proxy,
+	// so all count against the one connection address.
+	for i := 0; i < failLimit; i++ {
+		h.addr = "10.0.0." + strconv.Itoa(i)
+		h.do("POST", "/console/login", url.Values{"user": {"admin"}, "password": {"no"}}, true)
+	}
+	h.addr = "10.0.0.99"
+	if w := h.do("POST", "/console/login", url.Values{"user": {"admin"}, "password": {"right"}}, true); w.Code != http.StatusTooManyRequests {
+		t.Errorf("a forged X-Forwarded-For passed the limit: %d", w.Code)
+	}
+}
+
+func TestPollDoesNotKeepSession(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	poll := func() int {
+		r := httptest.NewRequest("GET", "https://"+testHost+"/console/router/live", nil)
+		r.Header.Set("HX-Request", "true")
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: h.jar})
+		w := httptest.NewRecorder()
+		h.h.ServeHTTP(w, r)
+		return w.Code
+	}
+	for i := 0; i < 11; i++ {
+		h.now = h.now.Add(5 * time.Minute)
+		if code := poll(); i < 11 && h.now.Sub(time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)) <= SessionIdle && code != 200 {
+			t.Fatalf("poll %d = %d", i, code)
+		}
+	}
+	h.now = h.now.Add(10 * time.Minute)
+	if code := poll(); code != http.StatusUnauthorized {
+		t.Errorf("an hour of polls kept the session: %d", code)
+	}
+}
+
+func TestFlashOnlySignedIn(t *testing.T) {
+	h := newHarness(t)
+	if w := h.do("GET", "/console/login?done=Password+expired", nil, false); strings.Contains(w.Body.String(), "Password expired") {
+		t.Error("the sign-in page shows text from the URL")
+	}
+	h.login()
+	if w := h.do("GET", "/console/status?done=saved", nil, false); !strings.Contains(w.Body.String(), "saved") {
+		t.Error("a signed-in page does not show the flash")
+	}
+}
+
+func TestChecksRunTwoAtOnce(t *testing.T) {
+	h := newHarness(t)
+	release := make(chan struct{})
+	started := make(chan struct{}, 4)
+	h.con.Check = func(context.Context, string, string) error {
+		started <- struct{}{}
+		<-release
+		return ErrDenied
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < maxChecks; i++ {
+		wg.Add(1)
+		h2 := *h
+		h2.addr = "192.168.1." + strconv.Itoa(60+i)
+		go func() {
+			defer wg.Done()
+			h2.do("POST", "/console/login", url.Values{"user": {"admin"}, "password": {"x"}}, true)
+		}()
+	}
+	for i := 0; i < maxChecks; i++ {
+		<-started
+	}
+	h.addr = "192.168.1.70"
+	if w := h.do("POST", "/console/login", url.Values{"user": {"admin"}, "password": {"x"}}, true); w.Code != http.StatusTooManyRequests {
+		t.Errorf("a third check at once = %d", w.Code)
+	}
+	close(release)
+	wg.Wait()
 }

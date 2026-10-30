@@ -43,10 +43,11 @@ const (
 	CookieName = "sibyl_console"
 	// Prefix is the path of every console page.
 	Prefix = "/console/"
-	// failLimit is the number of failed sign-ins per address per minute,
-	// and failLimitAll the number for all addresses together.
-	failLimit    = 5
-	failLimitAll = 30
+	// failLimit is the number of sign-ins per address per minute that can
+	// fail. sibyl-hostd adds its own limit per account.
+	failLimit = 5
+	// maxChecks is the number of password checks that run at once.
+	maxChecks = 2
 )
 
 // CSP is the Content Security Policy of every console response. No page
@@ -68,6 +69,9 @@ type Console struct {
 	Check func(ctx context.Context, user, password string) error
 	Log   *slog.Logger
 	Now   func() time.Time
+	// TrustProxy reports whether a request from this address comes from
+	// Caddy, whose X-Forwarded-For names the browser. Nil trusts none.
+	TrustProxy func(ip string) bool
 
 	once     sync.Once
 	client   *client.Client
@@ -75,6 +79,7 @@ type Console struct {
 	mu       sync.Mutex
 	sessions map[[32]byte]*session
 	fails    map[string][]time.Time
+	checks   chan struct{}
 }
 
 type session struct {
@@ -92,6 +97,7 @@ func (c *Console) init() {
 		}
 		c.sessions = map[[32]byte]*session{}
 		c.fails = map[string][]time.Time{}
+		c.checks = make(chan struct{}, maxChecks)
 		c.client = &client.Client{Base: "http://system-api", Token: c.Token,
 			HTTP: &http.Client{Timeout: 60 * time.Second, Transport: inProcess{c.API}}}
 		c.pages = parsePages()
@@ -137,7 +143,9 @@ func sameOrigin(r *http.Request) bool {
 
 func hashID(id string) [32]byte { return sha256.Sum256([]byte(id)) }
 
-// user returns the signed-in user of a request, and refreshes the session.
+// user returns the signed-in user of a request. A request that the owner
+// made refreshes the session, but an htmx poll does not, so an open page
+// still ends after SessionIdle.
 func (c *Console) user(r *http.Request) (string, bool) {
 	ck, err := r.Cookie(CookieName)
 	if err != nil || ck.Value == "" {
@@ -155,7 +163,9 @@ func (c *Console) user(r *http.Request) (string, bool) {
 		delete(c.sessions, key)
 		return "", false
 	}
-	s.seen = now
+	if r.Header.Get("HX-Request") != "true" {
+		s.seen = now
+	}
 	return s.user, true
 }
 
@@ -186,27 +196,29 @@ func (c *Console) signedIn(next http.HandlerFunc) http.HandlerFunc {
 
 func userOf(r *http.Request) string { u, _ := r.Context().Value(ctxUser{}).(string); return u }
 
-// clientAddr is the browser's address. Caddy sets X-Forwarded-For, and it
-// replaces a value that the browser sends.
-func clientAddr(r *http.Request) string {
-	if f := r.Header.Get("X-Forwarded-For"); f != "" {
-		first, _, _ := strings.Cut(f, ",")
-		return strings.TrimSpace(first)
-	}
+// clientAddr is the browser's address. Caddy sets X-Forwarded-For and
+// replaces a value that the browser sends. The header counts only from
+// Caddy, because another container could send any value.
+func (c *Console) clientAddr(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if f := r.Header.Get("X-Forwarded-For"); f != "" && c.TrustProxy != nil && c.TrustProxy(host) {
+		first, _, _ := strings.Cut(f, ",")
+		return strings.TrimSpace(first)
 	}
 	return host
 }
 
-// limited reports whether addr, or every address together, failed too
-// often in the last minute.
-func (c *Console) limited(addr string) bool {
+// attempt counts a sign-in against addr before its check runs, so that
+// parallel requests cannot pass the limit. It returns false when addr
+// has used its tries for the minute. A sign-in that passes takes its try
+// back.
+func (c *Console) attempt(addr string) bool {
 	now := c.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	all := 0
 	for a, ts := range c.fails {
 		kept := ts[:0]
 		for _, t := range ts {
@@ -219,15 +231,21 @@ func (c *Console) limited(addr string) bool {
 			continue
 		}
 		c.fails[a] = kept
-		all += len(kept)
 	}
-	return len(c.fails[addr]) >= failLimit || all >= failLimitAll
+	if len(c.fails[addr]) >= failLimit {
+		return false
+	}
+	c.fails[addr] = append(c.fails[addr], now)
+	return true
 }
 
-func (c *Console) failed(addr string) {
+// passed takes back the try of a sign-in that passed.
+func (c *Console) passed(addr string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.fails[addr] = append(c.fails[addr], c.Now())
+	if ts := c.fails[addr]; len(ts) > 0 {
+		c.fails[addr] = ts[:len(ts)-1]
+	}
 }
 
 func (c *Console) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +257,7 @@ func (c *Console) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *Console) login(w http.ResponseWriter, r *http.Request) {
-	addr := clientAddr(r)
+	addr := c.clientAddr(r)
 	if !sameOrigin(r) {
 		http.Error(w, "this request did not come from a console page", http.StatusForbidden)
 		return
@@ -247,9 +265,16 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 	fail := func(code int, msg string) {
 		c.render(w, r, code, "login", map[string]any{"Error": msg, "Name": r.PostFormValue("user")})
 	}
-	if c.limited(addr) {
-		c.Log.Warn("console sign-in refused: too many failures", "addr", addr)
-		fail(http.StatusTooManyRequests, "Too many failed sign-ins. Wait a minute.")
+	if !c.attempt(addr) {
+		c.Log.Warn("console sign-in refused: too many tries", "addr", addr)
+		fail(http.StatusTooManyRequests, "Too many sign-ins. Wait a minute.")
+		return
+	}
+	select {
+	case c.checks <- struct{}{}:
+		defer func() { <-c.checks }()
+	default:
+		fail(http.StatusTooManyRequests, "Other sign-ins are being checked. Try again.")
 		return
 	}
 	user := strings.TrimSpace(r.PostFormValue("user"))
@@ -259,7 +284,6 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 	err := c.Check(ctx, user, password)
 	switch {
 	case errors.Is(err, ErrDenied):
-		c.failed(addr)
 		c.Log.Warn("console sign-in failed", "user", user, "addr", addr)
 		fail(http.StatusUnauthorized, "Wrong user or password. The user must be in the wheel group.")
 		return
@@ -268,6 +292,7 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusServiceUnavailable, "The host did not check the password. Try again.")
 		return
 	}
+	c.passed(addr)
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		fail(http.StatusInternalServerError, "No session could be made.")
