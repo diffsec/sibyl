@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -314,6 +315,10 @@ func (d *Diag) SetSafeMode(on bool, reason string) error {
 		return writeAtomic(d.SafeModeFile(), []byte(reason+"\n"), 0o644, "", -1)
 	}
 	if err := os.Remove(d.SafeModeFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	cleared := strconv.FormatInt(d.Now().Unix(), 10)
+	if err := writeAtomic(d.data("safe-mode-cleared"), []byte(cleared+"\n"), 0o600, "", -1); err != nil {
 		return err
 	}
 	st := d.LoadState()

@@ -79,10 +79,26 @@ type State struct {
 }
 
 // LoadState reads the history. A missing or broken file is a fresh state.
+// Unclean boots and reboots from before the last "safe-mode off" are
+// dropped here, so a process that saves an older copy cannot bring them back.
 func (d *Diag) LoadState() State {
 	st := State{NRestarts: -1}
 	if b, err := os.ReadFile(d.data("watchdog.json")); err == nil {
 		_ = json.Unmarshal(b, &st)
+	}
+	if b, err := os.ReadFile(d.data("safe-mode-cleared")); err == nil {
+		if cleared, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil {
+			after := func(ts []int64) []int64 {
+				var out []int64
+				for _, t := range ts {
+					if t > cleared {
+						out = append(out, t)
+					}
+				}
+				return out
+			}
+			st.UncleanBoots, st.Reboots = after(st.UncleanBoots), after(st.Reboots)
+		}
 	}
 	if st.LastIncident == nil {
 		st.LastIncident = map[string]int64{}
@@ -425,6 +441,8 @@ func (w *Watchdog) act(ctx context.Context, p Problem) {
 func (w *Watchdog) Tick(ctx context.Context) {
 	cfg := w.d.Cfg.Watchdog
 	now := w.d.Now().Unix()
+	// Reload, so a change from "sibyl-diag safe-mode off" is not overwritten.
+	w.st = w.d.LoadState()
 	window := max(cfg.RestartWindow, cfg.RebootWindow)
 	w.st.Restarts, w.st.GPUResets = keep(w.st.Restarts, now, window), keep(w.st.GPUResets, now, window)
 	w.st.Reboots, w.st.Crashes = keep(w.st.Reboots, now, window), keep(w.st.Crashes, now, window)

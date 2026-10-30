@@ -807,3 +807,25 @@ func TestCopyPstoreTakesEveryRecordOfTheLastCrash(t *testing.T) {
 		t.Errorf("second copy = %q", out)
 	}
 }
+
+func TestSafeModeOffSurvivesAnOlderSave(t *testing.T) {
+	d, _ := newDiag(t, "http://127.0.0.1:1")
+	now := d.Now().Unix()
+	old := State{UncleanBoots: []int64{now - 300, now - 200, now - 100}, Reboots: []int64{now - 100}}
+	if err := d.SaveState(old); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetSafeMode(false, ""); err != nil {
+		t.Fatal(err)
+	}
+	// The watchdog loaded the state before "safe-mode off" and saves it now.
+	if err := d.SaveState(old); err != nil {
+		t.Fatal(err)
+	}
+	if st := d.LoadState(); len(st.UncleanBoots) != 0 || len(st.Reboots) != 0 {
+		t.Fatalf("after safe-mode off: %+v", st)
+	}
+	if res, _ := d.BootCheck(context.Background()); res == "safe-mode" {
+		t.Fatal("a boot after safe-mode off entered safe mode again")
+	}
+}
