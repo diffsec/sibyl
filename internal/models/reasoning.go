@@ -175,7 +175,7 @@ func (r Reasoning) CheckAgainst(c *ReasoningControl) error {
 		return errors.New("reasoning: the model's chat template has no reasoning control that Sibyl knows")
 	}
 	choices := c.Choices()
-	if slices.Contains(choices, ReasoningChoice{r.Var, r.Value}) {
+	if slices.Contains(choices, ReasoningChoice(r)) {
 		return nil
 	}
 	// A level variable whose values Sibyl could not list takes any level.
