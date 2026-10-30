@@ -550,7 +550,7 @@ func TestMorePagesRender(t *testing.T) {
 	h.login()
 	for path, want := range map[string][]string{
 		"/console/models":                           {"qwen", "30.0 GiB", "context 65536 in 2 slots of 32768", "hip 40.5 tok/s"},
-		"/console/models/edit?id=qwen":              {"qwen3moe", "native context 262144", `name="moelayers"`, `value="0.6"`, `value="65536"`, "<option>xhigh</option>", "reads reasoning_effort"},
+		"/console/models/edit?id=qwen":              {"qwen3moe", "native context 262144", `name="moelayers"`, `value="0.6"`, `value="65536"`, `<option value="reasoning_effort=xhigh">xhigh</option>`, "reads reasoning_effort"},
 		"/console/downloads":                        {"org/model-GGUF", "downloading", "5.0 GiB of 10.0 GiB (50%)", "disk full", "Retry", "Set for ben"},
 		"/console/downloads?q=qwen":                 {`href="/console/downloads/repo?id=org%2fmodel-GGUF"`},
 		"/console/downloads/repo?id=org/model-GGUF": {"Q8_0", "fits in VRAM", "pool-1", "abc123def4567890"},

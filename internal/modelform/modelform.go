@@ -4,6 +4,7 @@
 package modelform
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -38,10 +39,11 @@ type Form struct {
 	MoECacheMiB     string
 	Fit             string // quality (or empty) or context
 	Preset          string // empty, or one of models.Presets
-	// ReasoningVar is the template variable of the reasoning, and
-	// Reasoning its value. An empty value leaves the template's default.
-	ReasoningVar string
+	// Reasoning is the template variable and its value as var=value, such
+	// as reasoning_effort=low or enable_thinking=off. A value alone uses
+	// ReasoningVar. Empty leaves the template's default.
 	Reasoning    string
+	ReasoningVar string
 	Args         string // space separated
 }
 
@@ -88,7 +90,7 @@ func FromSettings(s models.Settings) Form {
 		f.CtxSize = strconv.Itoa(s.CtxSize)
 	}
 	if s.Reasoning != nil {
-		f.ReasoningVar, f.Reasoning = s.Reasoning.Var, s.Reasoning.Value
+		f.Reasoning = s.Reasoning.Var + "=" + s.Reasoning.Value
 	}
 	if s.Parallel > 0 {
 		f.Parallel = strconv.Itoa(s.Parallel)
@@ -166,9 +168,16 @@ func (f Form) Settings() (models.Settings, error) {
 		Fit:       models.FitMode(f.Fit),
 		Preset:    f.Preset,
 	}
-	if v := strings.TrimSpace(f.Reasoning); v != "" && f.ReasoningVar != "" {
+	if v := strings.TrimSpace(f.Reasoning); v != "" {
+		name, value, ok := strings.Cut(v, "=")
+		if !ok {
+			name, value = f.ReasoningVar, v
+		}
+		if name == "" {
+			return s, errors.New("reasoning: give the template variable as var=value")
+		}
 		// The API checks the value against the model's template.
-		s.Reasoning = &models.Reasoning{Var: f.ReasoningVar, Value: v}
+		s.Reasoning = &models.Reasoning{Var: name, Value: value}
 	}
 	var err error
 	if ctx, e := ParseInt("context size", f.CtxSize); e != nil {

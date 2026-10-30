@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 // ReasoningControl is how a model's chat template sets its reasoning. The
@@ -21,14 +22,30 @@ type ReasoningControl struct {
 	// low, medium and high. Empty for a level variable means that the
 	// template takes a value that Sibyl could not list.
 	Values []string `json:"values,omitempty"`
+	// OffVar is a switch variable that the same template reads next to the
+	// levels, such as enable_thinking next to reasoning_effort. It gives
+	// the choice off.
+	OffVar string `json:"off_var,omitempty"`
 }
 
-// Options are the values that a form offers, in the template's order.
-func (c ReasoningControl) Options() []string {
+// ReasoningChoice is one value that a form offers.
+type ReasoningChoice struct {
+	Var, Value string
+}
+
+// Choices are the values that a form offers, in the template's order.
+func (c ReasoningControl) Choices() []ReasoningChoice {
+	var out []ReasoningChoice
 	if c.Switch {
-		return []string{ReasoningOn, ReasoningOff}
+		return []ReasoningChoice{{c.Var, ReasoningOn}, {c.Var, ReasoningOff}}
 	}
-	return c.Values
+	for _, v := range c.Values {
+		out = append(out, ReasoningChoice{c.Var, v})
+	}
+	if c.OffVar != "" {
+		out = append(out, ReasoningChoice{c.OffVar, ReasoningOff})
+	}
+	return out
 }
 
 // The values of a switch variable.
@@ -37,13 +54,15 @@ const (
 	ReasoningOff = "off"
 )
 
-// reasoningVars are the template variables that Sibyl knows, in the order
-// it looks for them. A template can read more than one; the first wins.
-var reasoningVars = []struct {
+type reasoningVar struct {
 	name   string
 	sw     bool
 	usedRE *regexp.Regexp
-}{
+}
+
+// reasoningVars are the template variables that Sibyl knows, in the order
+// it looks for them.
+var reasoningVars = []reasoningVar{
 	{"reasoning_effort", false, regexp.MustCompile(`\breasoning_effort\b`)},
 	{"enable_thinking", true, regexp.MustCompile(`\benable_thinking\b`)},
 	// "thinking" is also a word in prompts and a message field, so only
@@ -51,52 +70,82 @@ var reasoningVars = []struct {
 	{"thinking", true, regexp.MustCompile(`(?:\{%-?\s*(?:el)?if\s+(?:not\s+)?thinking\b|[^.\w'"\[]thinking\s+is\s+(?:defined|true|false|not\b))`)},
 }
 
-// levelRE finds the values that a template compares a variable with: in
-// var == "x", "x" == var, var in ["x", "y"] and var | default("x").
-func levelREs(name string) []*regexp.Regexp {
-	v := regexp.QuoteMeta(name)
-	return []*regexp.Regexp{
-		regexp.MustCompile(`\b` + v + `\s*(?:==|!=)\s*['"]([A-Za-z0-9_-]{1,32})['"]`),
-		regexp.MustCompile(`['"]([A-Za-z0-9_-]{1,32})['"]\s*(?:==|!=)\s*` + v + `\b`),
-		regexp.MustCompile(`\b` + v + `\s*\|\s*default\(\s*['"]([A-Za-z0-9_-]{1,32})['"]`),
+func findVar(name string) (reasoningVar, bool) {
+	for _, v := range reasoningVars {
+		if v.name == name {
+			return v, true
+		}
 	}
+	return reasoningVar{}, false
 }
 
+const literal = `['"]([A-Za-z0-9_-]{1,32})['"]`
+
 var (
-	listRE    = regexp.MustCompile(`\breasoning_effort\s+(?:not\s+)?in\s+[\[(]([^\])]*)[\])]`)
-	literalRE = regexp.MustCompile(`['"]([A-Za-z0-9_-]{1,32})['"]`)
+	literalRE = regexp.MustCompile(literal)
 	valueRE   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 )
 
-// DetectReasoning reads a chat template and returns its reasoning control,
-// or nil when it has none that Sibyl knows.
-func DetectReasoning(template string) *ReasoningControl {
-	for _, v := range reasoningVars {
-		if !v.usedRE.MatchString(template) {
-			continue
+// levels finds the values that a template compares name with: in
+// name == "x", "x" == name, name in ("x", "y") and name | default("x").
+// It follows {% set alias = name ... %}, because templates often resolve
+// the default into another variable first.
+func levels(template, name string) []string {
+	names := []string{name}
+	aliasRE := regexp.MustCompile(`set\s+(\w+)\s*=\s*` + regexp.QuoteMeta(name) + `\b`)
+	for _, m := range aliasRE.FindAllStringSubmatch(template, -1) {
+		if !slices.Contains(names, m[1]) {
+			names = append(names, m[1])
 		}
-		c := &ReasoningControl{Var: v.name, Switch: v.sw}
-		if v.sw {
-			return c
+	}
+	var out []string
+	add := func(s string) {
+		if !slices.Contains(out, s) {
+			out = append(out, s)
 		}
-		add := func(s string) {
-			if !slices.Contains(c.Values, s) {
-				c.Values = append(c.Values, s)
+	}
+	for _, n := range names {
+		v := regexp.QuoteMeta(n)
+		for _, re := range []*regexp.Regexp{
+			regexp.MustCompile(`\b` + v + `\s+(?:not\s+)?in\s+[\[(]([^\])]*)[\])]`),
+		} {
+			for _, m := range re.FindAllStringSubmatch(template, -1) {
+				for _, lit := range literalRE.FindAllStringSubmatch(m[1], -1) {
+					add(lit[1])
+				}
 			}
 		}
-		for _, re := range levelREs(v.name) {
+		for _, re := range []*regexp.Regexp{
+			regexp.MustCompile(`\b` + v + `\s*(?:==|!=)\s*` + literal),
+			regexp.MustCompile(literal + `\s*(?:==|!=)\s*` + v + `\b`),
+			regexp.MustCompile(`\b` + v + `\s*\|\s*default\(\s*` + literal),
+		} {
 			for _, m := range re.FindAllStringSubmatch(template, -1) {
 				add(m[1])
 			}
 		}
-		for _, m := range listRE.FindAllStringSubmatch(template, -1) {
-			for _, lit := range literalRE.FindAllStringSubmatch(m[1], -1) {
-				add(lit[1])
-			}
-		}
-		return c
 	}
-	return nil
+	return out
+}
+
+// DetectReasoning reads a chat template and returns its reasoning control,
+// or nil when it has none that Sibyl knows.
+func DetectReasoning(template string) *ReasoningControl {
+	var c *ReasoningControl
+	for _, v := range reasoningVars {
+		if !v.usedRE.MatchString(template) {
+			continue
+		}
+		switch {
+		case c == nil && !v.sw:
+			c = &ReasoningControl{Var: v.name, Values: levels(template, v.name)}
+		case c == nil:
+			return &ReasoningControl{Var: v.name, Switch: true}
+		case c.OffVar == "" && v.sw:
+			c.OffVar = v.name
+		}
+	}
+	return c
 }
 
 // Reasoning is a model's default reasoning: the template variable and its
@@ -108,23 +157,13 @@ type Reasoning struct {
 
 // Validate checks the variable and the form of the value.
 func (r Reasoning) Validate() error {
-	i := slices.IndexFunc(reasoningVars, func(v struct {
-		name   string
-		sw     bool
-		usedRE *regexp.Regexp
-	}) bool {
-		return v.name == r.Var
-	})
-	if i < 0 {
+	v, ok := findVar(r.Var)
+	switch {
+	case !ok:
 		return fmt.Errorf("reasoning.var %q: Sibyl knows reasoning_effort, enable_thinking and thinking", r.Var)
-	}
-	if reasoningVars[i].sw {
-		if r.Value != ReasoningOn && r.Value != ReasoningOff {
-			return fmt.Errorf("reasoning.value %q: %s is on or off", r.Value, r.Var)
-		}
-		return nil
-	}
-	if !valueRE.MatchString(r.Value) {
+	case v.sw && r.Value != ReasoningOn && r.Value != ReasoningOff:
+		return fmt.Errorf("reasoning.value %q: %s is on or off", r.Value, r.Var)
+	case !valueRE.MatchString(r.Value):
 		return errors.New("reasoning.value: use 1 to 32 letters, digits, _ and -")
 	}
 	return nil
@@ -132,15 +171,25 @@ func (r Reasoning) Validate() error {
 
 // CheckAgainst checks the setting against the model's template.
 func (r Reasoning) CheckAgainst(c *ReasoningControl) error {
-	switch {
-	case c == nil:
+	if c == nil {
 		return errors.New("reasoning: the model's chat template has no reasoning control that Sibyl knows")
-	case c.Var != r.Var:
-		return fmt.Errorf("reasoning.var %q: the model's chat template reads %s", r.Var, c.Var)
-	case len(c.Options()) > 0 && !slices.Contains(c.Options(), r.Value):
-		return fmt.Errorf("reasoning.value %q: the model's chat template takes %v", r.Value, c.Options())
 	}
-	return nil
+	choices := c.Choices()
+	if slices.Contains(choices, ReasoningChoice{r.Var, r.Value}) {
+		return nil
+	}
+	// A level variable whose values Sibyl could not list takes any level.
+	if r.Var == c.Var && !c.Switch && len(c.Values) == 0 {
+		return nil
+	}
+	var list []string
+	for _, ch := range choices {
+		list = append(list, ch.Var+"="+ch.Value)
+	}
+	if len(list) == 0 {
+		list = append(list, c.Var+"=<any level>")
+	}
+	return fmt.Errorf("reasoning %s=%s: the model's chat template takes %s", r.Var, r.Value, strings.Join(list, ", "))
 }
 
 // Flags returns the llama-server flags of the setting.
@@ -149,10 +198,8 @@ func (r *Reasoning) Flags() []string {
 		return nil
 	}
 	var v any = r.Value
-	for _, rv := range reasoningVars {
-		if rv.name == r.Var && rv.sw {
-			v = r.Value == ReasoningOn
-		}
+	if rv, ok := findVar(r.Var); ok && rv.sw {
+		v = r.Value == ReasoningOn
 	}
 	b, err := json.Marshal(map[string]any{r.Var: v})
 	if err != nil {

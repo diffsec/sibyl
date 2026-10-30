@@ -47,17 +47,17 @@
     <label>Preset <select name="preset"><option value="">None</option>{{range .Presets}}<option{{if eq . $f.Preset}} selected{{end}}>{{.}}</option>{{end}}</select></label>
     {{with .Reasoning}}
     <input type="hidden" name="reasoningvar" value="{{.Var}}">
-    {{if .Options}}
+    {{if or .Switch .Values}}
     <label>Reasoning <select name="reasoning">
       <option value="">Template default</option>
-      {{range .Options}}<option{{if eq . $f.Reasoning}} selected{{end}}>{{.}}</option>{{end}}
+      {{range .Choices}}{{$v := printf "%s=%s" .Var .Value}}<option value="{{$v}}"{{if eq $v $f.Reasoning}} selected{{end}}>{{.Value}}</option>{{end}}
     </select></label>
     {{else}}
-    <label>Reasoning <input name="reasoning" placeholder="template default" pattern="[A-Za-z0-9_-]{1,32}" value="{{$f.Reasoning}}"></label>
+    <label>Reasoning <input name="reasoning" placeholder="template default" value="{{$f.Reasoning}}"></label>
     {{end}}
     {{end}}
   </div>
-  {{with .Reasoning}}<p class="muted">The chat template reads {{.Var}}{{if not .Options}}, and Sibyl found no list of its values, so type one{{end}}. A request can still set its own.</p>
+  {{with .Reasoning}}<p class="muted">The chat template reads {{.Var}}{{with .OffVar}}, and {{.}} for off{{end}}{{if not (or .Switch .Values)}}, and Sibyl found no list of its values, so type one{{end}}. A request can still set its own.</p>
   {{else}}<p class="muted">The chat template has no reasoning control that Sibyl knows.</p>{{end}}
   <div class="row">
     <label>Temperature <input name="temperature" inputmode="decimal" placeholder="0 to 5" value="{{$f.Temperature}}"></label>

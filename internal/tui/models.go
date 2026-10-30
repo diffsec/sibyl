@@ -225,10 +225,10 @@ func reasoningGroup(m client.Model, f *settingsForm) *huh.Group {
 	f.ReasoningVar = c.Var
 	desc := "The chat template reads " + c.Var + ". A request can still set its own."
 	var field huh.Field
-	if opts := c.Options(); len(opts) > 0 {
+	if choices := c.Choices(); len(choices) > 0 && (c.Switch || len(c.Values) > 0) {
 		o := []huh.Option[string]{huh.NewOption("Template default", "")}
-		for _, v := range opts {
-			o = append(o, huh.NewOption(v, v))
+		for _, ch := range choices {
+			o = append(o, huh.NewOption(ch.Value, ch.Var+"="+ch.Value))
 		}
 		field = huh.NewSelect[string]().Title("Reasoning").Inline(true).Options(o...).Value(&f.Reasoning).Description(desc)
 	} else {
