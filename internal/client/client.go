@@ -24,6 +24,7 @@ import (
 	"github.com/diffsec/sibyl/internal/hostd"
 	"github.com/diffsec/sibyl/internal/llamaswap"
 	"github.com/diffsec/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 // Client calls the System API at Base with a bearer token.
@@ -404,26 +405,25 @@ type RouterProvider struct {
 	KeySet  bool     `json:"key_set"`
 }
 
-// RouterRule is one rule of a routing profile.
-type RouterRule struct {
-	Name  string `json:"name"`
-	Route string `json:"route"`
-}
-
-// RouterProfile is one routing profile.
-type RouterProfile struct {
-	LocalModel string       `json:"local_model"`
-	Rules      []RouterRule `json:"rules"`
-	Fallback   []string     `json:"fallback"`
-}
-
-// Router is the GET /router response.
+// Router is the GET /router response. Profiles is the whole profiles
+// file, so a change from the TUI keeps every setting it does not touch.
 type Router struct {
-	Clients   []RouterClient   `json:"clients"`
-	Providers []RouterProvider `json:"providers"`
-	Profiles  struct {
-		Profiles map[string]RouterProfile `json:"profiles"`
-	} `json:"profiles"`
+	Clients   []RouterClient      `json:"clients"`
+	Providers []RouterProvider    `json:"providers"`
+	Profiles  router.ProfilesFile `json:"profiles"`
+}
+
+// SetRouterProfiles replaces the profiles file after the router's checks.
+func (c *Client) SetRouterProfiles(ctx context.Context, f router.ProfilesFile) error {
+	return c.do(ctx, http.MethodPut, "/router/profiles", f, nil)
+}
+
+// ClearCalibration deletes every calibration sample and returns the count.
+func (c *Client) ClearCalibration(ctx context.Context) (int, error) {
+	var r struct {
+		Deleted int `json:"deleted"`
+	}
+	return r.Deleted, c.do(ctx, http.MethodDelete, "/router/calibration", nil, &r)
 }
 
 // RouterEntry is one line of the router's decision log.

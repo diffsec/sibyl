@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -71,6 +70,10 @@ type routerView struct {
 	catProv  client.CatalogModels
 	// proposal is the calibration proposal that the apply form picks.
 	proposal string
+	// pf holds the values of the profile, rule and calibration forms, and
+	// models the installed models that they offer.
+	pf     profileForm
+	models []client.Model
 	// key is a new client's key, shown until the next action.
 	key, keyFor string
 }
@@ -109,9 +112,12 @@ func (v *routerView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	h := "n new client · e edit · p add or change provider · x delete provider · ↑/↓ select"
+	h := "n new client · e edit · p add or change provider · x delete provider · m profiles · r rules · c calibration · s classifier · ↑/↓ select"
 	if len(v.cal.Proposals) > 0 {
 		h += " · a apply a calibration proposal"
+	}
+	if v.cal.Samples > 0 {
+		h += " · C delete the samples"
 	}
 	if c, ok := v.selected(); ok && !c.Builtin {
 		h += " · k new key · d delete client"
@@ -388,16 +394,22 @@ func (v *routerView) budget() *client.RouterBudget {
 	return &client.RouterBudget{DailyUSD: d, MonthlyUSD: m}
 }
 
+// run sends one change to the System API and reports the result.
+func (v *routerView) run(what string, fn func(context.Context) (string, error)) tea.Cmd {
+	v.key, v.keyFor = "", ""
+	return tea.Batch(note(true, "%s…", what), func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		key, err := fn(ctx)
+		return routerDone{what, key, err}
+	})
+}
+
 func (v *routerView) submit() tea.Cmd {
-	run := func(what string, fn func(context.Context) (string, error)) tea.Cmd {
-		v.key, v.keyFor = "", ""
-		return tea.Batch(note(true, "%s…", what), func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-			key, err := fn(ctx)
-			return routerDone{what, key, err}
-		})
+	if cmd, ok := v.submitProfiles(); ok {
+		return cmd
 	}
+	run := v.run
 	name, b := strings.TrimSpace(v.name), v.budget()
 	switch v.mode {
 	case "new":
@@ -480,6 +492,8 @@ func (v *routerView) update(msg tea.Msg) tea.Cmd {
 			v.cursor = 0
 		}
 		return nil
+	case modelsForForm:
+		return v.modelsLoaded(msg)
 	case catalogLoaded:
 		if msg.err != nil {
 			// With no index, the picker falls back to the manual form.
@@ -555,6 +569,18 @@ func (v *routerView) keyPress(k string) tea.Cmd {
 	case "a":
 		if len(v.cal.Proposals) > 0 {
 			return v.applyForm()
+		}
+	case "m":
+		return v.loadModels("profilepick")
+	case "r":
+		return v.rulePickForm()
+	case "c":
+		return v.calibrationForm()
+	case "s":
+		return v.loadModels("classifier")
+	case "C":
+		if v.cal.Samples > 0 {
+			return v.clearForm()
 		}
 	}
 	return nil
@@ -647,26 +673,10 @@ func (v *routerView) render(int) string {
 	}
 
 	b.WriteString("\n" + titleSty.Render("Profiles") + "\n")
-	names := make([]string, 0, len(v.r.Profiles.Profiles))
-	for n := range v.r.Profiles.Profiles {
-		names = append(names, n)
+	if len(v.r.Profiles.Profiles) == 0 {
+		b.WriteString(mutedSty.Render("  none · press m to make one") + "\n")
 	}
-	sort.Strings(names)
-	if len(names) == 0 {
-		b.WriteString(mutedSty.Render("  none · set them with PUT /system/router/profiles") + "\n")
-	}
-	for _, n := range names {
-		p := v.r.Profiles.Profiles[n]
-		model := n
-		if n != "auto" {
-			model = "auto:" + n
-		}
-		var routes []string
-		for _, r := range p.Rules {
-			routes = append(routes, r.Route)
-		}
-		fmt.Fprintf(&b, "  %-14s local %s · %d rules → %s\n", model, p.LocalModel, len(p.Rules), strings.Join(routes, ", "))
-	}
+	v.renderRules(&b)
 
 	v.renderCalibration(&b)
 

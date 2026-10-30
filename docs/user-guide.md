@@ -317,7 +317,15 @@ curl --cacert sibyl-ca.crt -H "Authorization: Bearer $ADMIN" -H "Content-Type: a
   -X PUT https://<address>:8443/system/router/clients/laptop -d '{"policy":"hybrid"}'
 ```
 
-A `hybrid` client can then ask for `<provider>/<model>`, such as `openrouter/<model>`, or for `auto`. The model `auto` runs the rules of the `auto` profile, which you set with `PUT /system/router/profiles`. [router-design.md](router-design.md) lists the rule conditions. `POST /system/router/explain` shows the route for a request without sending it, and `GET /system/router/stats` shows the requests per client and per route.
+A `hybrid` client can then ask for `<provider>/<model>`, such as `openrouter/<model>`, or for `auto`. The model `auto` runs the rules of the `auto` profile, which you set on the Router screen or with `PUT /system/router/profiles`. [router-design.md](router-design.md) lists the rule conditions.
+
+The Router screen has a key for each part of the profiles:
+
+- `m` makes, changes or deletes a profile: its local model, its fallback routes and its local wait.
+- `r` adds, edits, moves or deletes a rule. The rule form shows the common conditions. It keeps the conditions that it does not show.
+- `c` sets the calibration: the sample rate, the daily budget, the judge, the provider to compare with, the keep time, the measurement of new local models and the automatic proposals.
+- `s` sets the sensitive words and the classifier.
+- `a` applies a calibration proposal, and `C` deletes every calibration sample. `POST /system/router/explain` shows the route for a request without sending it, and `GET /system/router/stats` shows the requests per client and per route.
 
 Sibyl prices each provider request from the models.dev index, so budgets work for most providers without a price of your own. A price in the provider's `prices` overrides the index. A model that the index does not list for that provider has no price.
 
