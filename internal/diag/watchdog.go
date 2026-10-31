@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -341,8 +343,39 @@ func (w *Watchdog) save() {
 	}
 }
 
-// gpuResetTimeout bounds one GPU reset. Tests shorten it.
-var gpuResetTimeout = time.Minute
+// gpuResetTimeout bounds one GPU reset. kfdWait bounds the wait for every
+// process to close /dev/kfd. gpuResetGap is the wait between the resets of
+// two GPUs. Tests shorten them.
+var (
+	gpuResetTimeout = time.Minute
+	kfdWait         = time.Minute
+	gpuResetGap     = 15 * time.Second
+)
+
+// kfdUsers returns the PIDs that hold /dev/kfd, the ROCm compute device, open.
+func (d *Diag) kfdUsers() []string {
+	fds, _ := filepath.Glob(d.path("proc", "*", "fd", "*"))
+	var pids []string
+	for _, fd := range fds {
+		if t, err := os.Readlink(fd); err == nil && t == "/dev/kfd" {
+			pid := filepath.Base(filepath.Dir(filepath.Dir(fd)))
+			if !slices.Contains(pids, pid) {
+				pids = append(pids, pid)
+			}
+		}
+	}
+	return pids
+}
+
+// sleepCtx waits for d or until ctx ends.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
 
 // settle returns the seconds that the watchdog waits after an action before
 // it acts again, so that llama-swap can start and load a model.
@@ -350,20 +383,53 @@ func settle(cfg WatchdogConfig) int64 {
 	return int64(max(120, 2*cfg.ProbeInterval*cfg.FailuresBeforeAction))
 }
 
-// gpuReset reads each AMD GPU's recover file. A read that fails or hangs
-// means the driver is stuck. A read of a wedged GPU can stay in the kernel
-// for good, and then the process cannot be killed or waited for, so the
-// reset gives up after the timeout and leaves that read behind.
+// gpuReset stops llama-swap, then reads each AMD GPU's recover file, one GPU
+// at a time. On two RX 7900 XTX cards, a mode1 reset with live compute
+// queues hung the host, and a reset after every process closed /dev/kfd did
+// not. So if a process still holds /dev/kfd, the reset does not start.
+// A read that fails or hangs means the driver is stuck. A read of a wedged
+// GPU can stay in the kernel for good, and then the process cannot be
+// killed or waited for, so the reset gives up after the timeout and leaves
+// that read behind.
 func (w *Watchdog) gpuReset(ctx context.Context) error {
-	done := 0
+	var files []string
 	for _, g := range w.gpus {
 		if g.Vendor != "amd" {
 			continue
 		}
-		f := gpu.RecoverFile(w.d.path("sys"), g)
-		if f == "" {
-			continue
+		if f := gpu.RecoverFile(w.d.path("sys"), g); f != "" {
+			files = append(files, f)
 		}
+	}
+	if len(files) == 0 {
+		return errors.New("no amdgpu recover file in debugfs")
+	}
+	// The unit's WatchdogSec is 3 minutes, and these steps together can
+	// take longer, so each step tells systemd that the watchdog is alive.
+	Notify("WATCHDOG=1")
+	sctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	_, err := w.d.Run(sctx, "setpriv", AsSibyl("systemctl", "--user", "stop", "llama-swap.service")...)
+	cancel()
+	if err != nil {
+		w.d.Log.Warn("stop llama-swap before the GPU reset", "err", err)
+	}
+	Notify("WATCHDOG=1")
+	deadline := time.Now().Add(kfdWait)
+	for pids := w.d.kfdUsers(); len(pids) > 0; pids = w.d.kfdUsers() {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("processes %s still hold /dev/kfd", strings.Join(pids, " "))
+		}
+		if err := sleepCtx(ctx, time.Second); err != nil {
+			return err
+		}
+	}
+	for i, f := range files {
+		if i > 0 {
+			if err := sleepCtx(ctx, gpuResetGap); err != nil {
+				return err
+			}
+		}
+		Notify("WATCHDOG=1")
 		cctx, cancel := context.WithTimeout(ctx, gpuResetTimeout)
 		res := make(chan error, 1)
 		go func() {
@@ -378,12 +444,8 @@ func (w *Watchdog) gpuReset(ctx context.Context) error {
 		}
 		cancel()
 		if err != nil {
-			return fmt.Errorf("reset %s: %w", g.PCIAddr, err)
+			return fmt.Errorf("reset %s: %w", filepath.Base(filepath.Dir(f)), err)
 		}
-		done++
-	}
-	if done == 0 {
-		return errors.New("no amdgpu recover file in debugfs")
 	}
 	return nil
 }

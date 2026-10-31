@@ -232,6 +232,9 @@ func (d *Diag) Upload(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if limit := d.Cfg.Upload.MaxBundleBytes; int64(len(data)) > limit {
+		return "", fmt.Errorf("the bundle is %d bytes, over max_bundle_bytes (%d)", len(data), limit)
+	}
 	id := strings.TrimSuffix(filepath.Base(path), ".tar.gz")
 	sum := sha256.Sum256(data)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)

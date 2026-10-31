@@ -476,6 +476,32 @@ func TestGPUResetFindsTheDebugfsFile(t *testing.T) {
 	if !fr.called(want) {
 		t.Fatalf("calls = %v, want %q", fr.calls, want)
 	}
+	stop := slices.IndexFunc(fr.calls, func(c string) bool { return strings.Contains(c, "stop llama-swap.service") })
+	if stop < 0 || stop > slices.Index(fr.calls, want) {
+		t.Fatalf("llama-swap must stop before the reset; calls: %v", fr.calls)
+	}
+}
+
+func TestGPUResetRefusesWhileAProcessHoldsKFD(t *testing.T) {
+	_, srv := newFakeSwap(t)
+	d, fr := newDiag(t, srv.URL)
+	defer func(old time.Duration) { kfdWait = old }(kfdWait)
+	kfdWait = 50 * time.Millisecond
+	fd := filepath.Join(d.Root, "proc/77/fd")
+	if err := os.MkdirAll(fd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/dev/kfd", filepath.Join(fd, "3")); err != nil {
+		t.Fatal(err)
+	}
+	w := NewWatchdog(d)
+	err := w.gpuReset(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "77") {
+		t.Fatalf("err = %v, want a refusal that names PID 77", err)
+	}
+	if fr.count("cat ") != 0 {
+		t.Fatalf("a GPU reset ran while /dev/kfd was open; calls: %v", fr.calls)
+	}
 }
 
 func TestBootCheckEntersSafeModeAfterABootLoop(t *testing.T) {
@@ -702,6 +728,27 @@ func TestUploadRefusesARedirect(t *testing.T) {
 	}
 	if _, err := d.Upload(context.Background(), b.Path); err == nil || hits != 0 {
 		t.Fatalf("upload through a redirect: err %v, hits %d", err, hits)
+	}
+}
+
+func TestUploadRefusesABundleOverTheLimit(t *testing.T) {
+	var hits int
+	ingest := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer ingest.Close()
+	_, srv := newFakeSwap(t)
+	d, _ := newDiag(t, srv.URL)
+	dir, _ := d.Capture(context.Background(), "manual", nil, false)
+	b, err := d.BuildBundle(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SaveConsent(ConsentManual, ingest.URL); err != nil {
+		t.Fatal(err)
+	}
+	d.Cfg.Upload.MaxBundleBytes = 10
+	_, err = d.Upload(context.Background(), b.Path)
+	if err == nil || !strings.Contains(err.Error(), "max_bundle_bytes") || hits != 0 {
+		t.Fatalf("upload over the limit: err %v, hits %d", err, hits)
 	}
 }
 
