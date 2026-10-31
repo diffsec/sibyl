@@ -63,6 +63,10 @@ The host keeps running the current version. See [If an update fails](updates.md#
 
 The TPM did not unlock the disk. Type the recovery key. See [Disk encryption and recovery](recovery.md).
 
+## Inference stops after a crash
+
+If the host crashes more than twice in 6 hours, it starts in safe mode without llama-swap. See [Safe mode](diagnostics.md#safe-mode).
+
 ## Report a problem
 
 Open an issue at [github.com/diffsec/sibyl/issues](https://github.com/diffsec/sibyl/issues). Include these items:
@@ -70,5 +74,6 @@ Open an issue at [github.com/diffsec/sibyl/issues](https://github.com/diffsec/si
 - The output of `sudo bootc status`.
 - The Status screen.
 - The log of the service that fails.
+- The diagnostic ID from `sudo sibyl-diag bundle`. See [Send a problem to support](diagnostics.md#send-a-problem-to-support).
 
 Do not include a key.

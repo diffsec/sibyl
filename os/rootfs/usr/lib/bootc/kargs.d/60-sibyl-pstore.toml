@@ -1,0 +1,3 @@
+# Fedora builds EFI pstore in but disabled. Turn it on, so that a kernel
+# panic leaves its text in an EFI variable for sibyl-diag at the next boot.
+kargs = ["efi_pstore.pstore_disable=0"]

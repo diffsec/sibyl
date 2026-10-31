@@ -538,6 +538,10 @@ The host has its own CA in `/var/lib/sibyl-ca` (root only). `/usr/libexec/sibyl/
 - The CA's name constraints limit it to local names and private ranges. The server certificate leaves out any name or address outside them.
 - Clients trust `ca.crt` once.
 
+## Diagnostics and watchdog
+
+`sibyl-diag` (`cmd/sibyl-diag`, `internal/diag`) runs as root on the host. It samples GPU, host and llama-server metrics with tokens per second per request, watches inference, and climbs a recovery ladder: restart llama-swap, reset AMD GPUs, reboot, then stop and report. A hardware watchdog, kernel panic settings, pstore and a persistent journal cover a full lockup. After a boot loop the host comes up in safe mode, without llama-swap. Each failure leaves an incident on the box. A redacted bundle with a diagnostic ID such as `SBL-7K2M-9QXD` carries one to support, and upload is opt-in. [Diagnostics design](diagnostics.md) describes it, with the ingest API and the plan for a fleet service.
+
 ## Delivery
 
 | Phase | Scope | Exit check | Status |
@@ -549,6 +553,7 @@ The host has its own CA in `/var/lib/sibyl-ca` (root only). `/usr/libexec/sibyl/
 | 5 | User guide and developer guide | A new user installs Sibyl on a fresh host from the guide alone. | Built. The guides now live under `docs/getting-started/`, `docs/guides/` and `docs/development.md` (see [the docs map](../index.md)). |
 | 6 | Smart model router: a gateway in front of llama-swap that serves local requests that fit and routes others to frontier providers (Anthropic, OpenAI, OpenRouter and similar), using request profiles and customisable rules, optionally decided by a small local classifier model | Exit checks per step in the [router design](router.md#delivery). | Steps 6.1 to 6.4 built, except the Open WebUI feedback signal and the `llm` classifier. |
 | 7 | Web console: a browser view of the TUI, served by the System API | Exit checks per step in the [web console design](web-console.md#delivery). | Steps 7.1 to 7.4 built. |
+| 8 | Diagnostics, inference watchdog, opt-in upload, then the ingest and fleet services | Phases D1 to D5 in the [diagnostics design](diagnostics.md#phases). | D1 built, except the checks on the test host. |
 
 ## Open items
 

@@ -117,3 +117,46 @@ func TestDetectArch(t *testing.T) {
 		t.Errorf("gpus = %+v", gpus)
 	}
 }
+
+func TestSampleAndRecoverFile(t *testing.T) {
+	root := t.TempDir()
+	fakeCard(t, root, "card1", "0000:03:00.0", map[string]string{
+		"vendor": "0x1002", "gpu_busy_percent": "97", "mem_info_vram_used": "1024",
+	})
+	hw := filepath.Join(root, "devices", "0000:03:00.0", "hwmon", "hwmon2")
+	dbg := filepath.Join(root, "kernel", "debug", "dri", "1")
+	for path, v := range map[string]string{
+		filepath.Join(hw, "temp2_label"):                           "junction",
+		filepath.Join(hw, "temp2_input"):                           "88000",
+		filepath.Join(hw, "power1_average"):                        "325000000",
+		filepath.Join(dbg, "name"):                                 "amdgpu dev=0000:03:00.0 unique=0000:03:00.0",
+		filepath.Join(dbg, "amdgpu_gpu_recover"):                   "",
+		filepath.Join(root, "kernel", "debug", "dri", "2", "name"): "amdgpu dev=0000:83:00.0",
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(v+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gpus, err := Detect(root)
+	if err != nil || len(gpus) != 1 {
+		t.Fatalf("Detect = %v, %v", gpus, err)
+	}
+	s := Sample(root, gpus[0])
+	if s["busy_percent"] != 97 || s["temp_junction_c"] != 88 || s["power_w"] != 325 || s["vram_used_bytes"] != 1024 {
+		t.Errorf("Sample = %v", s)
+	}
+	if got, want := RecoverFile(root, gpus[0]), filepath.Join(dbg, "amdgpu_gpu_recover"); got != want {
+		t.Errorf("RecoverFile = %q, want %q", got, want)
+	}
+	other := gpus[0]
+	other.PCIAddr = "0000:83:00.0"
+	if got := RecoverFile(root, other); got != "" {
+		t.Errorf("RecoverFile for a GPU with no recover file = %q", got)
+	}
+	if s := Sample(root, GPU{}); len(s) != 0 {
+		t.Errorf("Sample of an undetected GPU = %v", s)
+	}
+}
