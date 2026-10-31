@@ -130,13 +130,16 @@ func run(ctx context.Context, d *diag.Diag, cmd string, args []string) error {
 		return submit(ctx, d, fs, args)
 	case "consent":
 		endpoint := fs.String("endpoint", "", "ingest service URL (https)")
-		_ = fs.Parse(args)
-		if fs.NArg() == 0 {
+		mode, err := modeAndFlags(fs, args)
+		if err != nil {
+			return err
+		}
+		if mode == "" {
 			c := d.LoadConsent()
 			fmt.Printf("mode=%s endpoint=%s\n", c.Mode, orNone(d.Endpoint()))
 			return nil
 		}
-		c, err := d.SaveConsent(fs.Arg(0), *endpoint)
+		c, err := d.SaveConsent(mode, *endpoint)
 		if err != nil {
 			return err
 		}
@@ -253,6 +256,25 @@ func outGroup(d *diag.Diag) error {
 	}
 	d.Group, d.Label = gid, "system_u:object_r:container_file_t:s0"
 	return nil
+}
+
+// modeAndFlags parses "MODE -flag value" as well as "-flag value MODE". The
+// flag package stops at the first argument that is not a flag, so without a
+// second parse, "consent manual -endpoint URL" drops the endpoint.
+func modeAndFlags(fs *flag.FlagSet, args []string) (string, error) {
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	mode := fs.Arg(0)
+	if fs.NArg() > 1 {
+		if err := fs.Parse(fs.Args()[1:]); err != nil {
+			return "", err
+		}
+		if fs.NArg() > 0 {
+			return "", fmt.Errorf("unexpected argument %q", fs.Arg(0))
+		}
+	}
+	return mode, nil
 }
 
 func noteDetails(note string) map[string]any {
