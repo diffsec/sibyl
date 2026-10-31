@@ -2,7 +2,7 @@
 
 This guide shows how to read the watchdog state, send a problem to support, and leave safe mode.
 
-Sibyl watches inference and brings it back after a failure. It restarts llama-swap, then reboots. A GPU reset step exists, but it is off by default, because it hung the test host. After each failure it saves an incident with the logs, the GPU state and the speed of each model. Incidents stay on the host. [Diagnostics design](../design/diagnostics.md) describes how it works.
+Sibyl watches inference and brings it back after a failure. It restarts llama-swap, then resets AMD GPUs, then reboots. After each failure it saves an incident with the logs, the GPU state and the speed of each model. Incidents stay on the host. [Diagnostics design](../design/diagnostics.md) describes how it works.
 
 ## Show the state
 
@@ -33,9 +33,11 @@ sudo sibyl-diag perf -since 24h
 Sibyl sends nothing unless you turn uploads on. `manual` sends a bundle only when you run `submit`, and asks first. `automatic` sends every incident:
 
 ```bash
-sudo sibyl-diag consent manual
+sudo sibyl-diag consent manual -endpoint https://support.example.com
 sudo sibyl-diag submit
 ```
+
+The Sibyl ingest service does not exist yet, so the image has no default endpoint. Use the endpoint that your support provider gives you.
 
 `sudo sibyl-diag consent off` turns uploads off again.
 

@@ -24,9 +24,9 @@ watchdog:
   # Recovery ladder: restart, GPU reset, reboot, then stop acting.
   max_restarts: 3
   restart_window: 900
-  # Off: on the test host's two RX 7900 XTX cards, one reset in two hung the
-  # host, and after the other, generation ran at 41 tok/s against 61.
-  gpu_reset: false
+  # The reset stops llama-swap first and resets one GPU at a time. Resets
+  # with llama-server still running hung the test host. docs/design/diagnostics.md
+  gpu_reset: true
   reboot: true
   max_reboots: 2
   reboot_window: 21600

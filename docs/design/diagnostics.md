@@ -103,6 +103,10 @@ The watchdog runs every 30 seconds. An HTTP probe must fail 3 times in a row bef
 | `requests_processing > 0`, and no change in generated tokens, prompt tokens or decode batches for 300 seconds | `generation-stalled` |
 | A kernel line matches an amdgpu, NVIDIA Xid, i915, xe, soft-lockup, hung-task or OOM pattern | `gpu-fault`, capture only |
 
+`generation-stalled` covers a GPU that hangs during a decode. In llama.cpp b11889, llama-server runs the decode and the GPU sync inside `yield_to_queue` (`tools/server/server-context.cpp`, line 4582). A second thread serves metrics tasks during that call, and the HTTP threads serve `/health`. A decode that never returns therefore leaves `/health` and `/metrics` up, with `requests_processing` at 1 and counters that do not move. A stopped process (`kill -STOP`) fails `/health` instead, and gives `model-unresponsive`.
+
+The watchdog does not probe a model in state `starting`. llama-swap's `healthCheckTimeout: 600` bounds that case. On the test host, a model whose `/health` answered 503 for ever got "health check timed out after 10m0s" at 600.7 seconds, and llama-swap stopped its process.
+
 The watchdog does not probe while the unit starts or stops, because an image pull at start can take minutes. It does nothing while the unit is `inactive`, because an operator stopped it, for example from Arcane.
 
 sibyl-diag reaches the `sibyl` user manager through `setpriv` to UID 1001 and its user bus, for the probes, the restart and the captures. `systemctl --user -M sibyl@` asks PID 1 for a transient bridge unit. On the test host that failed with "Connection reset by peer" while a PID 1 job hung, and the watchdog lost its restart.
@@ -112,16 +116,22 @@ sibyl-diag reaches the `sibyl` user manager through `setpriv` to UID 1001 and it
 `diag.Decide` picks the next step from the recovery history:
 
 1. Restart llama-swap, at most 3 times in 15 minutes. A crash loop skips this step, because systemd already restarts the unit.
-2. Only with `gpu_reset: true`, which is off by default: reset each AMD GPU by reading `/sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`, then restart llama-swap. Once in 15 minutes. If the read fails or takes over 60 seconds, the driver is stuck, and the watchdog goes to step 3. A read of a wedged GPU can block in the kernel for good. The watchdog then stops waiting after 60 seconds and leaves the read behind. It also saves the reset before the read, so a restart of the watchdog goes to step 3 and does not try a second reset.
+2. On AMD GPUs, with `gpu_reset: true`, the default: stop llama-swap, and wait up to 60 seconds for every process to close `/dev/kfd`. Then reset each AMD GPU by reading `/sys/kernel/debug/dri/<n>/amdgpu_gpu_recover`, one GPU at a time with 15 seconds between them, and start llama-swap. Once in 15 minutes. If a process still holds `/dev/kfd`, the watchdog does not reset and goes to step 3. If a read fails or takes over 60 seconds, the driver is stuck, and the watchdog goes to step 3. A read of a wedged GPU can block in the kernel for good. The watchdog then stops waiting after 60 seconds and leaves the read behind. It also saves the reset before the read, so a restart of the watchdog goes to step 3 and does not try a second reset. The watchdog pings systemd at each step, because the steps together can take longer than `WatchdogSec=3min`.
 3. Reboot, at most 2 times in 6 hours.
 4. Stop acting and report `degraded`. The box stays up, so that an operator can read the state. The flag clears when the probes pass again.
 
-`gpu_reset` is off by default because of the runs on the test host, which has two RX 7900 XTX cards (gfx1100) on kernel 7.2.13:
+The test host has two RX 7900 XTX cards (gfx1100) on kernel 7.2.13-200.fc44. The first version of step 2 reset both cards back to back with llama-server still running:
 
-- The first reset of both cards succeeded, and both models answered after a llama-swap restart. Generation then ran at 41 tokens per second, against 61 after a clean boot.
-- The second reset hung the host in `GPU smu mode1 reset` on the second card. The hardware watchdog reset the board 32 seconds later.
+- One run hung the host in `GPU smu mode1 reset` on 0000:0b:00.0, and the hardware watchdog reset the board. The kernel log shows "Failed to evict queue 12" and "remove_all_kfd_queues_mes: Failed to remove queue 10" on 0000:07:00.0. The reset of the second card began 16 ms after the first card resumed. No upstream report matches this case exactly. Related reports show the same eviction failure under ROCm load: drm/amd issues 3056, 2421 and 2643, and ROCm/TheRock issue 5793.
+- After another run, generation ran at 41 tokens per second against 61. The reset did not cause that. See "Memory clock" below.
 
-A reboot takes about a minute and gives a clean GPU state, so the ladder goes from restart to reboot.
+On 2026-10-31, the stop, `/dev/kfd` and 15-second sequence ran 9 times by hand on the test host with no hang. Five full trials each gave answers from flint-q8_0 and the embedding model. Flint ran at 62.1 to 63.2 tokens per second, against 62.3 and 62.6 with no reset. Then the watchdog itself ran the sequence on image `sha-0cce833-amd`, after a SIGSTOP of flint's llama-server with 3 restarts in the window. Both cards reset with no "Failed to evict queue" line, llama-swap was active 40 seconds after the problem, and flint ran at 61.9 to 63.8 tokens per second. On this evidence `gpu_reset` is on by default. The evidence is one host with one GPU model and one kernel. If a reset hangs a host, the hardware watchdog resets the board, and boot check counts the unclean boot toward safe mode.
+
+The reset writes "GPU reset" and "VRAM is lost" to the kernel log, so the next tick records a `gpu-fault` incident for the watchdog's own reset.
+
+#### Memory clock
+
+On the test host, flint-q8_0 runs at 42 tokens per second when it is the only model loaded, and at 62 to 64 when the embedding model is also loaded. During a flint-only generation, `pp_dpm_mclk` stays at 96 MHz on both cards. With the embedding model loaded, it is 1249 MHz. `power_dpm_force_performance_level=high` gives 61.5 tokens per second with flint alone. The COMPUTE power profile does not help: 41.95. After a llama-swap restart, the embedding model is not loaded until a request needs it, so any restart can show the slow speed. A speed check must load the same models as the run it is compared with.
 
 A `service-failed` or `crash-loop` problem goes from step 1 to step 4 when the kernel log showed no GPU fault in the last 15 minutes. A unit that does not stay up for that reason has a configuration or image problem, such as a typo in the llama-swap config or a missing image. A GPU reset or a reboot does not fix it.
 
@@ -235,7 +245,7 @@ The agent has no remote shell. A support session that needs one is a separate, t
 
 | Phase | Scope | Exit check |
 |---|---|---|
-| D1 | `sibyl-diag`: sampler, watchdog, boot check, incidents, bundles, consent, upload client. Hardware watchdog, panic settings, persistent journal. | Unit tests pass in CI. On the test host: `kill -STOP` on llama-server gives a `generation-stalled` incident and a restart. `echo c > /proc/sysrq-trigger` gives a reboot and an `unclean-shutdown` incident with a pstore record. `sibyl-diag hardware` lists a watchdog device. |
+| D1 | `sibyl-diag`: sampler, watchdog, boot check, incidents, bundles, consent, upload client. Hardware watchdog, panic settings, persistent journal. | Unit tests pass in CI. On the test host: `kill -STOP` on llama-server gives a `model-unresponsive` incident and a restart. An upstream with frozen counters gives a `generation-stalled` incident and a restart. `echo c > /proc/sysrq-trigger` gives a reboot and an `unclean-shutdown` incident with a pstore record. `sibyl-diag hardware` lists a watchdog device. |
 | D2 | System API routes that read `out/status.json` and `out/perf.json`, and host actions in `hostd.Decode` for bundle, submit, consent and safe mode. A TUI Diagnostics screen that shows speed per model, incidents and the latest diagnostic ID. The setup wizard asks for the consent mode. | An operator makes a bundle and reads its ID from the TUI, with no sudo. |
 | D3 | Ingest service with API v1, and support lookup by diagnostic ID | A box in `manual` mode uploads, and support finds the bundle by ID. |
 | D4 | Pairing, fleet agent, inventory and metrics in the console | Ten paired boxes show live health. |
@@ -243,8 +253,10 @@ The agent has no remote shell. A support session that needs one is a separate, t
 
 ## Open items
 
-- D1 ran on the test host on 2026-10-30. A stopped llama-server gave a `model-unresponsive` incident and a restart after 95 seconds. A sysrq crash gave a panic record in EFI pstore and an `unclean-shutdown` incident. A GPU reset that hung the host ended with a hardware watchdog reset and an `unclean-shutdown` incident. `generation-stalled` did not fire in that run, because a stopped process also fails its health probe first. It covers a server that answers health checks but makes no progress.
-- The GPU reset needs a fix or a vendor answer before it is on by default. See the recovery ladder.
+- D1 ran on the test host on 2026-10-30. A stopped llama-server gave a `model-unresponsive` incident and a restart after 95 seconds. A sysrq crash gave a panic record in EFI pstore and an `unclean-shutdown` incident. A GPU reset that hung the host ended with a hardware watchdog reset and an `unclean-shutdown` incident.
+- On 2026-10-31, a fake upstream in the llama-swap configuration answered `/health` and served `/metrics` with `requests_processing 1` and fixed counters. With `stall_seconds: 60`, the watchdog recorded `generation-stalled` 118 seconds after the request started, and llama-swap was active again 13 seconds later.
+- On 2026-10-31, a manual `sibyl-diag submit` sent a 336078-byte bundle to a test receiver on the LAN, with a test CA in the host trust store. The bundle held no host secret, LAN address, MAC address, machine ID or hostname. Automatic consent built and queued a bundle at a watchdog capture. No production ingest service exists yet (D3).
+- The memory clock stays at its lowest level when flint-q8_0 runs alone on the test host. The fix is not in D1. Options are a pinned clock level, or a model that stays loaded on each card.
 - `kernel.panic_on_oops=1` reboots on any oops, including one that the box can survive. If it causes reboots on the test host, remove it and keep `softlockup_panic`.
 - greenboot can roll back a bootc upgrade that fails a health check at boot, and a check can call `sibyl-diag status`. It needs a test with bootc on Fedora 44 first.
 - kdump gives a full kernel dump but reserves memory at boot. pstore gives the panic text only. Decide after the first real crash if pstore is enough.

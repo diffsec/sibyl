@@ -540,7 +540,7 @@ The host has its own CA in `/var/lib/sibyl-ca` (root only). `/usr/libexec/sibyl/
 
 ## Diagnostics and watchdog
 
-`sibyl-diag` (`cmd/sibyl-diag`, `internal/diag`) runs as root on the host. It samples GPU, host and llama-server metrics with tokens per second per request, watches inference, and climbs a recovery ladder: restart llama-swap, reboot, then stop and report. A GPU reset step is off by default. A hardware watchdog, kernel panic settings, pstore and a persistent journal cover a full lockup. After a boot loop the host comes up in safe mode, without llama-swap. Each failure leaves an incident on the box. A redacted bundle with a diagnostic ID such as `SBL-7K2M-9QXD` carries one to support, and upload is opt-in. [Diagnostics design](diagnostics.md) describes it, with the ingest API and the plan for a fleet service.
+`sibyl-diag` (`cmd/sibyl-diag`, `internal/diag`) runs as root on the host. It samples GPU, host and llama-server metrics with tokens per second per request, watches inference, and climbs a recovery ladder: restart llama-swap, reset AMD GPUs, reboot, then stop and report. A hardware watchdog, kernel panic settings, pstore and a persistent journal cover a full lockup. After a boot loop the host comes up in safe mode, without llama-swap. Each failure leaves an incident on the box. A redacted bundle with a diagnostic ID such as `SBL-7K2M-9QXD` carries one to support, and upload is opt-in. [Diagnostics design](diagnostics.md) describes it, with the ingest API and the plan for a fleet service.
 
 ## Delivery
 
