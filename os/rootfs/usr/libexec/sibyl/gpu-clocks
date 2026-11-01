@@ -1,0 +1,30 @@
+#!/bin/bash
+# Keep an AMD GPU's shader clock above its lowest level.
+#
+# A model split across two cards keeps each card idle while the other one
+# works. In auto mode, the power firmware drops the shader clock to its
+# lowest level in each of those gaps, and generation slows by up to a third
+# (41 against 61 tokens per second on two RX 7900 XTX cards). A soft minimum
+# at level 1 removes that. An idle card still gates its clocks, so idle power
+# stays the same (17 to 20 W per card on the test host).
+#
+# udev runs this when an amdgpu card appears, and again after a GPU reset.
+# Argument: the card's sysfs path, for example /sys/devices/.../drm/card0.
+set -euo pipefail
+
+dev="$1/device"
+[[ -w "$dev/pp_dpm_sclk" && -w "$dev/power_dpm_force_performance_level" ]] || exit 0
+
+# A runtime-suspended card refuses reads and writes with EBUSY, so hold it
+# awake while this script runs.
+control=$(<"$dev/power/control")
+echo on >"$dev/power/control"
+trap 'echo "$control" >"$dev/power/control"' EXIT
+
+# The levels are the minimum, the current clock and the maximum. The first
+# line reads "S:" while the shader engine sleeps. Skip a card with fewer.
+if (($(grep -cE '^(S|[0-9]+):' "$dev/pp_dpm_sclk") < 3)); then
+    exit 0
+fi
+echo manual >"$dev/power_dpm_force_performance_level"
+echo 1 2 >"$dev/pp_dpm_sclk"

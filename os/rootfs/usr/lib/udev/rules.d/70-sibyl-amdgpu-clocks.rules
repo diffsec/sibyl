@@ -1,0 +1,5 @@
+# Keep the shader clock of each amdgpu card above its lowest level. See
+# /usr/libexec/sibyl/gpu-clocks. A GPU reset sends a change event with
+# WEDGED set, so the setting is applied again after a reset.
+ACTION=="add", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", DRIVERS=="amdgpu", RUN+="/usr/libexec/sibyl/gpu-clocks %S%p"
+ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card[0-9]*", ENV{DEVTYPE}=="drm_minor", ENV{WEDGED}=="?*", DRIVERS=="amdgpu", RUN+="/usr/libexec/sibyl/gpu-clocks %S%p"

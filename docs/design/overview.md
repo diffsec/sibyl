@@ -117,6 +117,20 @@ CI builds the NVIDIA and Intel host images only for release tags or with `gh wor
 
 The `sibyl` user is in the `render` and `video` groups. Quadlet passes `/dev/kfd` and `/dev/dri` with `AddDevice=` and keeps the groups with `GroupAdd=keep-groups`. SELinux blocks device access by `container_t` unless the `container_use_devices` boolean is on. `sibyl-selinux.service` sets it at each boot.
 
+#### GPU clocks
+
+A model split across two cards leaves each card idle while the other card works. In auto mode, the amdgpu power firmware drops the shader clock to its lowest level in each of those gaps. On the AMD test host, which has two RX 7900 XTX cards, this cost a third of the generation speed:
+
+| Model | auto (tokens/s) | Level 1 minimum (tokens/s) |
+|---|---|---|
+| flint-q8_0 | 41 | 61 |
+| ornith-1.5-35b-q8_0 | 49 | 71 to 72 |
+| qwen3.8-flash-next-reap-288-fn-r1 | 24 to 25 | 31 |
+
+`70-sibyl-amdgpu-clocks.rules` runs `/usr/libexec/sibyl/gpu-clocks` when an amdgpu card appears. The script sets `power_dpm_force_performance_level` to `manual` and `pp_dpm_sclk` to `1 2`, so the shader clock stays between the middle and the top level while the card works. The memory clock stays automatic. An idle card still gates its clocks, so idle power does not change: 17 and 20 W per card with a model loaded, the same as auto. `high` gives the same speed but holds about 75 W per card at idle.
+
+The setting stays through a runtime suspend and through a GPU reset. A reset sends a `change` event with `WEDGED` set, and the rule applies the setting again on that event. The script holds the card awake while it writes, because a suspended card refuses sysfs reads and writes with `EBUSY`. `llama-bench` shows no difference between the two modes, because it sends tokens with no gap. Only `llama-server` shows the gain.
+
 ### Inference images
 
 `containers/llama-swap/Containerfile.hip` builds llama.cpp on `rocm/dev-ubuntu-24.04:<ROCm>-complete`. It builds for the Radeon and Ryzen targets that llama.cpp's own ROCm image builds, without the Instinct cards. The runtime stage keeps only the HIP runtime libraries that `llama-server` links against, and the rocBLAS and hipBLASLt kernel files for those targets. The build fails if ROCm has no rocBLAS kernels for a target, because else rocBLAS fails at run time on that card. One target took about 15 minutes to compile on a GitHub runner.
@@ -128,6 +142,8 @@ The `sibyl` user is in the `render` and `video` groups. Quadlet passes `/dev/kfd
 `containers/llama-swap-cuda/Containerfile` starts from llama.cpp's own CUDA image (`ghcr.io/ggml-org/llama.cpp:full-cuda-<release>`, pinned by digest), so CI compiles no CUDA. It moves llama.cpp to `/opt/llama`, like the other images. The NVIDIA driver and `libcuda` come from the host through CDI, so the library check allows only `libcuda.so.1` to be missing at build time.
 
 All the images add the llama-swap release binary and run as UID 10001 inside the container.
+
+The HIP image sets `GPU_MAX_HW_QUEUES=1`. With the default of 4 hardware queues per process, two idle `llama-server` processes on one card kept it 100% busy at its top clock, at 60 to 120 W. With 1 queue, the card idles at 20 W. `llama-bench` on flint-q8_0 gave 61.7 tokens per second generation with 1 queue and with 4. Prompt speed at 512 tokens was about 3% higher with 1 queue.
 
 | Build argument | Default | Purpose |
 |---|---|---|
