@@ -1,0 +1,22 @@
+[Unit]
+Description=Sibyl inference watchdog
+After=sibyl-diag-boot.service user@1001.service
+Wants=user@1001.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/sbin/sibyl-diag watchdog
+# systemd restarts the watchdog itself if a tick hangs.
+WatchdogSec=3min
+Restart=always
+RestartSec=10
+OOMScoreAdjust=-900
+# Runs as root without a sandbox: it restarts the sibyl user's units, reads
+# the kernel journal, reads amdgpu debugfs to reset a GPU, runs podman as
+# sibyl for incidents, and can reboot the host.
+PrivateTmp=yes
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

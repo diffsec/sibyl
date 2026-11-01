@@ -34,6 +34,8 @@ type GPU struct {
 	// Arch is the ROCm target of an AMD GPU, such as gfx1100. It is empty
 	// when the amdkfd driver does not report one.
 	Arch string `json:"arch,omitempty"`
+	// card is the DRM directory, such as card1, that Sample reads.
+	card string
 }
 
 var cardName = regexp.MustCompile(`^card[0-9]+$`)
@@ -66,6 +68,7 @@ func Detect(sysRoot string) ([]GPU, error) {
 		seen[addr] = true
 
 		g := GPU{
+			card:      e.Name(),
 			PCIAddr:   addr,
 			VendorID:  readTrim(dev, "vendor"),
 			DeviceID:  readTrim(dev, "device"),

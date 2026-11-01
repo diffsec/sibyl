@@ -5,8 +5,9 @@
 
 
 # sibyl-hostd runs the privileged host actions, sibyl-install is the disk
-# installer, and sibyl-update applies offline bundles. They run on the host,
-# so they are built here.
+# installer, sibyl-update applies offline bundles, and sibyl-diag is the
+# diagnostics and inference watchdog. They run on the host, so they are
+# built here.
 FROM cgr.dev/chainguard/go:latest@sha256:0d2e83bf723e1edef67732d22b9272dd1311c7a19dff695bd6928a7831c31a9f AS hostd
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -15,14 +16,15 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/sibyl-hostd \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-diag ./cmd/sibyl-diag
 
 # The variant build scripts, as a stage: a RUN step on an SELinux build host
 # cannot read a bind mount taken straight from the build context.
 FROM scratch AS variants
 COPY os/variants/ /
 
-FROM quay.io/fedora/fedora-bootc:44@sha256:cbca5adc859a7c973aef49b5de1e43cc540409758f598674e3c5594099448a75
+FROM quay.io/fedora/fedora-bootc:44@sha256:b3f3896fdefc7e6b285a0df0667338e4438da8ad82cb8dbd9625ab34e8f35903
 
 ARG GPU_VARIANT=amd
 ARG SIBYL_VERSION=dev
@@ -50,6 +52,7 @@ COPY os/rootfs/ /
 COPY --from=hostd /out/sibyl-hostd /usr/libexec/sibyl/hostd
 COPY --from=hostd /out/sibyl-install /usr/sbin/sibyl-install
 COPY --from=hostd /out/sibyl-update /usr/sbin/sibyl-update
+COPY --from=hostd /out/sibyl-diag /usr/sbin/sibyl-diag
 
 # render and video live in /usr/lib/group, where systemd-sysusers cannot add
 # members. Copy them to /etc/group so the "m" lines in sysusers.d apply.
@@ -61,6 +64,7 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
     && echo "${GPU_VARIANT}" > /usr/share/sibyl/gpu-variant \
     && systemctl enable nftables.service sibyl-selinux.service sibyl-firstboot.service sibyl-operator-export.service \
         sibyl-hostd.path sibyl-hostd-auth.path sibyl-hostd-state.timer sibyl-tls.timer sibyl-provision.service \
+        sibyl-diag-boot.service sibyl-diag-watchdog.service sibyl-diag-metrics.service sibyl-diag-upload.timer \
     && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
     && mkdir -p /etc/containers/systemd/users/1001/llama-swap.container.d \

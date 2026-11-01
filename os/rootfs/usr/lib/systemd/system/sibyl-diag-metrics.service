@@ -1,0 +1,34 @@
+[Unit]
+Description=Sibyl metrics sampler (GPU, host, tokens per second)
+After=sibyl-diag-boot.service
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/sbin/sibyl-diag metrics
+WatchdogSec=2min
+Restart=always
+RestartSec=10
+Nice=10
+IOSchedulingClass=idle
+# Reads sysfs, /proc and llama-swap on loopback. Writes only its data directory.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sibyl-diag
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

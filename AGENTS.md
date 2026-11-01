@@ -16,6 +16,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 - `cmd/sibyl-hostd` is the root agent for hostname, network and accounts. `os/Containerfile` builds it into the host image. Its checks in `internal/hostd` are the security boundary, so keep every new action in `hostd.Decode` and test the refusals. The one exception is `password-check` in `internal/hostd/auth.go`. It is kept out of `Decode` on purpose, so the disk queue refuses it, and only the memory queue `/run/sibyl-auth/req` takes it.
 - `internal/modelform` is the model settings form that the TUI and the console share.
 - `internal/console` is the web console at `/console/`. It calls the System API through `internal/client` in process. Keep every console change on an existing API route, and `docs/design/web-console.md` in step.
+- `cmd/sibyl-diag` and `internal/diag` are the diagnostics and inference watchdog. They run as root on the host. The design is in `docs/design/diagnostics.md`. A new capture step must go through the redactor before it can reach a bundle.
 - `.github/workflows/bootc.yml` builds, pushes and signs all images.
 
 ## Rules

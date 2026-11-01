@@ -1,0 +1,20 @@
+[Unit]
+Description=Sibyl unclean-shutdown and boot-loop check
+# Before the sibyl user manager, so safe mode can keep llama-swap down.
+After=local-fs.target systemd-journald.service systemd-pstore.service systemd-tmpfiles-setup.service
+Before=user@1001.service sibyl-diag-watchdog.service sibyl-diag-metrics.service
+Wants=systemd-pstore.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# "-" keeps the unit active when the check fails. A failed unit does not run
+# ExecStop, and the next boot then counts this one as unclean.
+ExecStart=-/usr/sbin/sibyl-diag boot-check
+# A clean shutdown stops this unit and removes the "running" marker. A crash
+# or a hardware watchdog reset leaves it, and the next boot check sees it.
+ExecStop=/usr/sbin/sibyl-diag clean-shutdown
+TimeoutStartSec=5min
+
+[Install]
+WantedBy=multi-user.target
