@@ -20,13 +20,16 @@ To see what the last runs did:
 journalctl -u sibyl-auto-update.service -n 20
 ```
 
-To turn nightly updates off:
+### Change the window
 
-```bash
-sudo systemctl disable --now sibyl-auto-update.timer
-```
+The window is in host time. Set the host's time zone first if it is wrong, for example `sudo timedatectl set-timezone Australia/Brisbane`.
 
-To move the window, add a drop-in with `sudo systemctl edit sibyl-auto-update.timer`, then set an empty `OnCalendar=` line followed by your own `OnCalendar=` line.
+1. On the Status screen of `sibyl`, press `w`. In the web console, go to "Nightly updates" on the Status page.
+2. Turn nightly updates on or off.
+3. Choose the first run and the last run. The update runs every 30 minutes from the first run to the last. A window can cross midnight, such as 23:00 to 01:00.
+4. Save. In the TUI, `ctrl+s` saves from any field.
+
+Sibyl writes the window to `/etc/systemd/system/sibyl-auto-update.timer.d/window.conf`. Do not edit that file by hand: the next save replaces it.
 
 You can still update at any time, as the next sections show.
 
@@ -52,6 +55,7 @@ The Status screen of `sibyl` has the same controls as the web console.
 | `u` | Check for an update. |
 | `U` | Apply the available update. A form asks whether to reboot into it when it is staged. |
 | `B` | Reboot into a staged update. |
+| `w` | Set the nightly update window, or turn nightly updates off. |
 
 If you choose not to reboot when you apply, press `B` later. The Status screen shows the staged version until the reboot.
 

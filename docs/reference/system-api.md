@@ -289,10 +289,11 @@ These routes are host actions. They return `200`, `202` or `422` as [host action
 | Method and path | Body | Response | What it does |
 |---|---|---|---|
 | `POST /host/update/check` | None | A host action result | Asks the registry for a newer host image. The result is in `update.available` of `GET /host`. |
+| `PUT /host/update/window` | `{"enabled", "start", "end"}` | A host action result | Sets the nightly update window, in host time. `start` and `end` are `HH:MM` on the hour or the half hour, and the update runs every 30 minutes from `start` to `end`. `"enabled": false` turns nightly updates off. |
 | `POST /host/update/apply` | `{"reboot": false}` or `{"reboot": true}` | A host action result | Downloads and stages the newer host image. With `"reboot": true`, the host then reboots into it. The body is required. Send `{}` to stage without a reboot. |
 | `POST /host/reboot` | None | A host action result | Reboots the host after 5 seconds, for example into a staged update. |
 
-`update` in `GET /host` has these fields: `image`, `booted`, `booted_digest`, `staged` and `available`. [Updates](../guides/updates.md) explains the update and the rollback.
+`update` in `GET /host` has these fields: `image`, `booted`, `booted_digest`, `staged`, `available`, and `window` with `enabled`, `start` and `end`. [Updates](../guides/updates.md) explains the update and the rollback.
 
 ## Router
 

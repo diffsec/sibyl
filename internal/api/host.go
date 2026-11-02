@@ -53,6 +53,17 @@ func (s *Server) putHostname(w http.ResponseWriter, r *http.Request) {
 	s.hostAction(w, r, hostd.SetHostname, h)
 }
 
+// putUpdateWindow sets the nightly update window, or turns nightly updates
+// off.
+func (s *Server) putUpdateWindow(w http.ResponseWriter, r *http.Request) {
+	var u hostd.UpdateWindow
+	if err := readJSON(r, &u); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.hostAction(w, r, hostd.SetUpdateWindow, u)
+}
+
 func (s *Server) putNetwork(w http.ResponseWriter, r *http.Request) {
 	var n hostd.Network
 	if err := readJSON(r, &n); err != nil {

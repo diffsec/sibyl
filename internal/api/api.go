@@ -171,6 +171,7 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /host/update/check", s.postUpdateCheck)
 	auth.HandleFunc("POST /host/update/apply", s.postUpdateApply)
 	auth.HandleFunc("POST /host/reboot", s.postReboot)
+	auth.HandleFunc("PUT /host/update/window", s.putUpdateWindow)
 	auth.HandleFunc("PUT /host/users/{name}", s.putUser)
 	auth.HandleFunc("DELETE /host/users/{name}", s.deleteUser)
 	auth.HandleFunc("GET /pools", s.getPools)

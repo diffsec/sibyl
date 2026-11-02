@@ -48,6 +48,8 @@ type statusView struct {
 	name            string
 	email           string
 	pass            string
+	// win is the value of the update window form.
+	win hostd.UpdateWindow
 }
 
 func newStatusView(c *client.Client) *statusView { return &statusView{c: c} }
@@ -88,9 +90,12 @@ func (v *statusView) capturing() bool { return v.form != nil }
 
 func (v *statusView) help() string {
 	if v.form != nil {
+		if v.step == windowStep {
+			return "enter next · ctrl+s save · esc discard"
+		}
 		return "enter next · esc discard"
 	}
-	return "↑/↓ select · r restart service · o Open WebUI key · u check for an update · U apply it · B reboot into a staged update"
+	return "↑/↓ select · r restart service · o Open WebUI key · u check for an update · U apply it · B reboot into a staged update · w update window"
 }
 
 func (v *statusView) keyForm() tea.Cmd {
@@ -155,11 +160,16 @@ func (v *statusView) update(msg tea.Msg) tea.Cmd {
 				v.form = nil
 				return nil
 			}
+			if msg.String() == saveKey && v.step == windowStep {
+				return v.saveWindow()
+			}
 			return v.formStep(msg)
 		}
 		switch msg.String() {
 		case "o":
 			return v.keyForm()
+		case "w":
+			return v.windowForm()
 		case "u":
 			return v.hostCall("update check", func(ctx context.Context) (hostd.Result, error) { return v.c.CheckUpdate(ctx) })
 		case "U":
@@ -246,6 +256,9 @@ func (v *statusView) formStep(msg tea.Msg) tea.Cmd {
 	if v.form.State != huh.StateCompleted {
 		return cmd
 	}
+	if v.step == windowStep {
+		return tea.Batch(cmd, v.saveWindow())
+	}
 	if v.step == 2 {
 		v.form = nil
 		if !v.confirm {
@@ -324,6 +337,9 @@ func (v *statusView) render(int) string {
 	if u := v.data.host.Update; u != nil {
 		b.WriteString("\n" + titleSty.Render("Update") + "\n")
 		fmt.Fprintf(&b, "  running %s\n", u.Booted)
+		if t := windowText(u.Window); t != "" {
+			b.WriteString("  " + mutedSty.Render(t) + "\n")
+		}
 		if u.Available != "" {
 			b.WriteString("  " + goodSty.Render("available "+u.Available) + " · press U to apply\n")
 		}

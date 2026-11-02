@@ -145,6 +145,8 @@ func (a *Agent) do(ctx context.Context, act Action, data []byte) (msg, secret st
 		msg = "state refreshed"
 	case UpdateCheck, UpdateApply, Reboot:
 		msg, err = a.update(ctx, act, body)
+	case SetUpdateWindow:
+		msg, err = a.setUpdateWindow(ctx, body.(UpdateWindow))
 	default:
 		err = fmt.Errorf("unknown action %q", act)
 	}
