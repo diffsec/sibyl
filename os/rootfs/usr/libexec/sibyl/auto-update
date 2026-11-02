@@ -1,0 +1,85 @@
+#!/bin/bash
+# Stage a new Sibyl image, and reboot into it when no one is using the
+# models.
+#
+# sibyl-auto-update.timer runs this every 30 minutes from 03:00 to 05:30,
+# host time. Each run downloads and stages a new signed image if there is
+# one (bootc upgrade checks the signature). It reboots into a staged image
+# only if llama-swap answered no request in the last 30 minutes and no
+# llama-server is busy now. Otherwise it waits for the next run, or the next
+# night. bootc keeps the old image, so `bootc rollback` goes back.
+#
+# To turn it off: sudo systemctl disable --now sibyl-auto-update.timer
+set -euo pipefail
+
+IDLE_MINUTES=30
+
+log() { echo "sibyl-auto-update: $*"; }
+
+# as_sibyl runs a command as the sibyl user, as sibyl-diag does. Podman
+# needs the user's own HOME.
+as_sibyl() {
+    setpriv --reuid=1001 --regid=1001 --init-groups -- env HOME="$(getent passwd sibyl | cut -d: -f6)" \
+        XDG_RUNTIME_DIR=/run/user/1001 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus "$@"
+}
+
+staged() {
+    bootc status --format=json | jq -r '.status.staged.image.version // empty'
+}
+
+# busy succeeds when a request finished in the last IDLE_MINUTES, or a
+# loaded llama-server is working on one now. An answer it cannot read
+# counts as busy, so a broken probe never reboots the host.
+busy() {
+    local n models m
+    if ! n=$(sibyl-diag perf -since "${IDLE_MINUTES}m" -json | jq '[.[]?.requests // 0] | add // 0'); then
+        log "cannot read the request log"
+        return 0
+    fi
+    if ((n > 0)); then
+        log "$n request(s) in the last $IDLE_MINUTES minutes"
+        return 0
+    fi
+    # A model that is not ready is loading for a request.
+    if ! models=$(as_sibyl podman exec llama-swap curl -fsS --max-time 10 http://127.0.0.1:8080/running |
+        jq -r '.running[]? | if .state == "ready" then .model else "!" + .model end'); then
+        # Only a stopped llama-swap is idle. A failed query is not.
+        if ! as_sibyl systemctl --user --quiet is-active llama-swap.service; then
+            return 1
+        fi
+        log "cannot read llama-swap's running models"
+        return 0
+    fi
+    for m in $models; do
+        if [[ "$m" == !* ]]; then
+            log "${m#!} is loading"
+            return 0
+        fi
+        # Requests that run now, and requests that wait for a free slot.
+        n=$(as_sibyl podman exec llama-swap curl -fsS --max-time 10 "http://127.0.0.1:8080/upstream/$m/metrics" |
+            awk '$1 == "llamacpp:requests_processing" || $1 == "llamacpp:requests_deferred" { n += $2 } END { print int(n) }') || n=1
+        if ((${n:-1} > 0)); then
+            log "$m has $n request(s) running or waiting"
+            return 0
+        fi
+    done
+    return 1
+}
+
+current=$(bootc status --format=json | jq -r '.status.booted.image.version // empty')
+if [[ -z "$(staged)" ]]; then
+    log "checking for an update to ${current:-the running image}"
+    bootc upgrade
+    /usr/libexec/sibyl/hostd -state || true
+fi
+next=$(staged)
+if [[ -z "$next" ]]; then
+    log "no update"
+    exit 0
+fi
+if busy; then
+    log "$next is staged; the reboot waits for an idle window"
+    exit 0
+fi
+log "rebooting from ${current:-the running image} into $next"
+systemctl reboot

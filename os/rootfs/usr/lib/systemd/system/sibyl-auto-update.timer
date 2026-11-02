@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Sibyl update window
+
+[Timer]
+# Every 30 minutes from 03:00 to 05:30, host time. A run that finds the
+# models busy leaves the update staged for the next run.
+OnCalendar=*-*-* 03,04,05:00,30:00
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Stage a Sibyl update and reboot into it when idle
+Documentation=file:///usr/libexec/sibyl/auto-update
+After=network-online.target
+Wants=network-online.target
+# A manual update from the console or the TUI runs these units.
+Conflicts=sibyl-upgrade.service sibyl-upgrade-reboot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/auto-update
+TimeoutStartSec=1h
