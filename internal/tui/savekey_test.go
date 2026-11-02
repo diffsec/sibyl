@@ -41,7 +41,7 @@ func TestSaveKey(t *testing.T) {
 	m := newModelsView(c)
 	m.list = []client.Model{{Model: models.Model{ID: "qwen"}, Settings: models.Settings{CtxSize: 4096}}}
 	m.editForm(m.list[0])
-	if m.help() != formHelp(true) {
+	if m.help() != formHelp(true)+" · pgup/pgdn section" {
 		t.Errorf("help %q", m.help())
 	}
 	m.fields.CtxSize = "8192"

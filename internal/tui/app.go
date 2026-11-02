@@ -302,7 +302,7 @@ func (a *App) click(m tea.Mouse) tea.Cmd {
 	}
 	if a.views[a.active].capturing() {
 		if fc, ok := a.views[a.active].(formClicker); ok {
-			return fc.clickForm(m.Y - a.bodyTop + a.scroller().offset)
+			return fc.clickForm(m.Y-a.bodyTop+a.scroller().offset, m.X)
 		}
 		return nil
 	}

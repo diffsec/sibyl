@@ -274,7 +274,7 @@ type redrawMsg struct{}
 // formClicker is a view with an open form that takes clicks. It gets the
 // line of its last render, which is the form's own view.
 type formClicker interface {
-	clickForm(line int) tea.Cmd
+	clickForm(line, x int) tea.Cmd
 }
 
 // focusedBlock returns the first and last line of the focused field, which
