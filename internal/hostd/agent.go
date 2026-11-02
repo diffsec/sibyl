@@ -460,6 +460,7 @@ func (a *Agent) WriteState(ctx context.Context) error {
 	errs = append(errs, err)
 	st.Tailscale = a.tailscaleState(ctx)
 	a.tailscaleCert(ctx, st.Tailscale)
+	a.tailscaleWait(ctx, st.Tailscale)
 	if out, err := a.Run(ctx, "", "lsblk", disks.LsblkArgs...); err != nil {
 		errs = append(errs, err)
 	} else if st.Disks, err = disks.Parse([]byte(out), nil, MinPoolDisk); err != nil {

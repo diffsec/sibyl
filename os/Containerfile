@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/
 FROM scratch AS variants
 COPY os/variants/ /
 
-FROM quay.io/fedora/fedora-bootc:44@sha256:b3f3896fdefc7e6b285a0df0667338e4438da8ad82cb8dbd9625ab34e8f35903
+FROM quay.io/fedora/fedora-bootc:44@sha256:291bda73006a5cfc6d4ac24f9a261915624f9f555d9ff1a426cb412928f152ac
 
 ARG GPU_VARIANT=amd
 ARG SIBYL_VERSION=dev

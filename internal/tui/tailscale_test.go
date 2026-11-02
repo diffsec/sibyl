@@ -22,6 +22,7 @@ func TestTailscaleText(t *testing.T) {
 		{nil, "not in this host image"},
 		{&hostd.TailscaleState{}, "press t to join"},
 		{&hostd.TailscaleState{Enabled: true, Backend: "NeedsLogin", AuthURL: "https://login.tailscale.com/a/x"}, "https://login.tailscale.com/a/x"},
+		{&hostd.TailscaleState{Enabled: true, Backend: hostd.NeedsMachineAuth}, "https://login.tailscale.com/admin/machines"},
 		{&hostd.TailscaleState{Enabled: true, Backend: "Running", Tailnet: "ben@example.com", DNSName: "sibyl.t.ts.net", IPs: []string{"100.64.0.5"}},
 			"sibyl.t.ts.net  100.64.0.5"},
 	} {

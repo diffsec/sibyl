@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +178,56 @@ func writeCert(t *testing.T, path string, ips ...string) {
 	}
 	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+const tsNeedsApproval = `{"BackendState":"NeedsMachineAuth","AuthURL":"","TailscaleIPs":null,
+"Self":{"HostName":"sibyl","DNSName":""},"CurrentTailnet":{"Name":"ben@example.com"}}`
+
+func TestTailscaleUpNeedsApproval(t *testing.T) {
+	ta := tsAgent(t)
+	ta.host.answers["tailscale status --json"] = tsNeedsApproval
+	r := ta.submit(t, "1", TailscaleUp, `{}`)
+	if !r.OK || !strings.Contains(r.Message, "approve") {
+		t.Fatalf("result %+v", r)
+	}
+	if st := ta.state(t).Tailscale; st == nil || st.Backend != NeedsMachineAuth || st.AuthURL != "" {
+		t.Errorf("state %+v", st)
+	}
+}
+
+func TestTailscaleWaitTimer(t *testing.T) {
+	for _, c := range []struct {
+		status, verb string
+	}{
+		{tsNeedsLogin, "start"},
+		{tsNeedsApproval, "start"},
+		{tsRunning, "stop"},
+	} {
+		ta := tsAgent(t)
+		ta.host.answers["tailscale status --json"] = c.status
+		if err := ta.WriteState(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if !ta.host.ran("systemctl " + c.verb + " --no-block -- " + TailscaleWaitTimer) {
+			t.Errorf("%s: no %s of the wait timer: %v", c.status, c.verb, ta.host.calls)
+		}
+	}
+	// A disabled tailscaled does not wait, and an image without it has no timer to touch.
+	ta := tsAgent(t)
+	ta.host.answers["systemctl is-enabled -- "+TailscaleUnit] = "disabled\n"
+	ta.host.answers["systemctl is-active -- "+TailscaleUnit] = "inactive\n"
+	if err := ta.WriteState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if ta.host.ran("systemctl start --no-block -- " + TailscaleWaitTimer) {
+		t.Error("the wait timer started for a disabled tailscaled")
+	}
+	ta = newAgent(t)
+	if err := ta.WriteState(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if slices.ContainsFunc(ta.host.calls, func(c string) bool { return strings.Contains(c, TailscaleWaitTimer) }) {
+		t.Error("the wait timer changed on an image without tailscaled")
 	}
 }

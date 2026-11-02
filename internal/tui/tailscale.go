@@ -24,6 +24,9 @@ func tailscaleText(t *hostd.TailscaleState) string {
 	case t.AuthURL != "":
 		b.WriteString("  " + badSty.Render("waiting for a login. Open this link on any device:") + "\n")
 		b.WriteString("  " + link(t.AuthURL) + "\n")
+	case t.Backend == hostd.NeedsMachineAuth:
+		b.WriteString("  " + badSty.Render("waiting for an admin to approve this host. Approve it in the Tailscale admin console:") + "\n")
+		b.WriteString("  " + link(tailscaleMachines) + "\n")
 	case t.Enabled:
 		state := t.Backend
 		if state == "" {
@@ -38,6 +41,10 @@ func tailscaleText(t *hostd.TailscaleState) string {
 	}
 	return b.String()
 }
+
+// tailscaleMachines is the page of the Tailscale admin console that approves
+// devices.
+const tailscaleMachines = "https://login.tailscale.com/admin/machines"
 
 // tailscaleOn tells whether tailscaled runs or waits for a login.
 func tailscaleOn(t *hostd.TailscaleState) bool {
