@@ -123,14 +123,14 @@ func TestFrameFitsSmallTerminal(t *testing.T) {
 	if row < 0 {
 		t.Fatal("no second row on the screen")
 	}
-	a.Update(tea.MouseClickMsg{X: 4, Y: row, Button: tea.MouseLeft})
+	mouseClick(a, 4, row)
 	if m.cursor != 1 {
 		t.Errorf("cursor %d after a click on row 1", m.cursor)
 	}
 	// A click on a tab switches to it.
 	for _, z := range a.zones {
 		if z.tab == 4 {
-			a.Update(tea.MouseClickMsg{X: z.x0, Y: z.y, Button: tea.MouseLeft})
+			mouseClick(a, z.x0, z.y)
 		}
 	}
 	if a.active != 4 {
