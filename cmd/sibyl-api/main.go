@@ -48,6 +48,7 @@ func run(log *slog.Logger) error {
 	}
 	hostAgent := hostctl.NewHost(env("SIBYL_RUN_DIR", "/run/sibyl")+"/host", env("SIBYL_HOST_OUT_DIR", "/run/sibyl-host"))
 	hostAgent.AuthQueue = env("SIBYL_AUTH_QUEUE", "/run/sibyl-auth/req")
+	hostAgent.SecretDir = env("SIBYL_SECRET_DIR", "/run/sibyl-secret")
 	s := &api.Server{
 		Paths: api.Paths{
 			Config:    env("SIBYL_CONFIG_DIR", "/config"),

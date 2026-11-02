@@ -44,6 +44,11 @@ type Agent struct {
 	Etc string
 	// PoolsDir is the root-owned directory where pools are mounted.
 	PoolsDir string
+	// SecretDir holds secrets that a request names, such as a Tailscale
+	// auth key. It is in memory, under /run, and the sibyl user writes it.
+	SecretDir string
+	// TLSCert is the server certificate, checked for the Tailscale address.
+	TLSCert string
 }
 
 // requestRE matches queue file names: <unix-nanoseconds>.<action>.json.
@@ -147,6 +152,10 @@ func (a *Agent) do(ctx context.Context, act Action, data []byte) (msg, secret st
 		msg, err = a.update(ctx, act, body)
 	case SetUpdateWindow:
 		msg, err = a.setUpdateWindow(ctx, body.(UpdateWindow))
+	case TailscaleUp:
+		msg, err = a.tailscaleUp(ctx, body.(TailscaleUpRequest))
+	case TailscaleDown:
+		msg, err = a.tailscaleDown(ctx)
 	default:
 		err = fmt.Errorf("unknown action %q", act)
 	}
@@ -449,6 +458,8 @@ func (a *Agent) WriteState(ctx context.Context) error {
 	st.Pools = a.poolState(ctx)
 	st.Update, err = a.updateState(ctx)
 	errs = append(errs, err)
+	st.Tailscale = a.tailscaleState(ctx)
+	a.tailscaleCert(ctx, st.Tailscale)
 	if out, err := a.Run(ctx, "", "lsblk", disks.LsblkArgs...); err != nil {
 		errs = append(errs, err)
 	} else if st.Disks, err = disks.Parse([]byte(out), nil, MinPoolDisk); err != nil {

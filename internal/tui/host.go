@@ -52,6 +52,8 @@ type hostView struct {
 	serial  string
 	// secret is a recovery key from the last pool, shown until the next action.
 	secret string
+	// tsHow and tsKey are the values of the Tailscale form.
+	tsHow, tsKey string
 }
 
 func newHostView(c *client.Client) *hostView { return &hostView{c: c} }
@@ -75,7 +77,7 @@ func (v *hostView) help() string {
 	if v.form != nil {
 		return formHelp(v.saveable())
 	}
-	h := "h hostname · n network · a add operator · p new pool · x detach pool"
+	h := "h hostname · n network · t tailscale · a add operator · p new pool · x detach pool"
 	if u, ok := v.selected(); ok && u.Managed {
 		h += " · ↑/↓ select · s SSH keys · d delete"
 	} else {
@@ -284,6 +286,8 @@ func (v *hostView) submit() tea.Cmd {
 		}
 		name := v.name
 		return run("detach "+name, func(ctx context.Context) (hostd.Result, error) { return v.c.DetachPool(ctx, name) })
+	case "tsup", "tsdown":
+		return v.submitTailscale(run)
 	case "delete":
 		if !v.confirm {
 			return note(false, "%s kept", v.name)
@@ -372,6 +376,8 @@ func (v *hostView) key(k string) tea.Cmd {
 		return v.poolForm()
 	case "x":
 		return v.detachForm()
+	case "t":
+		return v.tailscaleForm()
 	case "s":
 		if ok && u.Managed {
 			return v.userForm(u.Name)
@@ -425,6 +431,8 @@ func (v *hostView) render(int) string {
 		}
 		b.WriteString(badSty.Render(fmt.Sprintf("  The change to %s rolls back in %s. Press c to keep it.", p.Interface, left)) + "\n")
 	}
+
+	b.WriteString("\n" + tailscaleText(v.st.Tailscale))
 
 	b.WriteString("\n" + titleSty.Render("Model pools") + "\n")
 	if len(v.st.Pools) == 0 {

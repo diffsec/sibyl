@@ -15,6 +15,8 @@ Volume=/var/lib/sibyl/config:/config:z
 Volume=/var/lib/sibyl/run:/run/sibyl:z
 # Web console password checks, in memory. sibyl-hostd -auth reads them.
 Volume=/run/sibyl-auth:/run/sibyl-auth:z
+# Secrets for host requests, such as a Tailscale auth key, in memory.
+Volume=/run/sibyl-secret:/run/sibyl-secret:z
 # Written by sibyl-hostd as root. It labels the files itself, so no :z here.
 Volume=/var/lib/sibyl-host/out:/run/sibyl-host:ro
 Volume=/var/lib/sibyl/home/.config/containers/systemd/llama-swap.container.d:/quadlet:z

@@ -68,6 +68,40 @@ You can choose DHCP or a static IPv4 address for each network interface. A netwo
 
 The TLS certificate keeps the address that it was made with. After an address change, use the name `sibyl.local`, or trust the browser warning again. [First boot](../getting-started/first-boot.md) shows how to trust the certificate.
 
+## Tailscale
+
+Tailscale is a private network that joins your devices, wherever they are. That network is called a tailnet. When the host joins your tailnet, your other Tailscale devices reach Open WebUI, the APIs, Arcane, and the containers that Arcane runs, with no port open to the internet.
+
+Every port of the host is open to the tailnet. The access rules of your tailnet decide which devices get in. Set them in the Tailscale admin console before you share the tailnet with other people.
+
+### Join a tailnet
+
+1. On the Host screen, press `t`. In the web console, go to the Tailscale section of the Host page.
+2. Choose how the host logs in:
+   - Login link: the host shows a link that starts with `https://login.tailscale.com/`. Open it on any device, and sign in to your tailnet.
+   - Auth key: paste a key from the Tailscale admin console, under Settings, Keys. The host uses the key once and does not keep it.
+3. Wait until the Host screen shows "on the tailnet" with the host's Tailscale address, such as `100.101.102.103`.
+
+The host keeps its own DNS servers, so a model download does not depend on the tailnet.
+
+### Connect from another device
+
+Use the host's Tailscale address in place of its LAN address:
+
+| Service | Address |
+|---|---|
+| Open WebUI | `https://<tailscale address>/` |
+| OpenAI and Anthropic APIs | `https://<tailscale address>:8443/v1` |
+| Ollama API | `https://<tailscale address>:8443/api` |
+| Arcane | `https://<tailscale address>:9443/` |
+| A container that Arcane runs | `<tailscale address>:<its published port>` |
+
+The host's TLS certificate includes the Tailscale address within a minute after the login. Each device must trust the host's certificate authority, as on the LAN. [First boot](../getting-started/first-boot.md) shows how. The certificate does not hold the `ts.net` name, so use the address.
+
+### Leave the tailnet
+
+On the Host screen, press `t` and choose Leave. In the web console, choose "Leave the tailnet". The host logs out and stops Tailscale. Remove the machine in the Tailscale admin console too, if you do not plan to join again.
+
 ## Run other containers with Arcane
 
 Arcane is a web interface for containers. Use it to run other containers and Compose stacks beside Sibyl. Open it at `https://<address>:9443/`. [First boot](../getting-started/first-boot.md) shows how to get the Arcane password.

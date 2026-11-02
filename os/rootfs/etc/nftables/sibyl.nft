@@ -3,6 +3,8 @@
 # Caddy runs rootless on high ports. Public ports are redirected to it:
 #   443 -> 10443 (Open WebUI), 8443 -> 18443 (API), 9443 -> 19443 (Arcane)
 # The high ports accept only connections that arrived through a redirect.
+# The tailnet reaches every port through tailscale0: the tailnet's access
+# rules decide who gets in.
 
 destroy table inet sibyl
 
@@ -43,6 +45,13 @@ table inet sibyl {
 
         # mDNS, so sibyl.local resolves on the LAN
         udp dport mdns accept
+
+        # Tailscale: direct connections from other tailnet devices, and
+        # every port from the tailnet, such as the containers that Arcane
+        # runs. tailscaled refuses packets on tailscale0 that do not come
+        # from the tailnet.
+        udp dport 41641 accept
+        iifname "tailscale0" accept
     }
 
     chain forward {

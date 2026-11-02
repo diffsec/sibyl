@@ -24,6 +24,8 @@ func (c *Console) hostRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+Prefix+"host/user/delete", c.signedIn(c.hostChange(c.deleteUser)))
 	mux.HandleFunc("POST "+Prefix+"host/pool", c.signedIn(c.hostChange(c.createPool)))
 	mux.HandleFunc("POST "+Prefix+"host/pool/detach", c.signedIn(c.hostChange(c.detachPool)))
+	mux.HandleFunc("POST "+Prefix+"host/tailscale", c.signedIn(c.hostChange(c.tailscaleUp)))
+	mux.HandleFunc("POST "+Prefix+"host/tailscale/off", c.signedIn(c.hostChange(c.tailscaleDown)))
 	mux.HandleFunc("POST "+Prefix+"status/restart", c.signedIn(c.restart))
 	mux.HandleFunc("POST "+Prefix+"status/openwebui", c.signedIn(c.connectOpenWebUI))
 	mux.HandleFunc("POST "+Prefix+"status/update/check", c.signedIn(c.statusChange(func(r *http.Request) (string, hostd.Result, error) {
@@ -303,4 +305,16 @@ func (c *Console) setupPage(w http.ResponseWriter, r *http.Request) {
 		{"API keys for your programs", "Make a client and key for each program. A key shows once.", Prefix + "router#clients", clients > 0},
 	}
 	c.render(w, r, http.StatusOK, "setup", map[string]any{"Steps": steps})
+}
+
+// tailscaleUp joins the tailnet, with the auth key from the form or with a
+// login link that the Host page then shows.
+func (c *Console) tailscaleUp(r *http.Request) (string, hostd.Result, error) {
+	res, err := c.client.TailscaleUp(r.Context(), r.PostFormValue("authkey"))
+	return "join the tailnet", res, err
+}
+
+func (c *Console) tailscaleDown(r *http.Request) (string, hostd.Result, error) {
+	res, err := c.client.TailscaleDown(r.Context())
+	return "leave the tailnet", res, err
 }

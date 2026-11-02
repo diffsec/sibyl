@@ -3,3 +3,5 @@
 pciutils
 tpm2-tss
 openssl
+# Tailscale, off until the owner joins a tailnet from the TUI or the console.
+tailscale

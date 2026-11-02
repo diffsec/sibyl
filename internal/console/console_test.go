@@ -101,8 +101,10 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"pending_network":{"interface":"enp8s0","expires":"soon"},
 			"disks":[{"name":"sdb","path":"/dev/sdb","size":64000000000,"model":"USB","serial":"SER123"}],
 			"update":{"image":"ghcr.io/diffsec/sibyl-os:latest-amd","booted":"sha-old-amd","available":"sha-new-amd","check":{"active":"inactive","result":"success"},
-			"window":{"enabled":true,"start":"02:00","end":"04:30"}}}`)
-	case "POST /host/update/check", "POST /host/update/apply", "POST /host/reboot", "PUT /host/update/window":
+			"window":{"enabled":true,"start":"02:00","end":"04:30"}},
+			"tailscale":{"enabled":true,"backend":"NeedsLogin","auth_url":"https://login.tailscale.com/a/abc123"}}`)
+	case "POST /host/update/check", "POST /host/update/apply", "POST /host/reboot", "PUT /host/update/window",
+		"POST /host/tailscale", "DELETE /host/tailscale":
 		_, _ = io.WriteString(w, `{"ok":true,"message":"started by hostd"}`)
 	case "GET /downloads":
 		_, _ = io.WriteString(w, `[{"id":"j1","repo":"org/model-GGUF","variant":"Q8_0","status":"downloading","bytes_done":5368709120,"bytes_total":10737418240},
@@ -738,5 +740,24 @@ func TestUpdateWindow(t *testing.T) {
 	h.do("POST", "/console/status/update/window", url.Values{"start": {"23:00"}, "end": {"01:00"}}, true)
 	if b := h.api.body("PUT /host/update/window"); b["enabled"] != false || b["start"] != "23:00" || b["end"] != "01:00" {
 		t.Errorf("window body %v", b)
+	}
+}
+
+func TestTailscalePage(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	page := h.do("GET", "/console/host", nil, false).Body.String()
+	for _, want := range []string{"Tailscale", `href="https://login.tailscale.com/a/abc123"`, `action="/console/host/tailscale"`, "Stop Tailscale"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("host page lacks %q", want)
+		}
+	}
+	h.do("POST", "/console/host/tailscale", url.Values{"authkey": {"tskey-auth-kAbC123-secretpart"}}, true)
+	if b := h.api.body("POST /host/tailscale"); b["auth_key"] != "tskey-auth-kAbC123-secretpart" {
+		t.Errorf("join body %v", b)
+	}
+	h.do("POST", "/console/host/tailscale/off", url.Values{}, true)
+	if !slices.Contains(h.api.calls, "DELETE /host/tailscale") {
+		t.Errorf("API calls %v", h.api.calls)
 	}
 }

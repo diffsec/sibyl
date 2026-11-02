@@ -33,6 +33,8 @@ func main() {
 	group := flag.String("group", "sibyl", "group that can read the output files")
 	etc := flag.String("etc", "/etc", "directory with crypttab and fstab")
 	pools := flag.String("pools", "/var/lib/sibyl-pools", "directory where model pools are mounted")
+	secrets := flag.String("secrets", "/run/sibyl-secret", "secrets that a request names, written by the System API, in memory")
+	tlsCert := flag.String("tls-cert", "/var/lib/sibyl/tls/server.crt", "server certificate, checked for the Tailscale address")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -47,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 	a := &hostd.Agent{Queue: *queue, AuthQueue: *authQueue, Sleep: time.Sleep, Out: *out, Data: *data, Run: run, Now: time.Now, Log: log, Label: *label, Group: gid,
-		Etc: *etc, PoolsDir: *pools}
+		Etc: *etc, PoolsDir: *pools, SecretDir: *secrets, TLSCert: *tlsCert}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	switch {
