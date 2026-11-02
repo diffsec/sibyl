@@ -58,8 +58,23 @@ func TestSelectTextMode(t *testing.T) {
 	if !copied || r.key == "" {
 		t.Errorf("y did not copy the key, or hid it")
 	}
-	r.keyPress("x")
+	r.keyPress("esc")
 	if r.key != "" || a.View().MouseMode != tea.MouseModeCellMotion {
-		t.Errorf("x did not hide the key and give the mouse back")
+		t.Errorf("esc did not hide the key and give the mouse back")
+	}
+
+	// The recovery key of a new pool on Host works the same way.
+	a.active = 4
+	h := a.views[4].(*hostView)
+	h.secret = "AAAA-BBBB"
+	if a.View().MouseMode != tea.MouseModeNone {
+		t.Error("the mouse is on while the recovery key shows")
+	}
+	if drain(h.key("y")) == nil || h.secret == "" {
+		t.Error("y did not copy the recovery key, or hid it")
+	}
+	h.key("esc")
+	if h.secret != "" || a.View().MouseMode != tea.MouseModeCellMotion {
+		t.Error("esc did not hide the recovery key and give the mouse back")
 	}
 }

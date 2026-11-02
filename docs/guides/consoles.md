@@ -25,7 +25,7 @@ The bottom of each screen shows its actions as buttons, such as `[n] new client`
 - The mouse wheel, `PgUp` and `PgDn` scroll the screen. A line at the bottom of the screen says when there is more.
 - While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form. A click on a field moves to it, and a click on an option of the selected list picks it. In a settings form, `ctrl+s` saves from any field. A form that deletes, erases a disk or asks you to confirm has no `ctrl+s`: answer its last field.
 - The TUI takes the mouse, so a drag does not select text. Press `ctrl+t` to give the mouse back to the terminal, then drag to select. Press `ctrl+t` again to click in the TUI. In most terminals, `shift` (or `option` in the macOS Terminal) with a drag also selects text.
-- A new client key turns the mouse off until you hide the key, so a drag or a double click selects it. `y` copies the key to the clipboard and `x` hides it. The copy uses OSC 52, a terminal escape code. Some terminals block it, for example the macOS Terminal.
+- A key that shows only once turns the mouse off until you hide the key, so a drag or a double click selects it. That is a new client key on Router, and the recovery key of a new pool on Host. `y` copies the key to the clipboard and `esc` hides it. The copy uses OSC 52, a terminal escape code. Some terminals block it, for example the macOS Terminal.
 
 ### Screens and keys
 
