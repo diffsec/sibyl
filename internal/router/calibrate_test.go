@@ -425,3 +425,40 @@ func TestSeedNeedsCalibration(t *testing.T) {
 		t.Errorf("seeded %d samples with no_seed", n)
 	}
 }
+
+// TestCalibrateSkipsAnUnloadedModel checks that a sample whose local model
+// is not loaded does not hold back a newer sample whose model is loaded,
+// and that the status counts the samples that wait.
+func TestCalibrateSkipsAnUnloadedModel(t *testing.T) {
+	h := newHarness(t, testProfiles)
+	calibrating(t, h, keepAll)
+	h.provider.verdict = `{"winner": "A"}`
+	b, _ := json.Marshal(chatBody("auto", "write a haiku"))
+	now := time.Now()
+	for i, m := range []string{"gone", "gone", "small"} {
+		smp := Sample{ID: sampleID(now.Add(time.Duration(i-10) * time.Minute)), Profile: "auto", Client: "laptop",
+			LocalModel: m, Served: WinProvider, Request: b}
+		if err := h.router.writeSample(smp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runWorker(h)
+	judged := 0
+	for _, smp := range LoadSamples(h.router.CalibrationDir) {
+		switch {
+		case smp.LocalModel == "small" && smp.Verdict == nil:
+			t.Errorf("the sample for the loaded model has no verdict: %s", smp.LastError)
+		case smp.LocalModel == "gone" && smp.Local != nil:
+			t.Errorf("a sample for the unloaded model was answered")
+		case smp.Verdict != nil:
+			judged++
+		}
+	}
+	if judged != 1 {
+		t.Errorf("judged %d samples, want 1", judged)
+	}
+	st := LoadStatus(h.router.CalibrationDir)
+	if st == nil || st.State != "waiting" || !strings.Contains(st.Reason, "2 sample(s): gone is not loaded") {
+		t.Errorf("status %+v", st)
+	}
+}
