@@ -88,7 +88,8 @@ The console has the pages Router, Models, Downloads, Hardware, Host, Status and 
 |---|---|---|
 | Status | Version, update state, services, GPU memory, the loaded models | Restart a service, connect Open WebUI, check for an update, apply an update with a reboot, reboot |
 | Hardware | GPUs, the selected GPUs, the backend, memory | Select GPUs, select the backend |
-| Models | Installed models with size, fit, context, layout and benchmark | Model settings (the TUI settings form), benchmark, delete |
+| Models | Installed models with size, fit, context, layout and benchmark. Each drafter is under the model that uses it. | Model settings (the TUI settings form), benchmark, delete |
+| Drafters | The drafters on Hugging Face for one model, and its last drafter test. The test block refreshes while a test runs. | Test an installed drafter, open the download page of the others, turn the drafter on after a test |
 | Downloads | Hugging Face search, the queue with progress | Search, pick a file, start, cancel, retry, set the Hugging Face token |
 | Host | Hostname, network, users, SSH keys, model pools | Change each, with the same checks as `sibyl-hostd` |
 | Router | Clients, providers, profiles and rules, calibration, last decisions | Every control of the TUI Router screen, including `m`, `r`, `c`, `s`, `a` and `C` |
