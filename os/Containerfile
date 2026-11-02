@@ -33,6 +33,9 @@ ARG IMAGE_TAG=latest
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Tailscale comes from its own repository, which has the newest release.
+COPY os/repos/tailscale.repo /etc/yum.repos.d/tailscale.repo
+COPY os/repos/tailscale.gpg /etc/pki/rpm-gpg/RPM-GPG-KEY-tailscale
 COPY os/packages/ /tmp/packages/
 RUN grep -hEv '^\s*(#|$)' /tmp/packages/common.txt "/tmp/packages/${GPU_VARIANT}.txt" \
         | xargs dnf -y install --setopt=install_weak_deps=False \

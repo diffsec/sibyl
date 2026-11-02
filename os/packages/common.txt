@@ -4,4 +4,5 @@ pciutils
 tpm2-tss
 openssl
 # Tailscale, off until the owner joins a tailnet from the TUI or the console.
+# It comes from os/repos/tailscale.repo, not from Fedora.
 tailscale
