@@ -379,3 +379,5 @@ func (v *statusView) render(int) string {
 }
 
 func (v *statusView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }
+
+func (v *statusView) clickForm(line int) tea.Cmd { return formClick(v.form, line) }

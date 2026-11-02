@@ -497,3 +497,5 @@ func (v *downloadView) render(int) string {
 }
 
 func (v *downloadView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }
+
+func (v *downloadView) clickForm(line int) tea.Cmd { return formClick(v.tokenForm, line) }

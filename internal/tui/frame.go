@@ -5,6 +5,7 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -242,4 +243,105 @@ func twoPane(list, details string, width int) string {
 	right := lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(muted).PaddingLeft(1).Width(width - lw - 2).Render(strings.TrimRight(details, "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right) + "\n"
+}
+
+// redrawMsg asks a huh form to redraw. huh passes it to its fields, which
+// ignore it.
+type redrawMsg struct{}
+
+// formClicker is a view with an open form that takes clicks. It gets the
+// line of its last render, which is the form's own view.
+type formClicker interface {
+	clickForm(line int) tea.Cmd
+}
+
+// focusedBlock returns the first and last line of the focused field, which
+// huh draws with a "┃" bar, or -1.
+func focusedBlock(view string) (int, int) {
+	first, last := -1, -1
+	for i, l := range strings.Split(ansi.Strip(view), "\n") {
+		if strings.HasPrefix(l, "┃") {
+			if first < 0 {
+				first = i
+			}
+			last = i
+		} else if first >= 0 {
+			break
+		}
+	}
+	return first, last
+}
+
+// formClick moves the focus of form to the field on line, one field at a
+// time, in the form's current group. On the field that has focus, a click
+// on an option of a list moves the cursor to it.
+func formClick(form *huh.Form, line int) tea.Cmd {
+	if form == nil {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for range 64 {
+		first, last := focusedBlock(form.View())
+		if first < 0 {
+			break
+		}
+		if line >= first && line <= last {
+			cmds = append(cmds, pickOption(form, line))
+			break
+		}
+		before := form.GetFocusedField()
+		msg := huh.NextField()
+		if line < first {
+			msg = huh.PrevField()
+		}
+		_, cmd := form.Update(msg)
+		if form.GetFocusedField() == before {
+			// The first or last field: a further step would leave the
+			// group, and on the last group submit the form. Keep the
+			// focus where it was, and drop the step.
+			cmds = append(cmds, before.Focus())
+			// huh blurred the field before it found no next one. Any
+			// message makes the group redraw it with its focus.
+			_, cmd := form.Update(redrawMsg{})
+			cmds = append(cmds, cmd)
+			break
+		}
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
+}
+
+// pickOption moves a list's cursor to the option on line. huh marks the
+// cursor's option with "> ".
+func pickOption(form *huh.Form, line int) tea.Cmd {
+	view := form.View()
+	lines := strings.Split(ansi.Strip(view), "\n")
+	first, last := focusedBlock(view)
+	if first < 0 || line < first || line > last {
+		return nil
+	}
+	// Only inside the focused field: a text input also draws "> ".
+	cursor := -1
+	for i := first; i <= last; i++ {
+		if strings.HasPrefix(strings.TrimLeft(strings.TrimPrefix(lines[i], "┃"), " "), "> ") {
+			cursor = i
+			break
+		}
+	}
+	// A text input's prompt is on the line after its title, and it has no
+	// options to move to.
+	if cursor < 0 || line == cursor || line == first || cursor == first+1 && last == first+1 {
+		return nil
+	}
+	key := tea.KeyPressMsg{Code: tea.KeyDown}
+	n := line - cursor
+	if n < 0 {
+		key, n = tea.KeyPressMsg{Code: tea.KeyUp}, -n
+	}
+	var cmds []tea.Cmd
+	for range n {
+		_, cmd := form.Update(key)
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
 }
