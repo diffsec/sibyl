@@ -51,6 +51,7 @@ const (
 )
 
 type downloadView struct {
+	rows    rowMap // the line of each list row, for clicks
 	c       *client.Client
 	stage   downloadStage
 	input   textinput.Model
@@ -435,6 +436,7 @@ func (v *downloadView) render(int) string {
 		return v.tokenForm.View()
 	}
 	var b strings.Builder
+	v.rows.reset()
 	switch v.stage {
 	case stageSearch:
 		b.WriteString(titleSty.Render("Search Hugging Face") + "\n\n  " + v.input.View() + "\n")
@@ -443,6 +445,7 @@ func (v *downloadView) render(int) string {
 		start, end := window(len(v.repos), v.cursor)
 		for i := start; i < end; i++ {
 			r := v.repos[i]
+			v.rows.mark(&b, i)
 			b.WriteString(cursorLine(i == v.cursor, fmt.Sprintf("%-60s %9d downloads", r.ID, r.Downloads)) + "\n")
 		}
 		b.WriteString(more(start, end, len(v.repos)))
@@ -457,6 +460,7 @@ func (v *downloadView) render(int) string {
 		start, end := window(len(v.repo.Variants), v.cursor)
 		for i := start; i < end; i++ {
 			va := v.repo.Variants[i]
+			v.rows.mark(&b, i)
 			b.WriteString(cursorLine(i == v.cursor, fmt.Sprintf("%-55s %10s  %s", va.Name, gib(va.Size), fitStyled(va.Fit))) + "\n")
 		}
 		b.WriteString(more(start, end, len(v.repo.Variants)))
@@ -478,6 +482,7 @@ func (v *downloadView) render(int) string {
 				pct = float64(j.BytesDone) / float64(j.BytesTotal)
 			}
 			line := fmt.Sprintf("%-45s %-11s %s %s / %s", j.Variant, j.Status, v.bar.ViewAs(pct), gib(j.BytesDone), gib(j.BytesTotal))
+			v.rows.mark(&b, i)
 			b.WriteString(cursorLine(i == v.cursor, line) + "\n")
 			if j.Error != "" {
 				b.WriteString("    " + badSty.Render(j.Error) + "\n")
@@ -490,3 +495,5 @@ func (v *downloadView) render(int) string {
 	}
 	return b.String()
 }
+
+func (v *downloadView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }

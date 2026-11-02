@@ -52,6 +52,7 @@ const customProvider = "\x00custom"
 // and budgets, and the providers. It shows the spend and the last
 // decisions. Profiles are edited through PUT /system/router/profiles.
 type routerView struct {
+	rows   rowMap // the line of each list row, for clicks
 	c      *client.Client
 	r      client.Router
 	st     client.RouterStats
@@ -122,7 +123,7 @@ func (v *routerView) help() string {
 		h += " · C delete the samples"
 	}
 	if c, ok := v.selected(); ok && !c.Builtin {
-		h += " · k new key · d delete client"
+		h += " · K new key · d delete client"
 	}
 	return h
 }
@@ -570,7 +571,7 @@ func (v *routerView) update(msg tea.Msg) tea.Cmd {
 func (v *routerView) keyPress(k string) tea.Cmd {
 	c, ok := v.selected()
 	switch k {
-	case "up":
+	case "up", "k":
 		if v.cursor > 0 {
 			v.cursor--
 		}
@@ -588,7 +589,7 @@ func (v *routerView) keyPress(k string) tea.Cmd {
 		if ok && !c.Builtin {
 			return v.deleteForm(c.Name)
 		}
-	case "k":
+	case "K":
 		if ok && !c.Builtin {
 			return v.rekeyForm(c.Name)
 		}
@@ -661,6 +662,7 @@ func (v *routerView) render(int) string {
 		return v.form.View()
 	}
 	var b strings.Builder
+	v.rows.reset()
 	if v.err != nil {
 		b.WriteString(badSty.Render("API error: "+v.err.Error()) + "\n\n")
 	}
@@ -675,6 +677,7 @@ func (v *routerView) render(int) string {
 		if c.Calibrate && c.Policy == "hybrid" {
 			line += "  " + mutedSty.Render("calibrates")
 		}
+		v.rows.mark(&b, i)
 		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
 	}
 	if v.key != "" {
@@ -770,3 +773,5 @@ func (v *routerView) renderCalibration(b *strings.Builder) {
 		b.WriteString("  " + selSty.Render("proposal") + " " + proposalText(p) + "\n")
 	}
 }
+
+func (v *routerView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }

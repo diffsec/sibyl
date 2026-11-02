@@ -34,6 +34,7 @@ type owuiSaved struct {
 type statusTick struct{}
 
 type statusView struct {
+	rows   rowMap // the line of each list row, for clicks
 	c      *client.Client
 	data   statusMsg
 	units  []string
@@ -139,6 +140,12 @@ func (v *statusView) update(msg tea.Msg) tea.Cmd {
 	case statusTick:
 		return tea.Batch(v.fetch(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return statusTick{} }))
 	case statusMsg:
+		// A failed refresh keeps the last data on the screen, with the error
+		// above it.
+		if msg.err != nil && msg.status.Version == "" {
+			v.data.err = msg.err
+			return nil
+		}
 		v.data = msg
 		v.units = v.units[:0]
 		for u := range msg.status.Services.Units {
@@ -294,6 +301,7 @@ func (v *statusView) render(int) string {
 		return v.form.View()
 	}
 	var b strings.Builder
+	v.rows.reset()
 	if v.data.err != nil {
 		b.WriteString(badSty.Render("API error: "+v.data.err.Error()) + "\n\n")
 	}
@@ -329,6 +337,7 @@ func (v *statusView) render(int) string {
 		} else {
 			state = badSty.Render(state)
 		}
+		v.rows.mark(&b, i)
 		b.WriteString(cursorLine(i == v.cursor, fmt.Sprintf("%-12s %s", u, state)) + "\n")
 	}
 	if s.Services.Updated != "" {
@@ -368,3 +377,5 @@ func (v *statusView) render(int) string {
 	}
 	return b.String()
 }
+
+func (v *statusView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }

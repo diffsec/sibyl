@@ -37,6 +37,7 @@ type modelDeleted struct {
 }
 
 type modelsView struct {
+	rows   rowMap // the line of each list row, for clicks
 	c      *client.Client
 	list   []client.Model
 	hw     hardware.Config
@@ -430,6 +431,7 @@ func (v *modelsView) render(int) string {
 		return v.form.View()
 	}
 	var b strings.Builder
+	v.rows.reset()
 	if v.err != nil {
 		b.WriteString(badSty.Render("API error: "+v.err.Error()) + "\n")
 	}
@@ -447,6 +449,7 @@ func (v *modelsView) render(int) string {
 		if m.Drafter {
 			line = drafterLine(m, v.list)
 		}
+		v.rows.mark(&b, i)
 		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
 		if mark := drafterMark(m); mark != "" {
 			b.WriteString("    " + mutedSty.Render(mark) + "\n")
@@ -491,3 +494,5 @@ func intAsFloat(v *int) *float64 {
 	f := float64(*v)
 	return &f
 }
+
+func (v *modelsView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }

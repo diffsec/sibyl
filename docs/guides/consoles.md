@@ -18,7 +18,12 @@ Run `sibyl` on the host. The TUI has six screens.
 | `q` | Quit |
 | `ctrl+c` | Quit, also while a form is open |
 
-The bottom line of each screen lists its keys. While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form. In a settings form, `ctrl+s` saves from any field. A form that deletes, erases a disk or asks you to confirm has no `ctrl+s`: answer its last field.
+The bottom of each screen shows its actions as buttons, such as `[n] new client`. Press the key, or click the button. The buttons stay at the bottom on a small screen, and the screen above them scrolls.
+
+- Click a tab to open it. Click a list row to select it, and click it again to open it, as `enter` does.
+- The mouse wheel, `PgUp` and `PgDn` scroll the screen. A line at the bottom of the screen says when there is more.
+- While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form. In a settings form, `ctrl+s` saves from any field. A form that deletes, erases a disk or asks you to confirm has no `ctrl+s`: answer its last field.
+- The TUI takes the mouse, so to select text with it, hold `shift` (or `option` in the macOS Terminal) while you drag.
 
 ### Screens and keys
 
@@ -29,7 +34,7 @@ The bottom line of each screen lists its keys. While a form is open, `enter` goe
 | `3` | Models | `enter` edits the settings of the selected model. `b` benchmarks the backends. `d` deletes the model. |
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `c` cancels a download. `R` retries one. |
 | `5` | Host | `h` hostname. `n` network. `a` adds an operator. `p` makes a model pool. `x` detaches a pool. For a selected operator, `k` changes the SSH keys and `d` deletes the operator. After a network change, `c` keeps the change. |
-| `6` | Router | `n` new client and key. `e` edits a client. `p` adds or changes a provider. `x` deletes a provider. `m` profiles. `r` rules. `c` calibration. `s` sensitive words and classifier. For a client that is not built in, `k` makes a new key and `d` deletes the client. `a` applies a calibration proposal, when one exists. `C` deletes the calibration samples, when some exist. |
+| `6` | Router | `n` new client and key. `e` edits a client. `p` adds or changes a provider. `x` deletes a provider. `m` profiles. `r` rules. `c` calibration. `s` sensitive words and classifier. For a client that is not built in, `K` makes a new key and `d` deletes the client. `a` applies a calibration proposal, when one exists. `C` deletes the calibration samples, when some exist. |
 
 Use `↑` and `↓` to select a row in a list.
 
