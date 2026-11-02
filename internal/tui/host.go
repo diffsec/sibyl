@@ -77,7 +77,7 @@ func (v *hostView) help() string {
 	}
 	h := "h hostname · n network · a add operator · p new pool · x detach pool"
 	if u, ok := v.selected(); ok && u.Managed {
-		h += " · ↑/↓ select · k keys · d delete"
+		h += " · ↑/↓ select · s SSH keys · d delete"
 	} else {
 		h += " · ↑/↓ select"
 	}
@@ -341,7 +341,7 @@ func (v *hostView) update(msg tea.Msg) tea.Cmd {
 func (v *hostView) key(k string) tea.Cmd {
 	u, ok := v.selected()
 	switch k {
-	case "up":
+	case "up", "k":
 		if v.cursor > 0 {
 			v.cursor--
 		}
@@ -359,7 +359,7 @@ func (v *hostView) key(k string) tea.Cmd {
 		return v.poolForm()
 	case "x":
 		return v.detachForm()
-	case "k":
+	case "s":
 		if ok && u.Managed {
 			return v.userForm(u.Name)
 		}
