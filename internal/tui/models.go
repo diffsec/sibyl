@@ -51,6 +51,11 @@ type modelsView struct {
 	deleting bool
 	confirm  bool
 	fields   settingsForm
+	// orig is fields when the form opened, and secs the sections of the
+	// form, for the section bar.
+	orig settingsForm
+	secs []settingsSection
+	bar  []zone
 	// flow is the drafter finder, while it runs.
 	flow *drafterFlow
 	// running is what llama-swap runs. The list refreshes it every 5
@@ -94,7 +99,10 @@ func (v *modelsView) capturing() bool { return v.form != nil }
 
 func (v *modelsView) help() string {
 	if v.form != nil {
-		return formHelp(v.saveable())
+		if v.saveable() {
+			return formHelp(true) + " · pgup/pgdn section"
+		}
+		return formHelp(false)
 	}
 	return "↑/↓ select · enter edit · l load or unload · f find a drafter · b benchmark the backends · d delete"
 }
@@ -119,6 +127,7 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 	v.editing = m.ID
 	v.deleting = false
 	v.fields = formFromSettings(m.Settings)
+	v.orig, v.secs = copySettings(v.fields), visibleSections(m)
 	f := &v.fields
 
 	layouts := []huh.Option[string]{huh.NewOption("Hardware default ("+string(v.hw.Layout)+")", ""),
@@ -383,6 +392,13 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 			v.form, v.flow = nil, nil
 			return note(false, "changes discarded")
 		}
+		if k := msg.String(); (k == "pgup" || k == "pgdown") && v.saveable() {
+			cur := currentSection(v.form.View(), v.secs)
+			if k == "pgup" {
+				return gotoSection(v.form, v.secs, cur-1)
+			}
+			return gotoSection(v.form, v.secs, cur+1)
+		}
 		if msg.String() == saveKey && v.saveable() {
 			v.form = nil
 			return v.submit()
@@ -431,6 +447,12 @@ func summary(s models.Settings) string {
 
 func (v *modelsView) render(width int) string {
 	if v.form != nil {
+		if v.saveable() {
+			view := v.form.View()
+			bar, zones := sectionBar(v.secs, currentSection(view, v.secs), &v.orig, &v.fields)
+			v.bar = zones
+			return bar + "\n\n" + view
+		}
 		return v.form.View()
 	}
 	var b strings.Builder
@@ -606,4 +628,20 @@ func intAsFloat(v *int) *float64 {
 
 func (v *modelsView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }
 
-func (v *modelsView) clickForm(line int) tea.Cmd { return formClick(v.form, line) }
+// clickForm takes a click on the section bar, or on the form under it.
+func (v *modelsView) clickForm(line, x int) tea.Cmd {
+	if !v.saveable() {
+		return formClick(v.form, line)
+	}
+	if line == 0 {
+		for _, z := range v.bar {
+			if x >= z.x0 && x < z.x1 {
+				return gotoSection(v.form, v.secs, z.tab)
+			}
+		}
+	}
+	if line < 2 {
+		return nil
+	}
+	return formClick(v.form, line-2)
+}

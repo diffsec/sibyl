@@ -480,4 +480,4 @@ func orNone(s string) string {
 
 func (v *hostView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }
 
-func (v *hostView) clickForm(line int) tea.Cmd { return formClick(v.form, line) }
+func (v *hostView) clickForm(line, _ int) tea.Cmd { return formClick(v.form, line) }
