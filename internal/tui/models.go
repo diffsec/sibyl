@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/diffsec/sibyl/internal/client"
 	"github.com/diffsec/sibyl/internal/gpu"
@@ -426,7 +427,7 @@ func summary(s models.Settings) string {
 	return strings.Join(parts, " · ")
 }
 
-func (v *modelsView) render(int) string {
+func (v *modelsView) render(width int) string {
 	if v.form != nil {
 		return v.form.View()
 	}
@@ -435,32 +436,127 @@ func (v *modelsView) render(int) string {
 	if v.err != nil {
 		b.WriteString(badSty.Render("API error: "+v.err.Error()) + "\n")
 	}
-	b.WriteString(titleSty.Render("Installed models") + "\n\n")
+	loaded := 0
+	for _, m := range v.list {
+		if v.running.State(m.ID) == "ready" {
+			loaded++
+		}
+	}
+	fmt.Fprintf(&b, "%s  %s\n\n", titleSty.Render("Installed models"), mutedSty.Render(fmt.Sprintf("%d models · %d loaded", len(v.list), loaded)))
 	if len(v.list) == 0 {
 		b.WriteString(mutedSty.Render("  No models yet. Use the Download tab.") + "\n")
+		return b.String()
 	}
-	start, end := window(len(v.list), v.cursor)
-	for i := start; i < end; i++ {
-		m := v.list[i]
-		line := fmt.Sprintf("%-40s %10s  %s", m.ID, gib(m.Size), mutedSty.Render(summary(m.Settings)))
-		if mark := runningMark(v.running, m.ID); mark != "" {
-			line = fmt.Sprintf("%-40s %10s  %s  %s", m.ID, gib(m.Size), mark, mutedSty.Render(summary(m.Settings)))
+	top := strings.Count(b.String(), "\n")
+	var list strings.Builder
+	unusedShown := false
+	for i, m := range v.list {
+		if m.Drafter && drafterTarget(m, v.list) == "" && !unusedShown {
+			list.WriteString(mutedSty.Render("Unused drafters") + "\n")
+			unusedShown = true
 		}
-		if m.Drafter {
-			line = drafterLine(m, v.list)
+		name := m.ID
+		if m.Drafter && drafterTarget(m, v.list) != "" {
+			name = "↳ " + name
 		}
-		v.rows.mark(&b, i)
-		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
-		if mark := drafterMark(m); mark != "" {
-			b.WriteString("    " + mutedSty.Render(mark) + "\n")
-		}
-		if bench := benchLine(m.Benchmark); bench != "" {
-			b.WriteString("    " + mutedSty.Render(bench) + "\n")
-		}
+		// The details show the whole name, so the list keeps the columns.
+		name = ansi.Truncate(name, 34, "…")
+		state := runningMark(v.running, m.ID)
+		v.rows.lines[top+strings.Count(list.String(), "\n")] = i
+		list.WriteString(cursorLine(i == v.cursor, fmt.Sprintf("%-34s %9s  %s", name, gib(m.Size), state)) + "\n")
 	}
-	b.WriteString(more(start, end, len(v.list)))
+	m, _ := v.selected()
+	b.WriteString(twoPane(list.String(), v.details(m), width))
 	return b.String()
 }
+
+// drafterTarget is the model that uses drafter m, or "".
+func drafterTarget(m client.Model, list []client.Model) string {
+	for _, o := range list {
+		if o.Settings.Speculative.DraftModel == m.ID {
+			return o.ID
+		}
+	}
+	return ""
+}
+
+// details describes the selected model.
+func (v *modelsView) details(m client.Model) string {
+	var b strings.Builder
+	b.WriteString(titleSty.Render(m.ID) + "\n")
+	files := fmt.Sprintf("%d file", m.Shards)
+	if m.Shards != 1 {
+		files += "s"
+	}
+	size := gib(m.Size) + " · " + files
+	if m.Meta != nil {
+		size += " · " + m.Meta.Architecture
+	}
+	fmt.Fprintf(&b, "Size      %s\n", size)
+	if m.Drafter {
+		if t := drafterTarget(m, v.list); t != "" {
+			fmt.Fprintf(&b, "Drafter   for %s\n", t)
+		} else {
+			b.WriteString("Drafter   " + mutedSty.Render("no model uses it. d deletes it.") + "\n")
+		}
+		b.WriteString("\n" + mutedSty.Render("A drafter runs inside its model's llama-server, so it has no settings of its own.") + "\n")
+		return b.String()
+	}
+	state := v.running.State(m.ID)
+	switch state {
+	case "":
+		state = mutedSty.Render("not loaded · l loads it")
+	case "ready":
+		state = goodSty.Render("loaded") + mutedSty.Render(" · u unloads it")
+	}
+	fmt.Fprintf(&b, "State     %s\n", state)
+	if m.Settings.Embedding {
+		b.WriteString("Role      embedding model\n")
+	}
+	if f := m.Fit; f != nil {
+		ctx := fmt.Sprintf("%s tokens", thousands(f.Ctx))
+		if f.Auto {
+			ctx += mutedSty.Render(" (auto)")
+		}
+		cache := "f16"
+		if f.TypeK != "" {
+			cache = f.TypeK
+		}
+		fmt.Fprintf(&b, "Context   %s · cache %s", ctx, cache)
+		if f.Slots > 1 {
+			fmt.Fprintf(&b, " · %d slots", f.Slots)
+		}
+		b.WriteString("\n")
+		if !f.Fits {
+			b.WriteString("          " + badSty.Render("part of it is in system RAM") + "\n")
+		}
+		if f.Note != "" {
+			b.WriteString("          " + mutedSty.Render(f.Note) + "\n")
+		}
+	}
+	layout := m.Settings.Layout
+	if layout == "" {
+		layout = "hardware default"
+	}
+	fmt.Fprintf(&b, "Layout    %s\n", layout)
+	if sum := summary(m.Settings); sum != "" {
+		fmt.Fprintf(&b, "Settings  %s\n", sum)
+	}
+	switch sp := m.Settings.Speculative; {
+	case sp.DraftModel != "":
+		fmt.Fprintf(&b, "Drafter   %s\n", sp.DraftModel)
+	case m.Drafters != nil && *m.Drafters > 0:
+		fmt.Fprintf(&b, "Drafter   %s\n", mutedSty.Render(fmt.Sprintf("none · %d on Hugging Face · f finds them", *m.Drafters)))
+	}
+	if bench := benchLine(m.Benchmark); bench != "" {
+		b.WriteString("\n" + bench + "\n")
+	}
+	return b.String()
+}
+
+// benchGap is the smallest difference in generation speed that names a
+// faster backend. Below it, the runs are within their own noise.
+const benchGap = 0.05
 
 // benchLine summarises a model's latest benchmark.
 func benchLine(b *client.Benchmark) string {
@@ -468,23 +564,34 @@ func benchLine(b *client.Benchmark) string {
 		return ""
 	}
 	if b.Status != "done" {
-		return "benchmark " + b.Status
+		return "Benchmark " + b.Status
 	}
-	var parts []string
-	backends := slices.Sorted(maps.Keys(b.Results))
-	for _, backend := range backends {
+	var lines []string
+	var best, second float64
+	bestName := ""
+	for _, backend := range slices.Sorted(maps.Keys(b.Results)) {
 		r := b.Results[backend]
 		if r.Error != "" {
-			parts = append(parts, backend+" failed")
+			lines = append(lines, fmt.Sprintf("  %-7s %s", backend, badSty.Render("failed")))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s %.1f tok/s gen, %.0f tok/s prompt", backend, r.GenTPS, r.PromptTPS))
+		lines = append(lines, fmt.Sprintf("  %-7s %5.1f tok/s generation, %5.0f tok/s prompt", backend, r.GenTPS, r.PromptTPS))
+		switch {
+		case r.GenTPS > best:
+			second, best, bestName = best, r.GenTPS, backend
+		case r.GenTPS > second:
+			second = r.GenTPS
+		}
 	}
-	line := "benchmark: " + strings.Join(parts, " · ")
-	if b.Recommended != "" {
-		line += " · faster: " + b.Recommended
+	out := "Benchmark\n" + strings.Join(lines, "\n")
+	switch {
+	case bestName == "" || second == 0:
+	case best >= second*(1+benchGap):
+		out += fmt.Sprintf("\n  %s is %.0f%% faster", bestName, (best/second-1)*100)
+	default:
+		out += "\n  " + mutedSty.Render("the backends are within 5% of each other")
 	}
-	return line
+	return out
 }
 
 func intAsFloat(v *int) *float64 {

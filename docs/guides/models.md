@@ -174,7 +174,7 @@ A backend is the GPU library that llama.cpp uses: `hip` (ROCm), `cuda` or `vulka
 
 1. On the Models screen, select a model and press `b`. In the web console, choose Benchmark on the Models page.
 2. Wait a few minutes. Sibyl unloads the running models and measures each backend of your variant on that model.
-3. Read the result and the recommendation on the Models screen.
+3. Read the result in the model's details on the Models screen. The TUI names a faster backend only when it generates at least 5% faster. A smaller gap is within the noise of one run, so it says that the backends are within 5% of each other.
 4. If you want the faster backend, change it on the Hardware screen.
 
 The backend applies to every model, because llama-swap runs one image.

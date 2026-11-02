@@ -31,7 +31,7 @@ The bottom of each screen shows its actions as buttons, such as `[n] new client`
 |---|---|---|
 | `1` | Status | `r` restarts the selected service. `o` connects Open WebUI with an admin key. `u` checks for an update. `U` applies it. `B` reboots into a staged update. |
 | `2` | Hardware | `e` changes the GPUs, the backend and the default layout. |
-| `3` | Models | `enter` edits the settings of the selected model. `b` benchmarks the backends. `d` deletes the model. |
+| `3` | Models | The list shows each model with its size and whether it is loaded, each drafter under the model that uses it, and the unused drafters last. The details show the context, the settings, the drafter and the benchmark. `enter` edits the settings. `l` loads and `u` unloads the model. `f` finds a drafter. `b` benchmarks the backends. `d` deletes the model. |
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `c` cancels a download. `R` retries one. |
 | `5` | Host | `h` hostname. `n` network. `a` adds an operator. `p` makes a model pool. `x` detaches a pool. For a selected operator, `k` changes the SSH keys and `d` deletes the operator. After a network change, `c` keeps the change. |
 | `6` | Router | Five sections: Clients, Providers, Profiles, Calibration and Activity. `←` and `→` change the section. Clients: `n` new client, `e` edit, `K` new key, `d` delete. Providers: `n` add, `e` change, `d` delete. Profiles: `n` new profile, `e` edit the selected profile or rule, `a` add a rule, `<` and `>` move a rule, `d` delete, `s` sensitive words and classifier. Calibration: `e` settings, `l` loads the model that the samples wait for, `a` applies a proposal, `C` deletes the samples. |
