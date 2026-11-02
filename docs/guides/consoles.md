@@ -9,11 +9,11 @@ Neither console shows the System API key, a client key after its first display, 
 
 ## The sibyl TUI
 
-Run `sibyl` on the host. The TUI has six screens.
+Run `sibyl` on the host. The TUI has seven screens.
 
 | Key | Action |
 |---|---|
-| `1` to `6` | Go to that screen |
+| `1` to `7` | Go to that screen |
 | `tab`, `shift+tab` | Go to the next or the previous screen |
 | `q` | Quit |
 | `ctrl+c` | Quit, also while a form is open |
@@ -30,6 +30,7 @@ The bottom line of each screen lists its keys. While a form is open, `enter` goe
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `c` cancels a download. `R` retries one. |
 | `5` | Host | `h` hostname. `n` network. `a` adds an operator. `p` makes a model pool. `x` detaches a pool. For a selected operator, `k` changes the SSH keys and `d` deletes the operator. After a network change, `c` keeps the change. |
 | `6` | Router | `n` new client and key. `e` edits a client. `p` adds or changes a provider. `x` deletes a provider. `m` profiles. `r` rules. `c` calibration. `s` sensitive words and classifier. For a client that is not built in, `k` makes a new key and `d` deletes the client. `a` applies a calibration proposal, when one exists. `C` deletes the calibration samples, when some exist. |
+| `7` | Diagnostics | `b` makes a bundle from the selected incident or from a new snapshot. `s` sends the latest bundle. `c` sets the upload consent. `m` turns safe mode on or off. |
 
 Use `↑` and `↓` to select a row in a list.
 
@@ -40,6 +41,7 @@ The other guides explain the work on each screen:
 - Models and downloads: [Models](models.md).
 - Hostname, network, operators and pools: [Host](host.md).
 - Updates: [Updates](updates.md).
+- The watchdog, bundles, upload consent and safe mode: [Diagnostics](diagnostics.md).
 
 ### The setup wizard
 

@@ -486,46 +486,6 @@ func percentile(vs []float64, q float64) *float64 {
 	return &v
 }
 
-// WriteOut writes status.json and perf.json for the System API.
-func (d *Diag) WriteOut() error {
-	reqs, err := d.Requests(d.Now().Add(-24*time.Hour), "")
-	if err != nil {
-		return err
-	}
-	if err := d.writeOut("perf.json", map[string]any{
-		"updated": d.Now().UTC(), "window_hours": 24, "models": Perf(reqs),
-	}); err != nil {
-		return err
-	}
-	return d.writeOut("status.json", d.Status())
-}
-
-// Status is what `sibyl-diag status` prints and status.json holds.
-func (d *Diag) Status() map[string]any {
-	st := d.LoadState()
-	safe, why := d.SafeMode()
-	c := d.LoadConsent()
-	incidents := d.Incidents()
-	latest := ""
-	if len(incidents) > 0 {
-		latest = incidents[len(incidents)-1]
-	}
-	return map[string]any{
-		"updated":   d.Now().UTC(),
-		"version":   d.readShare("version"),
-		"device_id": d.DeviceID(),
-		"consent":   c.Mode,
-		"endpoint":  d.Endpoint(),
-		"safe_mode": map[string]any{"on": safe, "reason": why},
-		"watchdog": map[string]any{
-			"degraded": st.Degraded, "last_problem": st.LastProblem, "last_action": st.LastAction,
-			"restarts": len(st.Restarts), "reboots": len(st.Reboots), "unclean_boots": len(st.UncleanBoots),
-		},
-		"incidents":       len(incidents),
-		"latest_incident": latest,
-	}
-}
-
 // FormatTPS prints an optional speed.
 func FormatTPS(v *float64) string {
 	if v == nil {

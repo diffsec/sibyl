@@ -11,6 +11,7 @@ func (c *Console) routes(mux *http.ServeMux) {
 	c.drafterRoutes(mux)
 	c.loadedRoutes(mux)
 	c.hostRoutes(mux)
+	c.diagRoutes(mux)
 }
 
 func (c *Console) statusPage(w http.ResponseWriter, r *http.Request) {

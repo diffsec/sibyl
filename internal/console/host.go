@@ -268,6 +268,7 @@ func (c *Console) setupPage(w http.ResponseWriter, r *http.Request) {
 	owui, _ := c.client.OpenWebUI(ctx)
 	list, _ := c.client.Models(ctx)
 	rt, _ := c.client.Router(ctx)
+	dg, _ := c.client.Diagnostics(ctx)
 	operators, clients := 0, 0
 	for _, u := range host.Users {
 		if u.Managed {
@@ -286,6 +287,7 @@ func (c *Console) setupPage(w http.ResponseWriter, r *http.Request) {
 		{"Open WebUI administrator", "Create the first Open WebUI admin, or connect an existing one.", Prefix + "status", owui.Configured},
 		{"First model", "Search Hugging Face. The fit column shows what suits your GPUs.", Prefix + "downloads", len(list) > 0},
 		{"API keys for your programs", "Make a client and key for each program. A key shows once.", Prefix + "router#clients", clients > 0},
+		{"Diagnostics upload", "Choose if this host can send diagnostic bundles.", Prefix + "diagnostics#upload", !dg.ConsentChanged.IsZero()},
 	}
 	c.render(w, r, http.StatusOK, "setup", map[string]any{"Steps": steps})
 }

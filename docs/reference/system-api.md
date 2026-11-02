@@ -15,10 +15,11 @@ The design of the System API, the host agent and `sibyl-hostd` is in [the design
 7. [Downloads and Hugging Face](#downloads-and-hugging-face)
 8. [Host and pools](#host-and-pools)
 9. [Updates](#updates)
-10. [Router](#router)
-11. [Calibration](#calibration)
-12. [Integrations](#integrations)
-13. [Other endpoints on port 8443](#other-endpoints-on-port-8443)
+10. [Diagnostics](#diagnostics)
+11. [Router](#router)
+12. [Calibration](#calibration)
+13. [Integrations](#integrations)
+14. [Other endpoints on port 8443](#other-endpoints-on-port-8443)
 
 ## Base URL and authentication
 
@@ -67,7 +68,7 @@ Request and response bodies are JSON.
 
 ## Host actions and the 202 queued response
 
-Some routes change the host itself: the hostname, the network, accounts, pools, updates and reboots. These changes need root. The System API runs as the unprivileged `sibyl` user, so it queues a request for `sibyl-hostd`, the root agent of the host.
+Some routes change the host itself: the hostname, the network, accounts, pools, updates, reboots and diagnostics. These changes need root. The System API runs as the unprivileged `sibyl` user, so it queues a request for `sibyl-hostd`, the root agent of the host.
 
 1. The System API checks the request with the same rules as `sibyl-hostd`. A request that fails the check returns `422` and is not queued.
 2. The System API writes the request to the queue and waits up to 45 seconds for the result.
@@ -293,6 +294,45 @@ These routes are host actions. They return `200`, `202` or `422` as [host action
 | `POST /host/reboot` | None | A host action result | Reboots the host after 5 seconds, for example into a staged update. |
 
 `update` in `GET /host` has these fields: `image`, `booted`, `booted_digest`, `staged` and `available`. [Updates](../guides/updates.md) explains the update and the rollback.
+
+## Diagnostics
+
+The two `GET` routes read the summary files that `sibyl-diag` writes every minute. They return `503` until the first write. The other routes are host actions. They return `200`, `202` or `422` as [host actions](#host-actions-and-the-202-queued-response) describes.
+
+| Method and path | Body | Response | What it does |
+|---|---|---|---|
+| `GET /diagnostics` | None | The diagnostics state (see below) | The watchdog, upload consent, safe mode, incidents and bundles. |
+| `GET /diagnostics/perf` | None | `{"updated", "window_hours", "models"}` | Requests, errors and speed per model over the last 24 hours. |
+| `POST /diagnostics/bundles` | `{"incident", "latest", "note"}` | A host action result | Makes a redacted bundle. The `message` holds the diagnostic ID. |
+| `POST /diagnostics/bundles/{id}/submit` | None | A host action result | Uploads one bundle. It fails unless the upload consent is `manual` or `automatic` and an endpoint is set. |
+| `PUT /diagnostics/consent` | `{"mode"}` | A host action result | Sets the upload consent: `off`, `manual` or `automatic`. |
+| `PUT /diagnostics/safe-mode` | `{"on"}` | A host action result | Sets or clears safe mode. Clearing it also clears the crash counters. |
+
+The diagnostics state has these fields:
+
+| Field | Content |
+|---|---|
+| `updated` | The time `sibyl-diag` wrote the file |
+| `version`, `device_id` | The image version, and the random device ID |
+| `consent`, `consent_changed`, `endpoint` | The upload consent mode, the time a person last chose it, and the upload endpoint |
+| `safe_mode` | `on` and `reason` |
+| `watchdog` | `degraded`, `last_problem`, `last_action`, and the counts of `restarts`, `reboots` and `unclean_boots` |
+| `incidents`, `latest_incident`, `recent_incidents` | The number of incidents, the newest name, and up to 20 names, newest first |
+| `bundles` | Up to 20 bundles, newest first: `diagnostic_id`, `created`, `bytes`, and `state` (`local`, `pending` or `sent`) |
+
+Each entry of `models` in `GET /diagnostics/perf` has `model`, `requests`, `errors`, `input_tokens`, `output_tokens`, `gen_tps_p50`, `gen_tps_p5` and `prompt_tps_p50`. A speed is `null` when no request recorded it.
+
+The fields of the bundle body:
+
+| Field | Content |
+|---|---|
+| `incident` | An incident name from `recent_incidents`, such as `20261031T103035Z-generation-stalled` |
+| `latest` | `true` for the newest incident. Do not set it with `incident`. |
+| `note` | Optional. What you saw, up to 2000 bytes, with no control characters except a newline and a tab. |
+
+With no `incident` and no `latest`, `sibyl-diag` captures a new incident first. That can take longer than 45 seconds, so expect a `202`. The new bundle shows in `bundles` of `GET /diagnostics` when it is done.
+
+No route sets the upload endpoint. An administrator sets it with `sudo sibyl-diag consent manual -endpoint URL`. [Diagnostics](../guides/diagnostics.md) explains bundles, consent and safe mode.
 
 ## Router
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diffsec/sibyl/internal/diag"
 	"github.com/diffsec/sibyl/internal/disks"
 	"github.com/diffsec/sibyl/internal/download"
 	"github.com/diffsec/sibyl/internal/gpu"
@@ -489,6 +490,40 @@ func (c *Client) CreatePool(ctx context.Context, disk, confirm string) (hostd.Re
 
 func (c *Client) DetachPool(ctx context.Context, name string) (hostd.Result, error) {
 	return c.hostAction(ctx, http.MethodDelete, "/pools/"+url.PathEscape(name), nil)
+}
+
+// Diagnostics reads the watchdog, consent, safe mode, incident and bundle
+// summary that sibyl-diag writes every minute.
+func (c *Client) Diagnostics(ctx context.Context) (diag.StatusFile, error) {
+	var st diag.StatusFile
+	return st, c.do(ctx, http.MethodGet, "/diagnostics", nil, &st)
+}
+
+// DiagnosticsPerf reads the speed per model over the last 24 hours.
+func (c *Client) DiagnosticsPerf(ctx context.Context) (diag.PerfFile, error) {
+	var p diag.PerfFile
+	return p, c.do(ctx, http.MethodGet, "/diagnostics/perf", nil, &p)
+}
+
+// MakeBundle makes a redacted bundle. The result message holds the
+// diagnostic ID.
+func (c *Client) MakeBundle(ctx context.Context, b hostd.DiagBundleReq) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/diagnostics/bundles", b)
+}
+
+// SubmitBundle uploads one bundle. It needs upload consent.
+func (c *Client) SubmitBundle(ctx context.Context, id string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/diagnostics/bundles/"+url.PathEscape(id)+"/submit", nil)
+}
+
+// SetConsent sets the upload consent mode: off, manual or automatic.
+func (c *Client) SetConsent(ctx context.Context, mode string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPut, "/diagnostics/consent", hostd.DiagConsentReq{Mode: mode})
+}
+
+// SetSafeMode sets or clears safe mode.
+func (c *Client) SetSafeMode(ctx context.Context, on bool) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPut, "/diagnostics/safe-mode", hostd.SafeModeReq{On: on})
 }
 
 // HuggingFace is the GET /integrations/huggingface response.

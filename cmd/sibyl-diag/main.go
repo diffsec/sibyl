@@ -34,7 +34,7 @@ Commands:
   hardware               hardware and software inventory
   incidents              recorded incidents
   capture [-note TEXT]   record an incident now
-  bundle [-incident NAME | -latest] [-note TEXT] [-list]
+  bundle [-incident NAME | -latest] [-note TEXT] [-list] [-json]
                          make a redacted bundle with a diagnostic ID
   submit [-yes] [ID]     upload a bundle; needs upload consent
   consent [off|manual|automatic] [-endpoint URL]
@@ -52,15 +52,36 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	d := &diag.Diag{Root: "/", Run: diag.Exec, Now: time.Now, Log: log, Group: -1}
 	if err := d.LoadConfig(); err != nil {
-		log.Error("exit", "err", err)
+		fmt.Fprintln(os.Stderr, "sibyl-diag:", err)
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, d, os.Args[1], os.Args[2:]); err != nil {
-		log.Error("exit", "err", err)
+	err := run(ctx, d, os.Args[1], os.Args[2:])
+	if err == nil && changes[os.Args[1]] {
+		err = refreshOut(d)
+	}
+	if err != nil {
+		// Plain text, because sibyl-hostd passes stderr to the System API
+		// as the error message.
+		fmt.Fprintln(os.Stderr, "sibyl-diag:", err)
 		os.Exit(1)
 	}
+}
+
+// changes are the commands that change what status.json shows. After one of
+// them, status.json is written again, so the System API does not wait for
+// the next sample.
+var changes = map[string]bool{"bundle": true, "submit": true, "consent": true, "safe-mode": true, "capture": true}
+
+func refreshOut(d *diag.Diag) error {
+	if err := outGroup(d); err != nil {
+		return err
+	}
+	if err := d.WriteOut(); err != nil {
+		d.Log.Warn("write status.json", "err", err)
+	}
+	return nil
 }
 
 func run(ctx context.Context, d *diag.Diag, cmd string, args []string) error {
@@ -176,7 +197,11 @@ func bundle(ctx context.Context, d *diag.Diag, fs *flag.FlagSet, args []string) 
 	latest := fs.Bool("latest", false, "use the newest incident")
 	note := fs.String("note", "", "what you saw, in your own words")
 	list := fs.Bool("list", false, "list the files in the bundle")
+	asJSON := fs.Bool("json", false, "print the bundle as JSON")
 	_ = fs.Parse(args)
+	if *latest && *incident != "" {
+		return fmt.Errorf("use -incident or -latest, not both")
+	}
 	names := d.Incidents()
 	var dir string
 	switch {
@@ -204,6 +229,9 @@ func bundle(ctx context.Context, d *diag.Diag, fs *flag.FlagSet, args []string) 
 	b, err := d.BuildBundle(dir, *note)
 	if err != nil {
 		return err
+	}
+	if *asJSON {
+		return printJSON(b)
 	}
 	fmt.Printf("Diagnostic ID: %s\nBundle: %s (redacted)\n", b.ID, b.Path)
 	if *list {

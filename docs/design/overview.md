@@ -214,7 +214,7 @@ The setup wizard changes the hostname, the network and the login accounts. Model
 
 1. The System API writes one JSON request per file into `/var/lib/sibyl/run/host`. It checks the request with the same rules as `sibyl-hostd` first, and returns 422 for a bad request.
 2. `sibyl-hostd.path` starts `sibyl-hostd.service`. The agent reads each request without following symlinks, deletes it, and checks it again. Only the agent's checks protect the host.
-3. The agent runs fixed commands with arguments, never a shell string. The account and network actions use `hostnamectl`, `nmcli`, `busctl`, `useradd`, `usermod`, `userdel`, `runuser` and `restorecon`. The pool, update and password actions use commands such as `cryptsetup`, `systemd-cryptenroll`, `mkfs.xfs`, `mount`, `umount`, `systemctl` and `unix_chkpwd`.
+3. The agent runs fixed commands with arguments, never a shell string. The account and network actions use `hostnamectl`, `nmcli`, `busctl`, `useradd`, `usermod`, `userdel`, `runuser` and `restorecon`. The pool, update and password actions use commands such as `cryptsetup`, `systemd-cryptenroll`, `mkfs.xfs`, `mount`, `umount`, `systemctl` and `unix_chkpwd`. The diagnostics actions run `sibyl-diag` through `systemd-run` (see [the diagnostics design](diagnostics.md#system-api-and-consoles)).
 4. It writes a result to `/var/lib/sibyl-host/out/results/<id>.json` and the host state to `/var/lib/sibyl-host/out/state.json`. The System API mounts that directory read-only, and waits up to 45 seconds for the result. A request that takes longer returns an ID, and the System API reports the result later.
 
 The rules keep root out of reach of the System API. Any process that runs as `sibyl` can queue requests, and that includes Arcane and the containers it starts.
@@ -446,6 +446,7 @@ The setup wizard configures the hardware and the services. It runs in the TUI wi
 | 4. Open WebUI administrator | Status | The first Open WebUI admin |
 | 5. First model | Download | A first model, with the fit for the selected GPUs |
 | 6. API keys for your programs | Router | One router client key for each program |
+| 7. Diagnostics upload | Diagnostics | The upload consent: off, manual or automatic |
 | Done | Status | The client URLs, where the keys are, and the SHA-256 fingerprint of the Sibyl CA certificate |
 
 The GPU detection reads sysfs and lists each card with its vendor, ROCm target on AMD, VRAM, and PCIe link width. To pick the backend by measurement, the owner runs the benchmark from the Models screen. It needs an installed model.
@@ -594,7 +595,7 @@ The host has its own CA in `/var/lib/sibyl-ca` (root only). `/usr/libexec/sibyl/
 | 5 | User guide and developer guide | A new user installs Sibyl on a fresh host from the guide alone. | Built. The guides now live under `docs/getting-started/`, `docs/guides/` and `docs/development.md` (see [the docs map](../index.md)). |
 | 6 | Smart model router: a gateway in front of llama-swap that serves local requests that fit and routes others to frontier providers (Anthropic, OpenAI, OpenRouter and similar), using request profiles and customisable rules, optionally decided by a small local classifier model | Exit checks per step in the [router design](router.md#delivery). | Steps 6.1 to 6.4 built, except the Open WebUI feedback signal and the `llm` classifier. |
 | 7 | Web console: a browser view of the TUI, served by the System API | Exit checks per step in the [web console design](web-console.md#delivery). | Steps 7.1 to 7.4 built. |
-| 8 | Diagnostics, inference watchdog, opt-in upload, then the ingest and fleet services | Phases D1 to D5 in the [diagnostics design](diagnostics.md#phases). | D1 built, except the checks on the test host. |
+| 8 | Diagnostics, inference watchdog, opt-in upload, then the ingest and fleet services | Phases D1 to D5 in the [diagnostics design](diagnostics.md#phases). | D1 built and checked on the test host. D2 built. |
 
 ## Open items
 

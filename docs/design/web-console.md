@@ -82,7 +82,7 @@ The unit `sibyl-hostd-auth.service` has no network, a read-only system and four 
 
 ### Pages
 
-The console has the pages Router, Models, Downloads, Hardware, Host, Status and Setup.
+The console has the pages Router, Models, Downloads, Hardware, Host, Status, Diagnostics and Setup.
 
 | Page | Shows | Controls |
 |---|---|---|
@@ -93,11 +93,12 @@ The console has the pages Router, Models, Downloads, Hardware, Host, Status and 
 | Downloads | Hugging Face search, the queue with progress | Search, pick a file, start, cancel, retry, set the Hugging Face token |
 | Host | Hostname, network, users, SSH keys, model pools | Change each, with the same checks as `sibyl-hostd` |
 | Router | Clients, providers, profiles and rules, calibration, last decisions | Every control of the TUI Router screen, including `m`, `r`, `c`, `s`, `a` and `C` |
+| Diagnostics | The watchdog, safe mode, speed per model, incidents and bundles, with the latest diagnostic ID | Make a bundle, send the latest bundle, set the upload consent, turn safe mode on or off |
 | Setup | The steps of `sibyl setup` | A link to the page of each step |
 
 The Router page shows the calibration cells per local model as a table. The rules move with up and down buttons, which need no script.
 
-The Setup page lists the six steps of `sibyl setup` in the same order. Each step shows whether it is done, from the System API's state, and links to its page. The [overview](overview.md#setup-wizard) lists the steps.
+The Setup page lists the seven steps of `sibyl setup` in the same order. The Diagnostics step is done after a person chooses a consent mode, because the default "off" is not a choice. Each step shows whether it is done, from the System API's state, and links to its page. The [overview](overview.md#setup-wizard) lists the steps.
 
 ### Network changes
 

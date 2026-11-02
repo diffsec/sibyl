@@ -56,6 +56,7 @@ func run(log *slog.Logger) error {
 			DropIn:    env("SIBYL_DROPIN_DIR", "/quadlet"),
 			SysfsRoot: env("SIBYL_SYSFS", "/sys"),
 			MemInfo:   env("SIBYL_MEMINFO", "/proc/meminfo"),
+			DiagOut:   env("SIBYL_DIAG_OUT_DIR", "/run/sibyl-diag"),
 		},
 		Host:      hostctl.New(env("SIBYL_RUN_DIR", "/run/sibyl")),
 		HostAgent: hostAgent,

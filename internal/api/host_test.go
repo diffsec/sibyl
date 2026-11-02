@@ -225,3 +225,72 @@ func TestHuggingFaceToken(t *testing.T) {
 		t.Fatalf("after DELETE = %d %v", code, body)
 	}
 }
+
+func TestDiagnostics(t *testing.T) {
+	f := newHostFixture(t, true)
+	if code, _ := f.do(t, "GET", "/diagnostics", "", true); code != http.StatusServiceUnavailable {
+		t.Fatalf("GET /diagnostics with no DiagOut = %d", code)
+	}
+	f.server.Paths.DiagOut = filepath.Join(f.run, "diag-out")
+	mkdir(t, f.server.Paths.DiagOut)
+	if code, body := f.do(t, "GET", "/diagnostics", "", true); code != http.StatusServiceUnavailable ||
+		!strings.Contains(body["error"].(string), "has not written") {
+		t.Fatalf("GET /diagnostics before the first write = %d %v", code, body)
+	}
+	write(t, filepath.Join(f.server.Paths.DiagOut, "status.json"),
+		`{"consent":"off","safe_mode":{"on":false},"latest_incident":"20261031T103035Z-generation-stalled",
+		  "bundles":[{"diagnostic_id":"SBL-WVBN-18HN","bytes":336078,"state":"sent"}]}`)
+	write(t, filepath.Join(f.server.Paths.DiagOut, "perf.json"),
+		`{"window_hours":24,"models":[{"model":"flint-q8_0","requests":3,"gen_tps_p50":62.3}]}`)
+	code, body := f.do(t, "GET", "/diagnostics", "", true)
+	bundles, _ := body["bundles"].([]any)
+	if code != http.StatusOK || body["consent"] != "off" || len(bundles) != 1 || body["recent_incidents"] == nil {
+		t.Fatalf("GET /diagnostics = %d %v", code, body)
+	}
+	code, body = f.do(t, "GET", "/diagnostics/perf", "", true)
+	models, _ := body["models"].([]any)
+	if code != http.StatusOK || len(models) != 1 {
+		t.Fatalf("GET /diagnostics/perf = %d %v", code, body)
+	}
+
+	run := "systemd-run --quiet --wait --pipe --collect --service-type=exec --property=RuntimeMaxSec=150 -- /usr/sbin/sibyl-diag "
+	for _, c := range []struct{ method, path, body, ran string }{
+		{"PUT", "/diagnostics/consent", `{"mode":"manual"}`, run + "consent manual"},
+		{"PUT", "/diagnostics/safe-mode", `{"on":false}`, run + "safe-mode off"},
+		{"POST", "/diagnostics/bundles/SBL-WVBN-18HN/submit", ``, run + "submit -yes SBL-WVBN-18HN"},
+	} {
+		if code, body := f.do(t, c.method, c.path, c.body, true); code != http.StatusOK || !f.ran(c.ran) {
+			t.Errorf("%s %s = %d %v, calls %v", c.method, c.path, code, body, f.calls)
+		}
+	}
+	// The fake runner prints nothing, so the bundle fails on its output,
+	// after the command ran.
+	if code, body := f.do(t, "POST", "/diagnostics/bundles", `{"latest":true}`, true); code != http.StatusUnprocessableEntity ||
+		!f.ran(run+"bundle -json -latest") {
+		t.Errorf("POST /diagnostics/bundles = %d %v", code, body)
+	}
+}
+
+func TestDiagnosticsValidationNeverQueues(t *testing.T) {
+	f := newHostFixture(t, false)
+	for _, c := range []struct{ method, path, body string }{
+		{"PUT", "/diagnostics/consent", `{"mode":"always"}`},
+		{"POST", "/diagnostics/bundles", `{"incident":"../x"}`},
+		{"POST", "/diagnostics/bundles/SBL-ABCD/submit", ``},
+	} {
+		if code, body := f.do(t, c.method, c.path, c.body, true); code != http.StatusUnprocessableEntity {
+			t.Errorf("%s %s = %d %v, want 422", c.method, c.path, code, body)
+		}
+	}
+	for _, c := range []struct{ method, path, body string }{
+		{"PUT", "/diagnostics/consent", `{"mode":"manual","endpoint":"https://evil.example"}`},
+		{"PUT", "/diagnostics/safe-mode", `{"on":"yes"}`},
+	} {
+		if code, body := f.do(t, c.method, c.path, c.body, true); code != http.StatusBadRequest {
+			t.Errorf("%s %s = %d %v, want 400", c.method, c.path, code, body)
+		}
+	}
+	if entries, _ := os.ReadDir(filepath.Join(f.run, "host")); len(entries) != 0 {
+		t.Fatalf("queued %v", entries)
+	}
+}

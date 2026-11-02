@@ -155,14 +155,14 @@ The hardware watchdog needs a driver: `sp5100_tco` on AMD chipsets, `iTCO_wdt` o
 
 ## Consent and privacy
 
-Local capture is always on and stays on the box. Upload has three modes. Only `sudo sibyl-diag consent` writes the mode, to a root-only file, so an edit to `diagnostics.yaml` cannot turn uploads on. The override `/var/lib/sibyl/config/diagnostics.yaml` cannot set `upload` either, because the `sibyl` user can write it. Only the image file and `consent -endpoint` set the endpoint.
+Local capture is always on and stays on the box. Upload has three modes. Only `sibyl-diag consent` writes the mode, to a root-only file, so an edit to `diagnostics.yaml` cannot turn uploads on. An administrator runs it with `sudo`, and `sibyl-hostd` runs it for the TUI and the web console (see [System API and consoles](#system-api-and-consoles)). The override `/var/lib/sibyl/config/diagnostics.yaml` cannot set `upload` either, because the `sibyl` user can write it. Only the image file and `consent -endpoint` set the endpoint.
 
 sibyl-diag runs as root and reads three files in directories that the `sibyl` user owns: the override, the safe-mode flag and the llama-swap config. It opens them with `O_NOFOLLOW`, takes regular files only, and reads at most 1 MiB. A symlink cannot make root copy another file into a bundle.
 
 | Mode | Behavior |
 |---|---|
 | `off` (default) | Nothing leaves the box. A bundle can still go to support on a USB drive. |
-| `manual` | `sudo sibyl-diag submit` uploads one bundle after it shows the size and the endpoint and asks for confirmation. |
+| `manual` | `sudo sibyl-diag submit` uploads one bundle after it shows the size and the endpoint and asks for confirmation. The TUI and the web console ask in the screen, then send through `sibyl-hostd`. |
 | `automatic` | The watchdog bundles each incident and queues it. `sibyl-diag-upload.timer` sends the queue every hour. |
 
 The redactor runs on every file before it goes into a bundle. It removes private keys, bearer tokens, `X-Api-Key` values, Sibyl `sib-` keys, Hugging Face, OpenAI and GitHub tokens, `key=value` secrets and email addresses. It replaces IPv4, IPv6 and MAC addresses and the hostname, in any letter case, with a keyed hash. The key is a random salt per device, so one address gives the same token in every file of that box, and the token cannot be reversed. Loopback and Podman container networks (`10.88.*`, `10.89.*`) stay as they are. A file with a NUL byte cannot be redacted, so it stays out.
@@ -172,6 +172,25 @@ Bundles never contain prompts or responses. llama-swap request rows hold token c
 The device ID is a random UUID in `/var/lib/sibyl-diag/device-id`. It does not come from the machine ID or any serial number.
 
 The upload endpoint must use HTTPS. Plain HTTP is accepted for loopback only, for tests. The upload does not follow a redirect, so the bundle goes only to the endpoint that was checked.
+
+## System API and consoles
+
+The System API reads `out/status.json` and `out/perf.json` and serves them as `GET /diagnostics` and `GET /diagnostics/perf`. `system-api.container` mounts `/var/lib/sibyl-diag/out` read-only. The incidents and the bundles are not mounted, because they hold logs. After `bundle`, `submit`, `consent`, `safe-mode` and `capture`, `sibyl-diag` writes `status.json` again at once, so a screen does not wait for the next sample.
+
+The changes go through four `sibyl-hostd` actions. `hostd.Decode` checks each body. The System API returns `422` for a bad body and queues nothing.
+
+| Action | Body | Command |
+|---|---|---|
+| `diag-bundle` | An incident name, or `latest`, or neither for a new capture. A note of up to 2000 bytes with no control characters except a newline and a tab. | `sibyl-diag bundle -json` |
+| `diag-submit` | A diagnostic ID that passes `diag.ValidID` | `sibyl-diag submit -yes` |
+| `diag-consent` | `off`, `manual` or `automatic` | `sibyl-diag consent` |
+| `safe-mode` | `on` true or false | `sibyl-diag safe-mode` |
+
+`sibyl-hostd` passes each value as one `-flag=value` argument, so a value cannot become a flag. It runs `sibyl-diag` with `systemd-run --wait --pipe` in a transient unit with `RuntimeMaxSec=150`. The reason is the socket sandbox of `sibyl-hostd.service`, which allows only `AF_UNIX` and `AF_NETLINK`. A capture reads llama-swap over TCP, and an upload needs the network. `systemd-run` asks systemd over D-Bus, so the sandbox stays as it is. `RuntimeMaxSec` stops the unit before the `TimeoutStartSec` of `sibyl-hostd`. `sibyl-diag` writes its error to stderr as plain text, and `sibyl-hostd` returns it as the error of the result.
+
+No action sets the endpoint. An operator can choose whether bundles go, but cannot choose where they go. Only an administrator sets the endpoint, with `sudo sibyl-diag consent manual -endpoint URL`.
+
+The TUI has a Diagnostics screen (key `7`), and the web console has a Diagnostics page. Both show the watchdog, safe mode, the speed per model, the incidents, the bundles and the latest diagnostic ID. Both make a bundle, send the latest bundle, set the consent mode and set or clear safe mode. The setup wizard has a "Diagnostics upload" step. The console Setup page marks it done when `consent_changed` is set.
 
 ## Diagnostic ID
 
