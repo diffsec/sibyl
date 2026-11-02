@@ -78,3 +78,21 @@ func TestTuningFlags(t *testing.T) {
 		t.Errorf("empty moe flags = %v", got)
 	}
 }
+
+func TestSpeculativeRollback(t *testing.T) {
+	seven := 7
+	for _, tc := range []struct {
+		s    Speculative
+		want int
+	}{
+		{Speculative{}, 0},
+		{Speculative{Types: []string{"ngram-mod"}}, 0},
+		{Speculative{Types: []string{"draft-simple"}, DraftMax: &seven}, 0},
+		{Speculative{Types: []string{"ngram-mod", "draft-dflash"}}, DefaultDraftMax},
+		{Speculative{Types: []string{"draft-mtp"}, DraftMax: &seven}, 7},
+	} {
+		if got := tc.s.Rollback(); got != tc.want {
+			t.Errorf("%+v: rollback %d, want %d", tc.s, got, tc.want)
+		}
+	}
+}

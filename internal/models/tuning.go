@@ -33,6 +33,28 @@ type Speculative struct {
 	NgramModMax *int   `yaml:"ngram_mod_max,omitempty" json:"ngram_mod_max,omitempty"`
 }
 
+// DefaultDraftMax is llama.cpp b11889's --spec-draft-n-max default
+// (common_params_speculative_draft in common/common.h).
+const DefaultDraftMax = 3
+
+// rollbackTypes are the speculative types that make llama.cpp keep
+// rollback copies of a recurrent model's state (need_n_rs_seq in
+// common/common.h).
+var rollbackTypes = []string{"draft-mtp", "draft-eagle3", "draft-dflash", "draft-dspark"}
+
+// Rollback is the number of state copies that llama.cpp keeps for each
+// sequence of a recurrent model: the draft length, for the draft types
+// that verify against the recurrent state, and else 0.
+func (s Speculative) Rollback() int {
+	if !slices.ContainsFunc(s.Types, func(t string) bool { return slices.Contains(rollbackTypes, t) }) {
+		return 0
+	}
+	if s.DraftMax != nil {
+		return *s.DraftMax
+	}
+	return DefaultDraftMax
+}
+
 // KVCache sets the KV cache element types. Quantized types need flash
 // attention, which Sibyl always turns on.
 type KVCache struct {

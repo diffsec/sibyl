@@ -40,8 +40,12 @@ type Fit struct {
 	SlotCtx int `json:"slot_ctx,omitempty"`
 	// Reserved is the VRAM that other models keep on the same GPUs.
 	Reserved int64 `json:"reserved_bytes,omitempty"`
-	// Draft is the GPU weights of the draft model, which share the GPUs.
+	// Draft is the GPU memory of the draft model, which shares the GPUs:
+	// its weights and DraftOverhead.
 	Draft int64 `json:"draft_bytes,omitempty"`
+	// Recurrent is the memory of a recurrent model's state, which does not
+	// grow with the context.
+	Recurrent int64 `json:"recurrent_bytes,omitempty"`
 	// TensorSplit is the share of the layers on each GPU, when the model
 	// spans GPUs.
 	TensorSplit []float64 `json:"tensor_split,omitempty"`
@@ -68,11 +72,18 @@ type FitInput struct {
 	// Slots is the number of parallel requests. 0 counts as 1.
 	Slots int
 	// DraftWeights are the GPU weights of the draft model for speculative
-	// decoding. llama-server loads it on the same GPUs. Its cache holds
-	// as many tokens as the target's, but the DFlash and EAGLE-3 drafters
-	// use a sliding window, so only the weights grow the budget.
+	// decoding. llama-server loads it on the same GPUs, with DraftOverhead
+	// more for its cache and compute buffers.
 	DraftWeights int64
+	// Rollback is the number of copies of the recurrent state that
+	// speculative decoding keeps for each sequence (Speculative.Rollback).
+	Rollback int
 }
+
+// DraftOverhead is the GPU memory of a draft model besides its weights.
+// With Qwen3.8-27B-DFlash2 at 4 slots, llama-server logged a 170 MiB cache
+// (a 2048-token window in all 5 layers) and 870 MiB of compute buffers.
+const DraftOverhead = 1 << 30
 
 // cacheSteps are the KV cache types that FitContext tries, in order.
 var cacheSteps = []string{"", "q8_0", "q4_0"}
@@ -89,8 +100,15 @@ func (m Meta) FitContext(in FitInput) (f Fit) {
 	if target <= 0 {
 		target = native * slots
 	}
+	var draft int64
+	if in.DraftWeights > 0 {
+		draft = in.DraftWeights + DraftOverhead
+	}
+	// The state is per sequence, and llama-server runs DefaultSlots
+	// sequences when the slots are not set.
+	recurrent := m.RecurrentBytes(in.Slots, in.Rollback)
 	f = Fit{Ctx: in.Ctx, TypeK: in.TypeK, TypeV: in.TypeV, Mode: mode, Slots: slots, Reserved: in.Reserved,
-		Draft: in.DraftWeights}
+		Draft: draft, Recurrent: recurrent}
 	defer func() {
 		if f.Ctx > 0 {
 			f.SlotCtx = f.Ctx / slots
@@ -101,7 +119,7 @@ func (m Meta) FitContext(in FitInput) (f Fit) {
 		f.Note = "the VRAM or the native context is not known"
 		return f
 	}
-	budget := int64(FitMargin*float64(in.VRAM)) - in.Reserved - in.Weights - in.DraftWeights
+	budget := int64(FitMargin*float64(in.VRAM)) - in.Reserved - in.Weights - draft - recurrent
 	steps := [][2]string{{in.TypeK, in.TypeV}}
 	if in.TypeK == "" && in.TypeV == "" && mode == FitContext {
 		steps = nil

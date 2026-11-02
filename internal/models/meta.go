@@ -36,6 +36,12 @@ type Meta struct {
 	IndexerElems int64 `json:"indexer_elements,omitempty"`
 	// AttentionLayers is the number of layers counted above.
 	AttentionLayers int `json:"attention_layers"`
+	// RecurrentLayers is the number of recurrent (SSM) layers, and
+	// RecurrentElems the f32 elements of state that each one keeps for one
+	// sequence: the convolution state and the SSM state. The state does not
+	// grow with the context.
+	RecurrentLayers int   `json:"recurrent_layers,omitempty"`
+	RecurrentElems  int64 `json:"recurrent_elements,omitempty"`
 	// Sampling holds the defaults that the file recommends. llama-server
 	// applies them when a setting is not given.
 	Sampling Sampling `json:"sampling,omitzero"`
@@ -201,6 +207,20 @@ var draftArchs = map[string]bool{"dflash": true, "eagle3": true}
 // cannot answer requests by itself.
 func (m Meta) DraftOnly() bool { return draftArchs[m.Architecture] }
 
+// DefaultSlots is the number of sequences that llama-server b11889 runs
+// when --parallel is not set (tools/server/server.cpp).
+const DefaultSlots = 4
+
+// RecurrentBytes is the memory of the recurrent state for slots sequences.
+// Speculative decoding keeps rollback more copies of each sequence's state,
+// so a rejected draft can be undone (n_rs_seq in llama.cpp).
+func (m Meta) RecurrentBytes(slots, rollback int) int64 {
+	if slots <= 0 {
+		slots = DefaultSlots
+	}
+	return int64(slots) * int64(1+rollback) * int64(m.RecurrentLayers) * m.RecurrentElems * 4
+}
+
 // ContextBytes estimates the GPU memory for ctx tokens of context. A ctx of
 // 0 means the native context.
 func (m Meta) ContextBytes(ctx int, typeK, typeV string) int64 {
@@ -218,6 +238,7 @@ var archKeys = []string{
 	"attention.recurrent_layers", "full_attention_interval", "attention.sliding_window", "attention.sliding_window_pattern",
 	"attention.indexer.head_count", "attention.indexer.key_length",
 	"expert_count",
+	"ssm.conv_kernel", "ssm.inner_size", "ssm.state_size", "ssm.group_count",
 }
 
 // ReadMeta reads the GGUF header of a model file.
@@ -314,8 +335,24 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 	}
 	idx := get("attention.indexer.head_count").Num * get("attention.indexer.key_length").Num
 
+	// A recurrent layer keeps a convolution state of (conv_kernel - 1) x
+	// (inner_size + 2 x group_count x state_size) and an SSM state of
+	// state_size x inner_size, as llama.cpp b11889 sizes them for Mamba 2
+	// and the gated delta net of qwen35. On Qwen3.8-27B (48 recurrent
+	// layers) these give the "R (f32): 180.00 MiB, S (f32): 4608.00 MiB"
+	// that llama-server logged for 4 sequences and 7 rollback copies.
+	inner, state := get("ssm.inner_size").Num, get("ssm.state_size").Num
+	if inner > 0 && state > 0 {
+		conv := max(get("ssm.conv_kernel").Num-1, 0) * (inner + 2*get("ssm.group_count").Num*state)
+		m.RecurrentElems = int64(conv + state*inner)
+	}
+
 	for i := 0; i < layers; i++ {
-		if (recurrent != nil && recurrent[i] != 0) || (swa != nil && swa[i] != 0) {
+		if recurrent != nil && recurrent[i] != 0 {
+			m.RecurrentLayers++
+			continue
+		}
+		if swa != nil && swa[i] != 0 {
 			continue
 		}
 		h := 0.0
