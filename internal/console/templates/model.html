@@ -74,7 +74,7 @@
     <div class="row">{{range .SpecTypes}}<label class="check"><input type="checkbox" name="spectypes" value="{{.}}"{{if has $f.SpecTypes .}} checked{{end}}> {{.}}</label>{{end}}</div>
   </fieldset>
   <div class="row">
-    <label>Draft model <select name="draftmodel"><option value="">None</option>{{range .Drafts}}<option{{if eq . $f.DraftModel}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <label>Draft model <select name="draftmodel"><option value="">None</option>{{range .Drafts}}<option value="{{index . 0}}"{{if eq (index . 0) $f.DraftModel}} selected{{end}}>{{index . 1}}</option>{{end}}{{if .SimpleDrafts}}<optgroup label="Plain models, for draft-simple only">{{range .SimpleDrafts}}<option value="{{index . 0}}"{{if eq (index . 0) $f.DraftModel}} selected{{end}}>{{index . 1}}</option>{{end}}</optgroup>{{end}}</select></label>
     <label>Draft tokens, max <input name="draftmax" inputmode="numeric" value="{{$f.DraftMax}}"></label>
     <label>Draft tokens, min <input name="draftmin" inputmode="numeric" value="{{$f.DraftMin}}"></label>
     <label>ngram-mod n min <input name="ngrammodmin" inputmode="numeric" value="{{$f.NgramModMin}}"></label>

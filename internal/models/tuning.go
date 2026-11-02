@@ -97,6 +97,18 @@ var SpecTypes = []string{
 // specNeedsDraftModel lists the types that load a separate drafter model.
 var specNeedsDraftModel = []string{"draft-simple", "draft-eagle3", "draft-dflash", "draft-dspark"}
 
+// NeedsDraftModel tells whether a speculative type loads a draft model.
+func NeedsDraftModel(t string) bool { return slices.Contains(specNeedsDraftModel, t) }
+
+// DrafterSpecType returns the speculative type for a drafter of the given
+// architecture, such as draft-dflash for dflash, or "".
+func DrafterSpecType(arch string) string {
+	if draftArchs[arch] {
+		return "draft-" + arch
+	}
+	return ""
+}
+
 // CacheTypes are the KV cache types that llama-server accepts.
 var CacheTypes = []string{"f32", "f16", "bf16", "q8_0", "q4_0", "q4_1", "iq4_nl", "q5_0", "q5_1"}
 

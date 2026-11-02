@@ -124,10 +124,16 @@ func optionalNumber(title, desc string, whole bool, value *string) *huh.Input {
 
 // editForm builds the settings form for one model.
 func (v *modelsView) editForm(m client.Model) tea.Cmd {
+	return v.editFormWith(m, formFromSettings(m.Settings))
+}
+
+// editFormWith builds the settings form with the given values, such as
+// the edits of a save that failed its checks.
+func (v *modelsView) editFormWith(m client.Model, fields settingsForm) tea.Cmd {
 	v.editing = m.ID
 	v.deleting = false
-	v.fields = formFromSettings(m.Settings)
-	v.orig, v.secs = copySettings(v.fields), visibleSections(m)
+	v.fields = copySettings(fields)
+	v.orig, v.secs = formFromSettings(m.Settings), visibleSections(m)
 	f := &v.fields
 
 	layouts := []huh.Option[string]{huh.NewOption("Hardware default ("+string(v.hw.Layout)+")", ""),
@@ -141,16 +147,8 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 			specOpts = append(specOpts, huh.NewOption(t, t))
 		}
 	}
-	drafts := []huh.Option[string]{huh.NewOption("None", "")}
-	for _, o := range v.list {
-		if o.ID != m.ID {
-			label := o.ID
-			if o.Drafter {
-				label += " (drafter)"
-			}
-			drafts = append(drafts, huh.NewOption(label, o.ID))
-		}
-	}
+	list := v.list
+	drafts := func() []huh.Option[string] { return draftChoices(list, m.ID, f.SpecTypes, f.DraftModel) }
 	kv := []huh.Option[string]{huh.NewOption("Default (f16)", "")}
 	for _, t := range models.CacheTypes {
 		kv = append(kv, huh.NewOption(t, t))
@@ -232,7 +230,9 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 				Options(specOpts...).Value(&f.SpecTypes).
 				// See the GPU list in hardware.go: huh needs an explicit height.
 				Height(len(specOpts)+3),
-			huh.NewSelect[string]().Title("Draft model").Inline(true).Options(drafts...).Value(&f.DraftModel),
+			huh.NewSelect[string]().Title("Draft model").Inline(true).
+				Description("A drafter needs its type ticked above. Tick draft-simple to list the plain models.").
+				OptionsFunc(drafts, &f.SpecTypes).Value(&f.DraftModel),
 			optionalNumber("Draft tokens, max", "1 to 64", true, &f.DraftMax),
 			optionalNumber("Draft tokens, min", "0 to 64", true, &f.DraftMin),
 			optionalNumber("ngram-mod n min", "1 to 64", true, &f.NgramModMin),
@@ -400,6 +400,10 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 			return gotoSection(v.form, v.secs, cur+1)
 		}
 		if msg.String() == saveKey && v.saveable() {
+			// A save that fails its checks keeps the form and its edits.
+			if _, err := v.fields.Settings(); err != nil {
+				return note(false, "%v", err)
+			}
 			v.form = nil
 			return v.submit()
 		}
@@ -411,7 +415,17 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 	v.form = m.(*huh.Form)
 	switch v.form.State {
 	case huh.StateCompleted:
+		settings := v.flow == nil && !v.deleting
 		v.form = nil
+		if settings {
+			if _, err := v.fields.Settings(); err != nil {
+				// huh ends a form on its last field, so the form opens
+				// again with the edits.
+				if i := slices.IndexFunc(v.list, func(o client.Model) bool { return o.ID == v.editing }); i >= 0 {
+					return tea.Batch(cmd, v.editFormWith(v.list[i], v.fields), note(false, "%v", err))
+				}
+			}
+		}
 		return tea.Batch(cmd, v.submit())
 	case huh.StateAborted:
 		v.form, v.flow = nil, nil
@@ -644,4 +658,30 @@ func (v *modelsView) clickForm(line, x int) tea.Cmd {
 		return nil
 	}
 	return formClick(v.form, line-2)
+}
+
+// draftChoices is the draft model list for target. It holds the drafters.
+// A plain model can draft only with draft-simple, so the list holds them
+// only when draft-simple is ticked, or when one is the current choice.
+func draftChoices(list []client.Model, target string, types []string, current string) []huh.Option[string] {
+	out := []huh.Option[string]{huh.NewOption("None", "")}
+	simple := slices.Contains(types, "draft-simple")
+	for _, o := range list {
+		if o.ID == target || o.Settings.Embedding {
+			continue
+		}
+		switch {
+		case o.Drafter:
+			label := o.ID
+			if o.Meta != nil {
+				if t := models.DrafterSpecType(o.Meta.Architecture); t != "" {
+					label += " (" + t + ")"
+				}
+			}
+			out = append(out, huh.NewOption(label, o.ID))
+		case simple || o.ID == current:
+			out = append(out, huh.NewOption(o.ID+" (draft-simple)", o.ID))
+		}
+	}
+	return out
 }

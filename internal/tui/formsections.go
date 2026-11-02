@@ -58,7 +58,12 @@ func visibleSections(m client.Model) []settingsSection {
 func (s settingsSection) changed(orig, cur *settingsForm) bool {
 	a, b := reflect.ValueOf(orig).Elem(), reflect.ValueOf(cur).Elem()
 	for _, f := range s.fields {
-		if !reflect.DeepEqual(a.FieldByName(f).Interface(), b.FieldByName(f).Interface()) {
+		x, y := a.FieldByName(f), b.FieldByName(f)
+		// huh sets a list to empty, not nil, so an empty list is no change.
+		if x.Kind() == reflect.Slice && x.Len() == 0 && y.Len() == 0 {
+			continue
+		}
+		if !reflect.DeepEqual(x.Interface(), y.Interface()) {
 			return true
 		}
 	}

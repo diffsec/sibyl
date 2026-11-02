@@ -2,6 +2,7 @@ package modelform
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/diffsec/sibyl/internal/models"
@@ -52,5 +53,21 @@ func TestSettingsFormEmptyAndErrors(t *testing.T) {
 	out, _ = Form{SpecTypes: []string{"none"}, DraftModel: "x"}.Settings()
 	if out.Speculative.Types != nil || out.Speculative.DraftModel != "" {
 		t.Errorf("speculative = %+v", out.Speculative)
+	}
+}
+
+func TestDraftModelNeedsItsType(t *testing.T) {
+	f := Form{DraftModel: "flint-dflash2-q8_0"}
+	if _, err := f.Settings(); err == nil || !strings.Contains(err.Error(), "draft-dflash") {
+		t.Errorf("a draft model with no type: %v", err)
+	}
+	f.SpecTypes = []string{"ngram-mod"}
+	if _, err := f.Settings(); err == nil {
+		t.Error("a draft model with only an ngram type saved")
+	}
+	f.SpecTypes = []string{"draft-dflash"}
+	s, err := f.Settings()
+	if err != nil || s.Speculative.DraftModel != "flint-dflash2-q8_0" {
+		t.Errorf("draft-dflash with its drafter: %+v, %v", s.Speculative, err)
 	}
 }
