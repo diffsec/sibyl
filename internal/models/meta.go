@@ -17,6 +17,10 @@ type Meta struct {
 	Architecture string `json:"architecture"`
 	// Name is general.name, such as "Qwen3 32B", for the model family.
 	Name string `json:"name,omitempty"`
+	// BaseRepos are the Hugging Face repositories in general.base_model.*,
+	// such as "Qwen/Qwen3.8-27B". The drafter finder starts from them when a
+	// model has no download record.
+	BaseRepos []string `json:"base_repos,omitempty"`
 	// ContextLength is the native context, in tokens. llama-server uses it
 	// when no context size is set.
 	ContextLength int `json:"context_length,omitempty"`
@@ -220,7 +224,7 @@ var archKeys = []string{
 func ReadMeta(path string) (Meta, error) {
 	vals, err := gguf.ReadFile(path, func(k string) bool {
 		if k == "general.architecture" || k == "general.name" || k == "tokenizer.chat_template" ||
-			strings.HasPrefix(k, "general.sampling.") {
+			strings.HasPrefix(k, "general.sampling.") || baseRepoKey.MatchString(k) {
 			return true
 		}
 		// Architecture names have no dot, so the rest of the key follows
@@ -233,12 +237,37 @@ func ReadMeta(path string) (Meta, error) {
 	}
 	m := metaFrom(vals["general.architecture"].Str, vals)
 	m.Name = vals["general.name"].Str
+	m.BaseRepos = baseRepos(vals)
 	m.Reasoning = DetectReasoning(vals["tokenizer.chat_template"].Str)
 	// Without the tensors, the fit counts the whole file as GPU weights.
 	if gw, experts, err := gpuWeights(path); err == nil {
 		m.GPUWeights, m.ExpertBytes = gw, experts
 	}
 	return m, nil
+}
+
+var baseRepoKey = regexp.MustCompile(`^general\.base_model\.[0-9]+\.repo_url$`)
+
+// baseRepos returns the Hugging Face repositories of the base_model URLs,
+// in key order.
+func baseRepos(vals map[string]gguf.Value) []string {
+	var keys []string
+	for k := range vals {
+		if baseRepoKey.MatchString(k) {
+			keys = append(keys, k)
+		}
+	}
+	slices.Sort(keys)
+	var out []string
+	for _, k := range keys {
+		u := vals[k].Str
+		for _, p := range []string{"https://huggingface.co/", "http://huggingface.co/"} {
+			if r, ok := strings.CutPrefix(u, p); ok && strings.Count(r, "/") == 1 {
+				out = append(out, r)
+			}
+		}
+	}
+	return out
 }
 
 func metaFrom(arch string, vals map[string]gguf.Value) Meta {

@@ -114,6 +114,26 @@ func TestReadMetaSamplingAndNativeContext(t *testing.T) {
 	}
 }
 
+func TestReadMetaDrafterAndBaseRepos(t *testing.T) {
+	m, err := ReadMeta(writeGGUF(t, map[string]any{
+		"general.architecture": "dflash", "dflash.block_count": 5, "dflash.context_length": 262144,
+		"dflash.attention.head_count": 32, "dflash.attention.head_count_kv": 8, "dflash.attention.key_length": 128,
+		"dflash.attention.sliding_window": 2048, "dflash.attention.sliding_window_pattern": []bool{true, true, true, true, true},
+		"general.base_model.count":      2,
+		"general.base_model.0.repo_url": "https://huggingface.co/Qwen/Qwen3.8-27B",
+		"general.base_model.1.repo_url": "https://example.com/not/hf",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.DraftOnly() || m.KElems != 0 {
+		t.Errorf("a DFlash drafter: DraftOnly %v, K elements %d", m.DraftOnly(), m.KElems)
+	}
+	if len(m.BaseRepos) != 1 || m.BaseRepos[0] != "Qwen/Qwen3.8-27B" {
+		t.Errorf("base repos = %v", m.BaseRepos)
+	}
+}
+
 func TestReadMetaRefusesNonGGUF(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "x.gguf")
 	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {

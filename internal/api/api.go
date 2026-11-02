@@ -72,6 +72,8 @@ type Server struct {
 
 	metaMu    sync.Mutex
 	metaCache map[string]cachedMeta
+	// drafters caches the drafter searches on Hugging Face.
+	drafters drafterCache
 }
 
 // cachedMeta is a model's GGUF metadata, valid while the file keeps its
@@ -140,6 +142,7 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("DELETE /models/{id}", s.deleteModel)
 	auth.HandleFunc("POST /models/{id}/benchmark", s.startBenchmark)
 	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
+	auth.HandleFunc("GET /models/{id}/drafters", s.getDrafters)
 	auth.HandleFunc("POST /apply", s.postApply)
 	auth.HandleFunc("GET /services", s.getServices)
 	auth.HandleFunc("GET /integrations/open-webui", s.getOpenWebUI)
@@ -285,6 +288,9 @@ type modelView struct {
 	// with, which Sibyl chooses where the settings leave them open.
 	Fit       *models.Fit `json:"fit,omitempty"`
 	Benchmark *Benchmark  `json:"benchmark,omitempty"`
+	// Drafters is the number of drafters on Hugging Face for the model,
+	// from the last search. It is missing until a search finishes.
+	Drafters *int `json:"drafters,omitempty"`
 	// Meta is what the model file says about its context, for the context
 	// size and memory estimate. It is missing when the header is unreadable.
 	Meta *models.Meta `json:"meta,omitempty"`
@@ -310,7 +316,12 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 		if b, ok := s.readBenchmark(m.ID); ok {
 			out[i].Benchmark = &b
 		}
+		if v, ok := s.drafters.get(m.ID); ok {
+			n := len(v.Drafters)
+			out[i].Drafters = &n
+		}
 	}
+	s.warmDrafters(installed, settings)
 	writeJSON(w, http.StatusOK, out)
 }
 
