@@ -1,0 +1,78 @@
+{{define "title"}}Diagnostics{{end}}
+{{define "content"}}
+<h1>Diagnostics</h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{$d := .Diag}}
+<section class="card stack">
+  <h2>Watchdog</h2>
+  {{if $d.Watchdog.Degraded}}<p class="error">Degraded: the watchdog stopped acting after repeated failures.</p>{{else}}<p><span class="good">ok</span></p>{{end}}
+  <p>{{$d.Watchdog.Restarts}} restarts, {{$d.Watchdog.Reboots}} reboots, {{$d.Watchdog.UncleanBoots}} unclean boots.
+    {{with $d.Watchdog.LastProblem}}Last problem {{.}}, last action {{$d.Watchdog.LastAction}}.{{end}}</p>
+</section>
+<section class="card stack">
+  <h2>Safe mode</h2>
+  {{if $d.SafeMode.On}}
+  <p class="warn">On: llama-swap does not start at boot, and the watchdog does not act.{{with $d.SafeMode.Reason}} Reason: {{.}}.{{end}}</p>
+  <form method="post" action="/console/diagnostics/safe-mode"><input type="hidden" name="on" value="false">
+    <details><summary>Turn safe mode off</summary><p class="muted">This also clears the crash counters. Start inference again on the Status page.</p>
+      <button type="submit">Turn safe mode off</button></details></form>
+  {{else}}
+  <p><span class="good">off</span></p>
+  <form method="post" action="/console/diagnostics/safe-mode"><input type="hidden" name="on" value="true">
+    <details><summary>Turn safe mode on</summary><p class="muted">llama-swap does not start at the next boot, and the watchdog does not act.</p>
+      <button type="submit" class="danger">Turn safe mode on</button></details></form>
+  {{end}}
+</section>
+<section class="card stack">
+  <h2>Speed per model, last 24 hours</h2>
+  {{with .PerfError}}<p class="muted">{{.}}</p>{{else}}
+  {{if .Perf.Models}}
+  <table>
+    <thead><tr><th>Model</th><th class="num">Requests</th><th class="num">Errors</th><th class="num">Gen tok/s</th><th class="num hide-narrow">Slow 5%</th><th class="num hide-narrow">Prompt tok/s</th></tr></thead>
+    <tbody>{{range .Perf.Models}}<tr><td>{{.Model}}</td><td class="num">{{.Requests}}</td><td class="num">{{.Errors}}</td>
+      <td class="num">{{tps .GenTPSP50}}</td><td class="num hide-narrow">{{tps .GenTPSP5}}</td><td class="num hide-narrow">{{tps .PromptTPSP50}}</td></tr>{{end}}</tbody>
+  </table>
+  {{else}}<p class="muted">No requests in the last 24 hours.</p>{{end}}
+  {{end}}
+</section>
+<section class="card stack" id="upload">
+  <h2>Upload consent</h2>
+  <form method="post" action="/console/diagnostics/consent" class="stack">
+    <label>Can this host send diagnostic bundles?
+      <select name="mode">{{range .Modes}}<option value="{{.}}"{{if eq . $d.Consent}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    <p class="muted">Off: bundles stay on this host. Manual: a bundle goes only when you send it. Automatic: the watchdog sends a bundle after each incident.
+      A bundle holds redacted logs, metrics and the hardware list.</p>
+    <button type="submit">Save</button>
+  </form>
+  <p class="muted">Endpoint: {{if $d.Endpoint}}<span class="mono">{{$d.Endpoint}}</span>{{else}}none. An administrator sets it with <code>sudo sibyl-diag consent manual -endpoint URL</code>.{{end}}</p>
+</section>
+<section class="card stack">
+  <h2>Incidents ({{$d.Incidents}} on this host)</h2>
+  {{if $d.RecentIncidents}}
+  <table><tbody>{{range $d.RecentIncidents}}<tr><td class="mono">{{.}}</td></tr>{{end}}</tbody></table>
+  {{else}}<p class="muted">None. The watchdog records one before it restarts or resets anything.</p>{{end}}
+  <details><summary>Make a bundle</summary>
+    <form method="post" action="/console/diagnostics/bundle" class="stack">
+      <label>From <select name="incident"><option value="">a new snapshot of the logs and metrics now</option>
+        {{range $d.RecentIncidents}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+      <label>Note, optional: what you saw, in your own words <textarea name="note" rows="3" maxlength="{{.MaxNote}}"></textarea></label>
+      <p class="muted">The bundle leaves out secrets, addresses, the hostname and serial numbers. It stays on this host until you send it. A new snapshot takes up to a minute.</p>
+      <button type="submit">Make the bundle</button>
+    </form>
+  </details>
+</section>
+<section class="card stack">
+  <h2>Bundles</h2>
+  {{if $d.Bundles}}
+  {{with index $d.Bundles 0}}<p>Latest diagnostic ID: <strong class="mono">{{.ID}}</strong>. Give this ID to support.</p>
+  {{if ne $d.Consent "off"}}{{if $d.Endpoint}}
+  <form method="post" action="/console/diagnostics/submit"><input type="hidden" name="id" value="{{.ID}}">
+    <details><summary>Send {{.ID}}</summary><p class="muted">It goes to {{$d.Endpoint}}.</p><button type="submit">Send {{.ID}}</button></details></form>
+  {{end}}{{else}}<p class="muted">Upload consent is off, so bundles stay on this host.</p>{{end}}
+  {{end}}
+  <table><tbody>{{range $d.Bundles}}<tr><td class="mono">{{.ID}}</td><td>{{.Created.Local.Format "2006-01-02 15:04"}}</td><td class="num">{{.Bytes}} bytes</td>
+    <td>{{if eq .State "sent"}}<span class="good">sent</span>{{else}}<span class="muted">{{.State}}</span>{{end}}</td></tr>{{end}}</tbody></table>
+  {{else}}<p class="muted">None yet.</p>{{end}}
+</section>
+{{end}}

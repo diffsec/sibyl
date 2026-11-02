@@ -113,6 +113,17 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"variants":[{"name":"Q8_0","size_bytes":10737418240,"shards":1,"fit":"gpu"}]}`)
 	case "GET /pools":
 		_, _ = io.WriteString(w, `{"pools":[{"name":"pool-1","mounted":true}]}`)
+	case "GET /diagnostics":
+		_, _ = io.WriteString(w, `{"consent":"manual","consent_changed":"2026-10-31T11:00:00Z","endpoint":"https://support.example.com",
+			"safe_mode":{"on":false},"watchdog":{"restarts":4,"last_problem":"model-unresponsive","last_action":"gpu-reset"},
+			"incidents":1,"recent_incidents":["20261031T114141Z-gpu-fault"],
+			"bundles":[{"diagnostic_id":"SBL-5V4D-7P0P","bytes":727942,"state":"sent","created":"2026-10-31T11:34:26Z"}]}`)
+	case "GET /diagnostics/perf":
+		_, _ = io.WriteString(w, `{"window_hours":24,"models":[{"model":"flint-q8_0","requests":3,"errors":0,"gen_tps_p50":62.3}]}`)
+	case "POST /diagnostics/bundles":
+		_, _ = io.WriteString(w, `{"ok":true,"message":"made bundle SBL-WVBN-18HN with 20 redacted files"}`)
+	case "POST /diagnostics/bundles/SBL-5V4D-7P0P/submit", "PUT /diagnostics/consent", "PUT /diagnostics/safe-mode":
+		_, _ = io.WriteString(w, `{"ok":true,"message":"done by hostd"}`)
 	case "GET /integrations/open-webui":
 		_, _ = io.WriteString(w, `{"configured":false}`)
 	case "GET /integrations/huggingface":
@@ -566,7 +577,9 @@ func TestMorePagesRender(t *testing.T) {
 		"/console/hardware":                         {"GPU 0", "GPU 1", `value="0" checked`, "hip"},
 		"/console/host":                             {"enp8s0", "192.168.1.26/24", "ops", "Type SER123 to confirm", "Keep the network change"},
 		"/console/status":                           {"router.service", "Restart router.service", "Not connected"},
-		"/console/setup":                            {"GPUs, backend and layout", "done", "to do"},
+		"/console/setup":                            {"GPUs, backend and layout", "done", "to do", "Diagnostics upload"},
+		"/console/diagnostics": {"4 restarts", "model-unresponsive", "flint-q8_0", "62.3", "20261031T114141Z-gpu-fault",
+			"Latest diagnostic ID", "SBL-5V4D-7P0P", "Send SBL-5V4D-7P0P", `<option value="manual" selected>`},
 	} {
 		w := h.do("GET", path, nil, false)
 		if w.Code != 200 {
@@ -721,5 +734,40 @@ func TestLoadedModels(t *testing.T) {
 	}
 	if !slices.Contains(h.api.calls, "POST /models/gemma/load") || !slices.Contains(h.api.calls, "POST /models/qwen/unload") {
 		t.Errorf("API calls %v", h.api.calls)
+	}
+}
+
+func TestDiagnosticsChanges(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	w := h.do("POST", "/console/diagnostics/bundle", url.Values{"incident": {"20261031T114141Z-gpu-fault"}, "note": {" slow "}}, true)
+	if loc := w.Header().Get("Location"); !strings.Contains(loc, "/console/diagnostics?done=bundle") || !strings.Contains(loc, "SBL-WVBN-18HN") {
+		t.Errorf("bundle %q", loc)
+	}
+	if b := h.api.body("POST /diagnostics/bundles"); b["incident"] != "20261031T114141Z-gpu-fault" || b["note"] != "slow" {
+		t.Errorf("bundle body %v", b)
+	}
+	if w := h.do("POST", "/console/diagnostics/bundle", url.Values{"incident": {"../etc"}}, true); !strings.Contains(w.Header().Get("Location"), "error=") {
+		t.Error("a bad incident name passed")
+	}
+	h.do("POST", "/console/diagnostics/submit", url.Values{"id": {"SBL-5V4D-7P0P"}}, true)
+	h.do("POST", "/console/diagnostics/consent", url.Values{"mode": {"automatic"}}, true)
+	h.do("POST", "/console/diagnostics/safe-mode", url.Values{"on": {"true"}}, true)
+	for _, c := range []string{"POST /diagnostics/bundles/SBL-5V4D-7P0P/submit", "PUT /diagnostics/consent", "PUT /diagnostics/safe-mode"} {
+		if !slices.Contains(h.api.calls, c) {
+			t.Errorf("no %s", c)
+		}
+	}
+	if b := h.api.body("PUT /diagnostics/consent"); b["mode"] != "automatic" {
+		t.Errorf("consent body %v", b)
+	}
+	if b := h.api.body("PUT /diagnostics/safe-mode"); b["on"] != true {
+		t.Errorf("safe mode body %v", b)
+	}
+	if w := h.do("POST", "/console/diagnostics/submit", url.Values{"id": {"../x"}}, true); !strings.Contains(w.Header().Get("Location"), "error=") {
+		t.Error("a bad ID passed")
+	}
+	if w := h.do("POST", "/console/diagnostics/consent", url.Values{"mode": {"off"}}, false); w.Code != http.StatusForbidden {
+		t.Errorf("a change with no Origin = %d", w.Code)
 	}
 }

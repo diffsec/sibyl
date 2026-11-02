@@ -68,7 +68,8 @@ Until you [trust the certificate](#trust-the-certificate), the browser warns tha
 | 4. Open WebUI administrator | `o` | Create the first Open WebUI account. |
 | 5. First model | `/` | Search Hugging Face and download a model. |
 | 6. API keys for your programs | `n` | Make a key for each program that calls Sibyl. |
-| 7. Done | | The TUI shows the addresses of the services and the CA certificate fingerprint. |
+| 7. Diagnostics upload | `c` | Choose if the host can send diagnostic bundles to support. |
+| 8. Done | | The TUI shows the addresses of the services and the CA certificate fingerprint. |
 
 Step 1. The layout controls how models use the GPUs. "Span" splits one model across all the selected GPUs. "Pin" runs one model on each GPU, so several models can stay loaded at once. If you are not sure, keep the default backend and measure later with the benchmark. See [Models](../guides/models.md).
 
@@ -84,7 +85,9 @@ Step 6. Make one key for each program, such as a laptop or Home Assistant. In th
 
 Programs can also use the default key in `/var/lib/sibyl-operator/inference.key`. The key in `api.key` is for the System API only.
 
-Step 7. The TUI Status screen lists the addresses of Open WebUI, Arcane and the APIs as links. The last step also shows the SHA-256 fingerprint of the Sibyl CA certificate. You need this fingerprint in the next section.
+Step 7. A bundle holds redacted logs, metrics and the hardware list. "Off" keeps every bundle on the host. "Manual" sends a bundle only when you send it. "Automatic" sends a bundle after each incident. In the web console, use the Diagnostics page. See [Diagnostics](../guides/diagnostics.md).
+
+Step 8. The TUI Status screen lists the addresses of Open WebUI, Arcane and the APIs as links. The last step also shows the SHA-256 fingerprint of the Sibyl CA certificate. You need this fingerprint in the next section.
 
 ## Trust the certificate
 

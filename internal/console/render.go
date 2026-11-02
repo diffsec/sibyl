@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diffsec/sibyl/internal/diag"
 	"github.com/diffsec/sibyl/internal/router"
 )
 
@@ -75,6 +76,7 @@ var funcs = template.FuncMap{
 		return keys
 	},
 	"add":      func(a, b int) int { return a + b },
+	"tps":      diag.FormatTPS,
 	"whenText": func(w router.When) string { return w.Text() },
 	"has":      func(list []string, v string) bool { return slices.Contains(list, v) },
 	"dict": func(kv ...any) map[string]any {

@@ -27,6 +27,7 @@ var wizardSteps = []wizardStep{
 	{"Open WebUI administrator", 0, "press o to create the first Open WebUI admin"},
 	{"First model", 3, "press / to search Hugging Face; fit shows what suits your GPUs"},
 	{"API keys for your programs", 5, "press n to make a key for each program; it is shown once, so copy it"},
+	{"Diagnostics upload", 6, "press c to choose if this host can send diagnostic bundles"},
 	{"Done", 0, ""}, // the Status screen, with the addresses
 }
 

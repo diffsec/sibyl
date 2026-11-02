@@ -1,5 +1,6 @@
 // Package hostd holds the privileged host actions of Sibyl: the hostname, the
-// network, and operator accounts with their SSH keys.
+// network, operator accounts with their SSH keys, model pools, host updates
+// and diagnostics.
 //
 // The System API runs as the unprivileged sibyl user. It writes one JSON
 // request per file into a queue directory. sibyl-hostd runs as root, reads
@@ -52,7 +53,7 @@ const (
 
 // Actions are every action that sibyl-hostd accepts.
 var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh, CreatePool, DetachPool,
-	UpdateCheck, UpdateApply, Reboot}
+	UpdateCheck, UpdateApply, Reboot, DiagBundle, DiagSubmit, DiagConsent, SetSafeMode}
 
 // MaxRequestSize is the largest request file that sibyl-hostd reads.
 const MaxRequestSize = 64 << 10
@@ -314,6 +315,30 @@ func Decode(a Action, data []byte) (any, error) {
 			return nil, err
 		}
 		return u, nil
+	case DiagBundle:
+		var b DiagBundleReq
+		if err := dec(&b); err != nil {
+			return nil, err
+		}
+		return b, b.Validate()
+	case DiagSubmit:
+		var s DiagSubmitReq
+		if err := dec(&s); err != nil {
+			return nil, err
+		}
+		return s, s.Validate()
+	case DiagConsent:
+		var c DiagConsentReq
+		if err := dec(&c); err != nil {
+			return nil, err
+		}
+		return c, c.Validate()
+	case SetSafeMode:
+		var m SafeModeReq
+		if err := dec(&m); err != nil {
+			return nil, err
+		}
+		return m, nil
 	case ConfirmNetwork, Refresh, UpdateCheck, Reboot:
 		return nil, nil
 	}

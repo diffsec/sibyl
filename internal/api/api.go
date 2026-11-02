@@ -34,6 +34,9 @@ type Paths struct {
 	DropIn    string // llama-swap.container.d in the sibyl user's Quadlet directory
 	SysfsRoot string // normally /sys
 	MemInfo   string // normally /proc/meminfo
+	// DiagOut holds status.json and perf.json from sibyl-diag, mounted
+	// read-only. Empty turns the GET /diagnostics routes off.
+	DiagOut string
 }
 
 func (p Paths) hardwareFile() string  { return filepath.Join(p.Config, "hardware.yaml") }
@@ -173,6 +176,12 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /host/reboot", s.postReboot)
 	auth.HandleFunc("PUT /host/users/{name}", s.putUser)
 	auth.HandleFunc("DELETE /host/users/{name}", s.deleteUser)
+	auth.HandleFunc("GET /diagnostics", s.getDiagnostics)
+	auth.HandleFunc("GET /diagnostics/perf", s.getDiagnosticsPerf)
+	auth.HandleFunc("POST /diagnostics/bundles", s.postDiagBundle)
+	auth.HandleFunc("POST /diagnostics/bundles/{id}/submit", s.postDiagSubmit)
+	auth.HandleFunc("PUT /diagnostics/consent", s.putDiagConsent)
+	auth.HandleFunc("PUT /diagnostics/safe-mode", s.putSafeMode)
 	auth.HandleFunc("GET /pools", s.getPools)
 	auth.HandleFunc("POST /pools", s.createPool)
 	auth.HandleFunc("DELETE /pools/{name}", s.detachPool)
