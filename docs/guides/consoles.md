@@ -18,7 +18,7 @@ Run `sibyl` on the host. The TUI has six screens.
 | `q` | Quit |
 | `ctrl+c` | Quit, also while a form is open |
 
-The bottom line of each screen lists its keys. While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form.
+The bottom line of each screen lists its keys. While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form. In a settings form, `ctrl+s` saves from any field. A form that deletes, erases a disk or asks you to confirm has no `ctrl+s`: answer its last field.
 
 ### Screens and keys
 
