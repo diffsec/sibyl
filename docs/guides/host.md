@@ -120,6 +120,7 @@ The host accepts images from these public registries:
 - GitLab
 - Chainguard
 - LinuxServer
+- The owner's Depot project registry, `xtc6g4dmzn.registry.depot.dev`
 
 An administrator can allow another registry in `/etc/containers/policy.json`.
 
