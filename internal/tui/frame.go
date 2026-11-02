@@ -180,6 +180,12 @@ func fit(lines []string, width int) []string {
 	return lines
 }
 
+// pointClicker is a view that takes clicks on more than its list rows. It
+// gets the line of its last render and the column.
+type pointClicker interface {
+	clickAt(line, x int) tea.Cmd
+}
+
 // rowClicker is a view whose list rows take clicks. clickLine gets the
 // line of the view's last render, and selects the row on it; a click on the
 // selected row opens it, as enter does.
