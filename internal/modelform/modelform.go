@@ -6,6 +6,7 @@ package modelform
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -241,6 +242,12 @@ func (f Form) Settings() (models.Settings, error) {
 		if t != "none" {
 			s.Speculative.Types = append(s.Speculative.Types, t)
 		}
+	}
+	// A draft model with no type that loads it did nothing, and the form
+	// used to drop it without a word.
+	if f.DraftModel != "" && !slices.ContainsFunc(s.Speculative.Types, models.NeedsDraftModel) {
+		return s, fmt.Errorf("draft model %s: tick the type that loads it under speculative decoding types, "+
+			"such as draft-dflash for a DFlash drafter or draft-eagle3 for an EAGLE-3 drafter, or set the draft model to None", f.DraftModel)
 	}
 	if len(s.Speculative.Types) > 0 {
 		s.Speculative.DraftModel = f.DraftModel

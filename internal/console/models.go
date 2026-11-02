@@ -151,10 +151,23 @@ func (c *Console) modelPage(w http.ResponseWriter, r *http.Request) {
 	for g := range hw.GPUs {
 		layouts = append(layouts, [2]string{"gpu:" + strconv.Itoa(g), fmt.Sprintf("Pin to selected GPU %d", g)})
 	}
-	var drafts []string
+	// The drafters come first. A plain model can draft only with
+	// draft-simple, so the template puts them in a group of their own.
+	var drafts, simple [][2]string
 	for _, o := range list {
-		if o.ID != m.ID {
-			drafts = append(drafts, o.ID)
+		if o.ID == m.ID || o.Settings.Embedding {
+			continue
+		}
+		if o.Drafter {
+			label := o.ID
+			if o.Meta != nil {
+				if t := models.DrafterSpecType(o.Meta.Architecture); t != "" {
+					label += " (" + t + ")"
+				}
+			}
+			drafts = append(drafts, [2]string{o.ID, label})
+		} else {
+			simple = append(simple, [2]string{o.ID, o.ID})
 		}
 	}
 	head := fmt.Sprintf("%s · %d file(s)", gib(m.Size), m.Shards)
@@ -167,7 +180,7 @@ func (c *Console) modelPage(w http.ResponseWriter, r *http.Request) {
 	data := pageData(r)
 	for k, v := range map[string]any{
 		"Model": m, "Head": head, "Fit": fitText(m.Fit), "Form": modelform.FromSettings(m.Settings),
-		"Layouts": layouts, "Drafts": drafts, "CacheTypes": models.CacheTypes, "Presets": models.Presets,
+		"Layouts": layouts, "Drafts": drafts, "SimpleDrafts": simple, "CacheTypes": models.CacheTypes, "Presets": models.Presets,
 		"SpecTypes": spec, "MoE": moe, "Reasoning": reasoningControl(m),
 	} {
 		data[k] = v

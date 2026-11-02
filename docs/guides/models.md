@@ -97,7 +97,8 @@ The field shows what Sibyl chooses and its memory estimate. A number that you en
 
 Speculative decoding guesses the next tokens cheaply and lets the model check them. You choose one or more types, which Sibyl tries in order.
 
-- The types `draft-simple`, `draft-eagle3`, `draft-dflash` and `draft-dspark` need a draft model. A draft model is another installed model, smaller than this one.
+- The types `draft-simple`, `draft-eagle3`, `draft-dflash` and `draft-dspark` need a draft model. The Draft model list shows the installed drafters, each with the type that it needs, such as `draft-dflash`. Tick that type too. `draft-simple` uses a plain installed model that is smaller than this one, so the list shows the plain models only when `draft-simple` is ticked.
+- If a draft model is set but no type that loads it is ticked, the save fails and names the type to tick. The form stays open with your changes.
 - `draft-mtp` uses the model's own multi-token prediction layer.
 - The `ngram-*` types need no second model.
 
