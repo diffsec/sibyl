@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -296,8 +297,9 @@ func focusedBlock(view string) (int, int) {
 
 // formClick moves the focus of form to the field on line, one field at a
 // time, in the form's current group. On the field that has focus, a click
-// on an option of a list moves the cursor to it.
-func formClick(form *huh.Form, line int) tea.Cmd {
+// on an option of a list moves the cursor to it, a click on a yes or no
+// button picks it, and a click on an arrow of an inline list moves it.
+func formClick(form *huh.Form, line, x int) tea.Cmd {
 	if form == nil {
 		return nil
 	}
@@ -308,7 +310,7 @@ func formClick(form *huh.Form, line int) tea.Cmd {
 			break
 		}
 		if line >= first && line <= last {
-			cmds = append(cmds, pickOption(form, line))
+			cmds = append(cmds, pickAt(form, line, x))
 			break
 		}
 		before := form.GetFocusedField()
@@ -331,6 +333,74 @@ func formClick(form *huh.Form, line int) tea.Cmd {
 		cmds = append(cmds, cmd)
 	}
 	return tea.Batch(cmds...)
+}
+
+// pickAt acts on a click at line and column x of the focused field.
+func pickAt(form *huh.Form, line, x int) tea.Cmd {
+	lines := strings.Split(ansi.Strip(form.View()), "\n")
+	if line < 0 || line >= len(lines) {
+		return nil
+	}
+	if c, ok := form.GetFocusedField().(*huh.Confirm); ok {
+		return pickConfirm(form, c, lines, line, x)
+	}
+	if cmd, ok := pickArrow(form, lines[line], x); ok {
+		return cmd
+	}
+	return pickOption(form, line)
+}
+
+// buttonRE matches a button label of a confirm: words with one space
+// between them.
+var buttonRE = regexp.MustCompile(`[^\s┃]+(?: [^\s┃]+)*`)
+
+// pickConfirm sets a confirm to the button under the click. huh draws the
+// two buttons on the last line of the field, yes first. The toggle key
+// changes the value without moving to the next field, so a click never
+// submits the form.
+func pickConfirm(form *huh.Form, c *huh.Confirm, lines []string, line, x int) tea.Cmd {
+	first, last := focusedBlock(strings.Join(lines, "\n"))
+	for last > first && strings.TrimSpace(strings.TrimPrefix(lines[last], "┃")) == "" {
+		last--
+	}
+	if line != last {
+		return nil
+	}
+	l := lines[line]
+	idx := buttonRE.FindAllStringIndex(l, 2)
+	if len(idx) < 2 {
+		return nil
+	}
+	// The columns of the end of the first label and the start of the
+	// second, as screen cells.
+	end1, start2 := ansi.StringWidth(l[:idx[0][1]]), ansi.StringWidth(l[:idx[1][0]])
+	want := x < (end1+start2)/2
+	if cur, _ := c.GetValue().(bool); cur == want {
+		return nil
+	}
+	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	return cmd
+}
+
+// pickArrow moves an inline list, which huh draws as "← value →", when the
+// click is on an arrow.
+func pickArrow(form *huh.Form, l string, x int) (tea.Cmd, bool) {
+	left, right := strings.Index(l, "← "), strings.LastIndex(l, " →")
+	if left < 0 || right < 0 || right < left {
+		return nil, false
+	}
+	lx, rx := ansi.StringWidth(l[:left]), ansi.StringWidth(l[:right])+1
+	var key tea.KeyPressMsg
+	switch {
+	case x >= lx-1 && x <= lx+1:
+		key = tea.KeyPressMsg{Code: tea.KeyLeft}
+	case x >= rx-1 && x <= rx+1:
+		key = tea.KeyPressMsg{Code: tea.KeyRight}
+	default:
+		return nil, true
+	}
+	_, cmd := form.Update(key)
+	return cmd, true
 }
 
 // pickOption moves a list's cursor to the option on line. huh marks the

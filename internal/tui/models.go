@@ -645,7 +645,7 @@ func (v *modelsView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.
 // clickForm takes a click on the section bar, or on the form under it.
 func (v *modelsView) clickForm(line, x int) tea.Cmd {
 	if !v.saveable() {
-		return formClick(v.form, line)
+		return formClick(v.form, line, x)
 	}
 	if line == 0 {
 		for _, z := range v.bar {
@@ -657,7 +657,7 @@ func (v *modelsView) clickForm(line, x int) tea.Cmd {
 	if line < 2 {
 		return nil
 	}
-	return formClick(v.form, line-2)
+	return formClick(v.form, line-2, x)
 }
 
 // draftChoices is the draft model list for target. It holds the drafters.
