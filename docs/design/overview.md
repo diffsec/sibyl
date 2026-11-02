@@ -313,7 +313,13 @@ Sibyl tests a drafter before the owner turns it on (`POST /models/{id}/drafter-t
 
 A drafter for the base model made this finetune slower, so the finder labels `base` matches, and the result of the test decides.
 
-The drafter's weights share the target's GPUs, and llama.cpp gives the draft context as many tokens as the target's (`common/speculative.cpp`). The fit takes the drafter's GPU weights off the budget (`FitInput.DraftWeights`) and reports them as `draft_bytes`. It does not count the drafter's cache, because every DFlash2 layer uses a 2,048-token sliding window. Before this, the automatic context of the finetune was 233,472 tokens, and the drafter failed to load with `cudaMalloc failed: out of memory`.
+The drafter shares the target's GPUs. The fit takes its GPU weights and `DraftOverhead` (1 GiB) off the budget, and reports the sum as `draft_bytes`. With the DFlash2 drafter at 4 slots, llama-server logged 1,951 MiB of weights, a 170 MiB cache (a 2,048-token window in all 5 layers) and 870 MiB of compute buffers. The drafter put most of its weights on the first GPU and most of its compute buffer on the last, so the tensor split holds the weights on the first GPU and the overhead on the last.
+
+#### Recurrent state
+
+A hybrid model such as qwen35 keeps a recurrent state for each sequence in its recurrent layers, as well as a KV cache in its attention layers. The state does not grow with the context. Each recurrent layer keeps (`ssm.conv_kernel` - 1) x (`ssm.inner_size` + 2 x `ssm.group_count` x `ssm.state_size`) f32 elements of convolution state and `ssm.state_size` x `ssm.inner_size` of SSM state (`Meta.RecurrentElems`). llama-server runs 4 sequences when `--parallel` is not set. The draft types `draft-mtp`, `draft-eagle3`, `draft-dflash` and `draft-dspark` keep `draft_max` more copies of each state, so that a rejected draft can be undone (`need_n_rs_seq` in llama.cpp `common/common.h`, 3 by default). The fit takes the state off the budget and reports it as `recurrent_bytes`.
+
+On Qwen3.8-27B (48 recurrent layers), the state is 598 MiB with 4 sequences, and 4,788 MiB with DFlash at `draft_max` 7. llama-server logged "R (f32): 180.00 MiB, S (f32): 4608.00 MiB" for the second case. Before the fit counted the state and the drafter's overhead, it gave the model 217,088 tokens with the drafter, and the load failed with `cudaMalloc failed: out of memory`. It now gives 131,072 tokens and a split of 20644,20007. With the embedding model also loaded, the GPUs then had 1,768 and 1,166 MiB free, and generation ran at 91.8 tokens per second.
 
 ### Context size and memory estimate
 

@@ -621,13 +621,20 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 	vram := hardware.VRAM(used)
 	// A fixed split puts each layer where the memory is, whatever loads
 	// first. llama.cpp splits by the free memory at load time otherwise.
+	// On the test host, the DFlash2 drafter put most of its weights on the
+	// first GPU and most of its compute buffer on the last, so those GPUs
+	// get fewer of the model's layers.
 	if len(used) > 1 && len(st.TensorSplit) == 0 && vram > 0 {
+		if draft > 0 {
+			held[0] += draft
+			held[len(held)-1] += models.DraftOverhead
+		}
 		st.TensorSplit = models.SplitFor(sizes, held)
 	}
 	fit := meta.FitContext(models.FitInput{
 		Mode: st.Fit, Weights: meta.VRAMWeights(m.Size, st.MoE), VRAM: vram, Reserved: reserved,
 		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
-		DraftWeights: draft,
+		DraftWeights: draft, Rollback: st.Speculative.Rollback(),
 	})
 	fit.TensorSplit = st.TensorSplit
 	if fit.Auto {

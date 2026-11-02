@@ -1,6 +1,10 @@
 package models
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/diffsec/sibyl/internal/gguf"
+)
 
 // meta costs 1 MiB per token at f16, and less when quantized: K and V of
 // 256 Ki elements each, so 2 bytes x 512 Ki at f16 plus 8 KiB of compute.
@@ -94,8 +98,38 @@ func TestFitDraftWeights(t *testing.T) {
 	gib := int64(1 << 30)
 	free := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 60 * gib})
 	draft := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 60 * gib, DraftWeights: 5 * gib})
-	if draft.Ctx >= free.Ctx || draft.Draft != 5*gib {
+	if draft.Ctx >= free.Ctx || draft.Draft != 5*gib+DraftOverhead {
 		t.Errorf("draft: %d tokens, %d without, draft %d", draft.Ctx, free.Ctx, draft.Draft)
+	}
+}
+
+// TestRecurrentState checks the recurrent state of Qwen3.8-27B against
+// llama-server's log: "R (f32): 180.00 MiB, S (f32): 4608.00 MiB" for 4
+// sequences and 7 rollback copies, and that the fit counts it.
+func TestRecurrentState(t *testing.T) {
+	vals := map[string]gguf.Value{
+		"qwen35.block_count": {Num: 65}, "qwen35.nextn_predict_layers": {Num: 1}, "qwen35.full_attention_interval": {Num: 4},
+		"qwen35.attention.head_count": {Num: 24}, "qwen35.attention.head_count_kv": {Num: 4},
+		"qwen35.attention.key_length": {Num: 256}, "qwen35.attention.value_length": {Num: 256},
+		"qwen35.context_length": {Num: 262144}, "qwen35.embedding_length": {Num: 5120},
+		"qwen35.ssm.conv_kernel": {Num: 4}, "qwen35.ssm.inner_size": {Num: 6144},
+		"qwen35.ssm.state_size": {Num: 128}, "qwen35.ssm.group_count": {Num: 16},
+	}
+	m := metaFrom("qwen35", vals)
+	if m.RecurrentLayers != 48 || m.AttentionLayers != 16 {
+		t.Fatalf("layers: %d recurrent, %d attention", m.RecurrentLayers, m.AttentionLayers)
+	}
+	if got, want := m.RecurrentBytes(0, 7), int64(180+4608)<<20; got != want {
+		t.Errorf("state with 7 rollback copies = %d MiB, want %d MiB", got>>20, want>>20)
+	}
+	if got := m.RecurrentBytes(1, 0); got != m.RecurrentBytes(0, 7)/32 {
+		t.Errorf("one sequence, no rollback = %d", got)
+	}
+	gib := int64(1 << 30)
+	plain := m.FitContext(FitInput{Weights: 26 * gib, VRAM: 48 * gib})
+	spec := m.FitContext(FitInput{Weights: 26 * gib, VRAM: 48 * gib, Rollback: 7})
+	if spec.Ctx >= plain.Ctx || spec.Recurrent != m.RecurrentBytes(0, 7) || plain.Recurrent != m.RecurrentBytes(0, 0) {
+		t.Errorf("fit: %d tokens with rollback, %d without; state %d and %d", spec.Ctx, plain.Ctx, spec.Recurrent, plain.Recurrent)
 	}
 }
 

@@ -749,7 +749,7 @@ func TestDrafterHiddenAndCounted(t *testing.T) {
 				t.Errorf("drafter: drafter=%v fit=%+v", m.Drafter, m.Fit)
 			}
 		case "fat":
-			if m.Drafter || m.Fit == nil || m.Fit.Draft != 1<<30 {
+			if m.Drafter || m.Fit == nil || m.Fit.Draft != 1<<30+models.DraftOverhead {
 				t.Errorf("fat: drafter=%v fit=%+v", m.Drafter, m.Fit)
 			}
 		}
