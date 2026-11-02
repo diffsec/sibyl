@@ -152,7 +152,7 @@ The HIP image sets `GPU_MAX_HW_QUEUES=1`. With the default of 4 hardware queues 
 | `GPU_TARGETS` | `gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx1200;gfx1201` | RDNA2 (RX 6800 and 6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5 (Ryzen AI 300, Strix Halo), RDNA4 (RX 9000, AI PRO R9700) |
 | `GGML_HIP_RCCL` | `OFF` | RCCL helps only `--split-mode tensor`. Upstream disables it by default. |
 
-The base images are plain `FROM` lines, so Dependabot can update them. The HIP build uses `docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete`. Upstream llama.cpp tests ROCm 7.2.x, and ROCm 7.14 is a benchmark candidate. Dependabot leaves the ROCm and Ubuntu releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
+The base images are plain `FROM` lines, so Renovate can update them. The HIP build uses `docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete`. Upstream llama.cpp tests ROCm 7.2.x, and ROCm 7.14 is a benchmark candidate. Renovate leaves the ROCm and Ubuntu releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
 
 ### Multi-GPU
 

@@ -2,7 +2,33 @@
 
 This guide shows how to update a Sibyl host, go back to the previous version, and update a host that has no internet.
 
-Sibyl does not update by itself. The operating system and the services update together, as one image. An update downloads the new image and stages it. A staged version is downloaded and ready, and it starts at the next boot.
+The operating system and the services update together, as one image. Open WebUI and Arcane are in that image too. An update downloads the new image and stages it. A staged version is downloaded and ready, and it starts at the next boot.
+
+## Nightly updates
+
+Sibyl updates itself at night. `sibyl-auto-update.timer` runs every 30 minutes from 03:00 to 05:30, host time.
+
+1. It downloads and stages a new image if there is one. `bootc upgrade` checks the image's signature first.
+2. It reboots into the staged image, but only when the models are idle: no request finished in the last 30 minutes, no model is loading, and no llama-server has a request running or waiting.
+3. If the models are busy, the image stays staged, and the next run tries again. A staged image that does not start in the window starts at the next window or the next reboot.
+
+The reboot stops the models and the APIs for a few minutes. If the new version does not boot, the host starts the old one, which bootc keeps.
+
+To see what the last runs did:
+
+```bash
+journalctl -u sibyl-auto-update.service -n 20
+```
+
+To turn nightly updates off:
+
+```bash
+sudo systemctl disable --now sibyl-auto-update.timer
+```
+
+To move the window, add a drop-in with `sudo systemctl edit sibyl-auto-update.timer`, then set an empty `OnCalendar=` line followed by your own `OnCalendar=` line.
+
+You can still update at any time, as the next sections show.
 
 Your models, settings and accounts are in `/var`, which an update and a rollback do not change.
 

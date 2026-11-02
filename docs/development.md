@@ -82,8 +82,8 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
 | `scripts/` | CI helpers in `ci/`, the bundle builder in `bundle/`, and `bump-base-image.sh`. |
 | `tools/pxe/` | Network boot and unattended install, for lab hosts. |
 | `tools/vmtest/` | The VM install test that CI runs on the ISO. |
-| `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `bump-base.yml` updates the base image digest. `cleanup.yml` deletes old images. |
-| `.github/dependabot.yml` | Keeps the image pins, the Go modules and the actions current. |
+| `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `cleanup.yml` deletes old images. |
+| `.github/renovate.json5` | Keeps the image pins in the Containerfiles and the Quadlet units, the Go modules and the actions current. |
 
 The Go packages, from the outside in:
 
@@ -305,9 +305,25 @@ gh workflow run cleanup.yml -f dry_run=true
 
 Quay deletes old `fedora-bootc` manifests after the tag moves, so the digest in `os/Containerfile` goes stale within days. On 2026-10-30 the pinned digest was gone and the OS build failed.
 
-- Dependabot checks every image pin daily and opens a pull request. The pull request builds every image.
-- The `bump base image` workflow also opens a pull request every Monday, as a fallback.
+- Renovate checks the `fedora-bootc` digest at every run and opens a pull request when it changes. The pull request builds every image, and it merges itself when every check passes.
 - If the host build fails with `not found` on the base image, run `scripts/bump-base-image.sh`.
+
+### Pin updates
+
+Renovate (`.github/renovate.json5`) opens a pull request for each new version of a pinned dependency. Each pull request runs `bootc.yml`, which builds every image without pushing it.
+
+| Dependency | Where | Schedule |
+|---|---|---|
+| Base images | `FROM` lines of every `Containerfile`, `Containerfile.hip` and `Containerfile.vulkan` | Any time |
+| Open WebUI and Arcane | The `# vX.Y.Z` comment and the `Image=...@sha256:` line under it, in the Quadlet units | Any time |
+| Go modules | `go.mod`, in one grouped pull request | Mondays before 06:00 UTC |
+| GitHub Actions | `.github/workflows/`, pinned by commit SHA, in one grouped pull request | Mondays before 06:00 UTC |
+
+- Patch, minor and digest updates merge themselves when every check passes. A major update waits for a maintainer.
+- The Quadlet `Image=` lines stay digest-only, because the offline bundle reads them as one reference (`scripts/bundle/make.sh`, `internal/bundle`). Renovate updates the version comment and the digest together.
+- Renovate leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
+- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand. A llama.cpp release can rename the speculative decoding flags that Sibyl writes.
+- Renovate's built-in `quadlet` manager is off. It would move the digest-only pins to the newest image of any version, and it reads the `@IMAGE_TAG@` placeholders as digests.
 
 ## Release
 
