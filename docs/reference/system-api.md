@@ -304,7 +304,7 @@ These routes are host actions. They return `200`, `202` or `422` as [host action
 | `POST /host/tailscale` | `{}` or `{"auth_key": "tskey-…"}` | A host action result | Starts Tailscale and joins a tailnet. With an auth key, the host logs in with it. Without one, the result message and `tailscale.auth_url` of `GET /host` hold a login link. A key that does not start with `tskey-` gets `422`. |
 | `DELETE /host/tailscale` | None | A host action result | Logs out and stops Tailscale. |
 
-`tailscale` in `GET /host` has these fields: `enabled`, `backend` (`NeedsLogin`, `Running`, `Stopped` or empty), `auth_url`, `host_name`, `dns_name`, `tailnet`, `ips` and `error`. It is missing on a host image without Tailscale. [Host](../guides/host.md#tailscale) explains how to use the tailnet.
+`tailscale` in `GET /host` has these fields: `enabled`, `backend` (`NeedsLogin`, `NeedsMachineAuth`, `Starting`, `Running`, `Stopped` or empty), `auth_url`, `host_name`, `dns_name`, `tailnet`, `ips` and `error`. It is missing on a host image without Tailscale. [Host](../guides/host.md#tailscale) explains how to use the tailnet.
 
 ## Router
 

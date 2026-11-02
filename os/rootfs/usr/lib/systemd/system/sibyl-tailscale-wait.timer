@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Sibyl host state while Tailscale waits for a login or an approval
+
+# sibyl-hostd starts this timer while tailscaled waits, and stops it after.
+# It has no [Install] section, so it does not start at boot.
+[Timer]
+OnActiveSec=10s
+OnUnitActiveSec=10s
+AccuracySec=1s
+Unit=sibyl-hostd-state.service

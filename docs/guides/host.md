@@ -80,7 +80,8 @@ Every port of the host is open to the tailnet. The access rules of your tailnet 
 2. Choose how the host logs in:
    - Login link: the host shows a link that starts with `https://login.tailscale.com/`. Open it on any device, and sign in to your tailnet.
    - Auth key: paste a key from the Tailscale admin console, under Settings, Keys. The host uses the key once and does not keep it.
-3. Wait until the Host screen shows "on the tailnet" with the host's Tailscale address, such as `100.101.102.103`.
+3. If your tailnet has device approval on, the Host screen shows "waiting for an admin to approve this host". Approve the host in the Tailscale admin console, under Machines.
+4. Wait until the Host screen shows "on the tailnet" with the host's Tailscale address, such as `100.101.102.103`.
 
 The host keeps its own DNS servers, so a model download does not depend on the tailnet.
 

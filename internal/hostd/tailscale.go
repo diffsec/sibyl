@@ -31,6 +31,16 @@ const (
 // TailscaleUnit is the Tailscale daemon.
 const TailscaleUnit = "tailscaled.service"
 
+// TailscaleWaitTimer refreshes the host state every 10 seconds while
+// tailscaled waits for a login or for an admin to approve the device. The
+// state timer runs only every 5 minutes, so without it the Host screen
+// shows a used login link after the host joins.
+const TailscaleWaitTimer = "sibyl-tailscale-wait.timer"
+
+// NeedsMachineAuth is the backend state after the login, while the device
+// waits for an admin of a tailnet with device approval on.
+const NeedsMachineAuth = "NeedsMachineAuth"
+
 // TailscaleUpRequest is the body of a tailscale-up request. AuthKeyRef
 // names a file in the secret directory, <ref>.key, that holds an auth key.
 // The key itself never goes into the request queue, which is on disk: the
@@ -57,8 +67,8 @@ func (t TailscaleUpRequest) Validate() error {
 type TailscaleState struct {
 	// Enabled is true when tailscaled starts at boot.
 	Enabled bool `json:"enabled"`
-	// Backend is tailscaled's state: NeedsLogin, Starting, Running,
-	// Stopped, or empty when tailscaled does not run.
+	// Backend is tailscaled's state: NeedsLogin, NeedsMachineAuth,
+	// Starting, Running, Stopped, or empty when tailscaled does not run.
 	Backend string `json:"backend,omitempty"`
 	// AuthURL is the login link while the host waits for a login.
 	AuthURL  string   `json:"auth_url,omitempty"`
@@ -172,10 +182,40 @@ func (a *Agent) tailscaleUp(ctx context.Context, req TailscaleUpRequest) (string
 		return fmt.Sprintf("on the tailnet %s as %s, %s", st.Tailnet, st.DNSName, strings.Join(st.IPs, " ")), nil
 	case st != nil && st.AuthURL != "":
 		return "open " + st.AuthURL + " to add this host to your tailnet", nil
+	case st != nil && st.Backend == NeedsMachineAuth:
+		return "an admin of the tailnet must approve this host in the Tailscale admin console", nil
 	case upErr != nil:
 		return "", upErr
 	}
 	return "tailscale started", nil
+}
+
+// tailscaleWaiting tells whether tailscaled waits for a person: a login,
+// an approval, or the first connection after them.
+func tailscaleWaiting(st *TailscaleState) bool {
+	if st == nil || !st.Enabled {
+		return false
+	}
+	switch st.Backend {
+	case "NeedsLogin", NeedsMachineAuth, "Starting":
+		return true
+	}
+	return false
+}
+
+// tailscaleWait starts the fast refresh while tailscaled waits, and stops it
+// after.
+func (a *Agent) tailscaleWait(ctx context.Context, st *TailscaleState) {
+	if st == nil {
+		return
+	}
+	verb := "stop"
+	if tailscaleWaiting(st) {
+		verb = "start"
+	}
+	if _, err := a.Run(ctx, "", "systemctl", verb, "--no-block", "--", TailscaleWaitTimer); err != nil {
+		a.Log.Warn(verb+" the tailscale wait timer", "err", err)
+	}
 }
 
 // tailscaleDown logs out and stops tailscaled.

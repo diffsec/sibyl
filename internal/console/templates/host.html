@@ -44,6 +44,7 @@
       <form method="post" action="/console/host/tailscale/off"><button type="submit" class="danger">Leave the tailnet</button></form>
     {{else}}
       {{if .AuthURL}}<p class="warn">Waiting for a login. Open <a href="{{.AuthURL}}" target="_blank" rel="noopener noreferrer">{{.AuthURL}}</a> on any device, and sign in to Tailscale.</p>
+      {{else if eq .Backend "NeedsMachineAuth"}}<p class="warn">Waiting for an admin to approve this host. Approve it in the <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener noreferrer">Tailscale admin console</a>, under Machines.</p>
       {{else if .Enabled}}<p class="muted">Tailscale is {{or .Backend "starting"}}.</p>
       {{else}}<p class="muted">Off. Join a tailnet to reach Open WebUI, the APIs, Arcane and its containers from your other Tailscale devices.</p>{{end}}
       <form method="post" action="/console/host/tailscale" class="stack">
