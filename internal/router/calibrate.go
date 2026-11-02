@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -363,19 +364,23 @@ func (s *Server) Calibrate(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// errWait means the worker must wait and try the sample again later.
-type errWait struct{ reason string }
+// errWait means the worker must wait and try the sample again later. model
+// is set when only the samples of that local model wait, so the worker can
+// go on with the others.
+type errWait struct{ reason, model string }
 
 func (e errWait) Error() string { return e.reason }
 
-// calibrateOne works on the oldest sample that has no verdict. It returns
-// true when it finished a step and another can follow at once.
+// calibrateOne works on the oldest sample that has no verdict and can make
+// progress. A sample whose model is not loaded waits, and the worker goes on
+// to the next one, so one unloaded model does not hold back the others. It
+// returns true when it finished a step and another can follow at once.
 func (s *Server) calibrateOne(ctx context.Context) bool {
 	cfg := s.config()
 	cc := cfg.Profiles.Calibration
 	s.prune(cc, time.Now())
-	smp, ok := s.nextSample()
-	if !ok {
+	samples := s.pendingSamples()
+	if len(samples) == 0 {
 		s.setStatus("idle", "")
 		return false
 	}
@@ -383,12 +388,57 @@ func (s *Server) calibrateOne(ctx context.Context) bool {
 		s.setStatus("waiting", "a local request is in flight")
 		return false
 	}
-	err := s.compare(ctx, cfg, &smp)
-	var wait errWait
+	// One look at llama-swap per model in a pass.
+	ready := map[string]bool{}
+	isReady := func(model string) bool {
+		r, ok := ready[model]
+		if !ok {
+			r = s.localReady(model)
+			ready[model] = r
+		}
+		return r
+	}
+	waiting := map[string]int{} // reason -> samples
+	for _, smp := range samples {
+		err := s.compare(ctx, cfg, &smp, isReady)
+		var wait errWait
+		if errors.As(err, &wait) {
+			if wait.model == "" {
+				// A wait that holds every sample, such as the budget.
+				s.setStatus("waiting", wait.reason)
+				return false
+			}
+			waiting[wait.reason]++
+			continue
+		}
+		return s.finishStep(smp, err)
+	}
+	s.setStatus("waiting", waitReason(waiting))
+	return false
+}
+
+// waitReason sums up the samples that wait for a model, the most first.
+func waitReason(waiting map[string]int) string {
+	reasons := make([]string, 0, len(waiting))
+	for r := range waiting {
+		reasons = append(reasons, r)
+	}
+	sort.Slice(reasons, func(i, j int) bool {
+		if waiting[reasons[i]] != waiting[reasons[j]] {
+			return waiting[reasons[i]] > waiting[reasons[j]]
+		}
+		return reasons[i] < reasons[j]
+	})
+	parts := make([]string, len(reasons))
+	for i, r := range reasons {
+		parts[i] = fmt.Sprintf("%d sample(s): %s", waiting[r], r)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// finishStep saves the result of one step of a sample.
+func (s *Server) finishStep(smp Sample, err error) bool {
 	switch {
-	case errors.As(err, &wait):
-		s.setStatus("waiting", wait.reason)
-		return false
 	case err != nil:
 		smp.Attempts++
 		smp.LastError = err.Error()
@@ -415,7 +465,10 @@ func (s *Server) saveIfPresent(smp Sample) {
 	}
 }
 
-func (s *Server) nextSample() (Sample, bool) {
+// pendingSamples returns the samples with no verdict and attempts left,
+// oldest first.
+func (s *Server) pendingSamples() []Sample {
+	var out []Sample
 	for _, n := range sampleFiles(s.CalibrationDir) {
 		b, err := os.ReadFile(filepath.Join(s.CalibrationDir, n))
 		if err != nil {
@@ -425,9 +478,9 @@ func (s *Server) nextSample() (Sample, bool) {
 		if json.Unmarshal(b, &smp) != nil || smp.Verdict != nil || smp.Attempts >= maxSampleAttempts {
 			continue
 		}
-		return smp, true
+		out = append(out, smp)
 	}
-	return Sample{}, false
+	return out
 }
 
 // compareRoute is the provider route that answers a request that the local
@@ -483,20 +536,20 @@ func (s *Server) spendOK(cfg *Config, rt Route) error {
 	}
 	daily := cfg.Profiles.Calibration.Daily()
 	if daily <= 0 {
-		return errWait{"calibration daily_usd is 0, so no provider call is made"}
+		return errWait{reason: "calibration daily_usd is 0, so no provider call is made"}
 	}
 	if _, ok := cfg.price(rt); !ok {
-		return errWait{fmt.Sprintf("%s has no price, so the calibration budget cannot count it; add a price in providers.yaml", rt)}
+		return errWait{reason: fmt.Sprintf("%s has no price, so the calibration budget cannot count it; add a price in providers.yaml", rt)}
 	}
 	if day, _ := s.Spend.Spent(calibrationSpender, time.Now()); day >= daily {
-		return errWait{fmt.Sprintf("the calibration budget of %.2f USD for today is spent", daily)}
+		return errWait{reason: fmt.Sprintf("the calibration budget of %.2f USD for today is spent", daily)}
 	}
 	return nil
 }
 
 // compare fills the missing labels and answer, and then the verdict of a
 // sample.
-func (s *Server) compare(ctx context.Context, cfg *Config, smp *Sample) error {
+func (s *Server) compare(ctx context.Context, cfg *Config, smp *Sample, ready func(model string) bool) error {
 	if smp.Task == "" {
 		// The classifier was not ready when the request came.
 		if req, err := parseChat(smp.Request); err == nil {
@@ -509,8 +562,8 @@ func (s *Server) compare(ctx context.Context, cfg *Config, smp *Sample) error {
 		rt := Route{Model: smp.LocalModel}
 		// The worker never makes llama-swap load a model, because a swap
 		// delays the next client request.
-		if !s.localReady(rt.Model) {
-			return errWait{fmt.Sprintf("%s is not loaded", rt.Model)}
+		if !ready(rt.Model) {
+			return errWait{reason: fmt.Sprintf("%s is not loaded", rt.Model), model: rt.Model}
 		}
 		side, err := s.answer(ctx, cfg, rt, smp.Request)
 		if err != nil {
@@ -522,7 +575,7 @@ func (s *Server) compare(ctx context.Context, cfg *Config, smp *Sample) error {
 	if smp.Provider == nil {
 		rt, ok := compareRoute(cfg, smp.Profile)
 		if !ok {
-			return errWait{"no provider route to compare with"}
+			return errWait{reason: "no provider route to compare with"}
 		}
 		if err := s.spendOK(cfg, rt); err != nil {
 			return err
@@ -536,10 +589,10 @@ func (s *Server) compare(ctx context.Context, cfg *Config, smp *Sample) error {
 	}
 	judge, ok := judgeRoute(cfg, smp.LocalModel)
 	if !ok {
-		return errWait{"no judge model"}
+		return errWait{reason: "no judge model"}
 	}
-	if judge.Local() && !s.localReady(judge.Model) {
-		return errWait{fmt.Sprintf("the judge %s is not loaded", judge.Model)}
+	if judge.Local() && !ready(judge.Model) {
+		return errWait{reason: fmt.Sprintf("the judge %s is not loaded", judge.Model), model: judge.Model}
 	}
 	if err := s.spendOK(cfg, judge); err != nil {
 		return err
