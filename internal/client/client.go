@@ -128,6 +128,75 @@ type Model struct {
 	Meta      *models.Meta    `json:"meta,omitempty"`
 	// Fit is what the System API chose for the context and the split.
 	Fit *models.Fit `json:"fit,omitempty"`
+	// Drafters is the number of drafters on Hugging Face, from the last
+	// search. It is nil until a search finishes.
+	Drafters *int `json:"drafters,omitempty"`
+}
+
+// OrderWithDrafters puts each drafter right after the first model that
+// uses it, and the unused drafters last.
+func OrderWithDrafters(list []Model) []Model {
+	used := map[string]string{} // drafter ID -> target ID
+	for _, m := range list {
+		if d := m.Settings.Speculative.DraftModel; d != "" {
+			if _, ok := used[d]; !ok {
+				used[d] = m.ID
+			}
+		}
+	}
+	byTarget := map[string][]Model{}
+	var out, unused []Model
+	for _, m := range list {
+		if !m.Drafter {
+			continue
+		}
+		if t := used[m.ID]; t != "" {
+			byTarget[t] = append(byTarget[t], m)
+		} else {
+			unused = append(unused, m)
+		}
+	}
+	for _, m := range list {
+		if !m.Drafter {
+			out = append(out, m)
+			out = append(out, byTarget[m.ID]...)
+		}
+	}
+	return append(out, unused...)
+}
+
+// Drafter is one drafter that the finder offers for a model. Match is
+// "model" for a drafter trained for the model, and "base" for one trained
+// for a model further up its base_model line.
+type Drafter struct {
+	hf.Drafter
+	Match     string `json:"match"`
+	Installed string `json:"installed,omitempty"`
+}
+
+// Drafters is the drafter search for one model.
+type Drafters struct {
+	Model    string    `json:"model"`
+	Source   string    `json:"source,omitempty"`
+	Drafters []Drafter `json:"drafters"`
+}
+
+// SpeedSample is one side of a drafter test.
+type SpeedSample struct {
+	TokensPerSecond float64 `json:"tokens_per_second"`
+	Tokens          int     `json:"tokens"`
+	Drafted         int     `json:"drafted"`
+	Accepted        int     `json:"accepted"`
+}
+
+// DrafterTest is a model's speed without and with a drafter.
+type DrafterTest struct {
+	Status      string             `json:"status"`
+	Speculative models.Speculative `json:"speculative"`
+	Without     *SpeedSample       `json:"without,omitempty"`
+	With        *SpeedSample       `json:"with,omitempty"`
+	Speedup     float64            `json:"speedup,omitempty"`
+	Error       string             `json:"error,omitempty"`
 }
 
 // BackendResult is one backend's llama-bench result.
@@ -205,6 +274,27 @@ func (c *Client) DeleteModel(ctx context.Context, id string) (ApplyResult, error
 
 func (c *Client) StartBenchmark(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/benchmark", nil, nil)
+}
+
+// FindDrafters searches Hugging Face for drafters of a model. refresh skips
+// the System API's cache.
+func (c *Client) FindDrafters(ctx context.Context, id string, refresh bool) (Drafters, error) {
+	var d Drafters
+	p := "/models/" + url.PathEscape(id) + "/drafters"
+	if refresh {
+		p += "?refresh=1"
+	}
+	return d, c.do(ctx, http.MethodGet, p, nil, &d)
+}
+
+// StartDrafterTest measures a model without and with the drafter in spec.
+func (c *Client) StartDrafterTest(ctx context.Context, id string, spec models.Speculative) error {
+	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/drafter-test", spec, nil)
+}
+
+func (c *Client) DrafterTest(ctx context.Context, id string) (DrafterTest, error) {
+	var t DrafterTest
+	return t, c.do(ctx, http.MethodGet, "/models/"+url.PathEscape(id)+"/drafter-test", nil, &t)
 }
 
 // OpenWebUI is the Open WebUI integration status.

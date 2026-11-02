@@ -190,6 +190,27 @@ func TestGenerateMissingDraftModel(t *testing.T) {
 	}
 }
 
+func TestGenerateSkipsDrafters(t *testing.T) {
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "dflash", Path: "d/dflash.gguf", Drafter: true}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
+		"big": {Speculative: models.Speculative{Types: []string{"draft-dflash"}, DraftModel: "dflash"}},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	if _, ok := cfg.Models["dflash"]; ok {
+		t.Errorf("the drafter has its own llama-swap entry")
+	}
+	if !strings.Contains(cfg.Models["big"].Cmd, "--spec-draft-model /models/d/dflash.gguf") {
+		t.Errorf("big cmd %s", cfg.Models["big"].Cmd)
+	}
+	for _, set := range cfg.Routing.Router.Settings.Matrix.Vars {
+		if set == "dflash" {
+			t.Errorf("the drafter is in the matrix: %+v", cfg.Routing)
+		}
+	}
+}
+
 func TestGenerateParallelAndSplit(t *testing.T) {
 	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "small", Path: "small.gguf"}}
 	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{

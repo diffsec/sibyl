@@ -97,6 +97,11 @@ func Generate(hw hardware.Config, installed []models.Model, settings map[string]
 	var spanning, embedding []string
 
 	for _, m := range installed {
+		// A drafter runs inside its target's llama-server, through
+		// --spec-draft-model, and cannot answer requests by itself.
+		if m.Drafter {
+			continue
+		}
 		s := settings[m.ID]
 		if err := s.Validate(selected); err != nil {
 			issues = append(issues, Issue{ID: m.ID, Reason: err.Error(), Skipped: true})

@@ -109,10 +109,18 @@ func (c *Console) modelsPage(w http.ResponseWriter, r *http.Request) {
 	type row struct {
 		client.Model
 		SizeText, Fit, Bench string
+		// DraftFor is the model that uses this drafter, and DrafterCount
+		// the drafters on Hugging Face from the last search.
+		DraftFor     string
+		DrafterCount int
 	}
 	var rows []row
-	for _, m := range list {
-		rows = append(rows, row{m, gib(m.Size), fitText(m.Fit), benchText(m.Benchmark)})
+	for _, m := range client.OrderWithDrafters(list) {
+		n := 0
+		if m.Drafters != nil {
+			n = *m.Drafters
+		}
+		rows = append(rows, row{m, gib(m.Size), fitText(m.Fit), benchText(m.Benchmark), drafterFor(m, list), n})
 	}
 	data["Models"] = rows
 	c.render(w, r, http.StatusOK, "models", data)

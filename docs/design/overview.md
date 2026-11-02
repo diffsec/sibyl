@@ -296,6 +296,25 @@ The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.
 - The sampling fields show the model file's recommendation, or llama.cpp's default, as their placeholder. llama-server applies the file's values when a setting is empty. `/props` on the test host reported the file's temperature 1.0 and top-k 20.
 - `reasoning` follows the model's chat template. The variable and its values differ by model family, so Sibyl reads them from the template in the GGUF file (`internal/models/reasoning.go`). An empty setting leaves the template's default.
 
+### Drafters
+
+A DFlash or EAGLE-3 drafter is trained to draft tokens for one target model. It has its own GGUF architecture (`dflash` or `eagle3` in llama.cpp b11889), and llama-server loads it with `--spec-draft-model` inside the target's process. The System API marks a model with one of these architectures as a drafter (`Meta.DraftOnly`). llama-swap, the router and the Ollama list leave it out, so no client can call it alone.
+
+The finder (`GET /models/{id}/drafters`, `internal/api/drafters.go`) starts from the model's download record, or else from `general.base_model.*.repo_url` in its file. It follows `base_model` on the model cards, up to six repositories, and tries the source name without `-GGUF`, because many GGUF repositories have no `base_model`. For each repository, it asks Hugging Face for GGUF repositories whose card names it as a base model and whose name matches `dflash` or `eagle3`. A drafter one step or less above the source is a `model` match. One further up is a `base` match.
+
+Sibyl tests a drafter before the owner turns it on (`POST /models/{id}/drafter-test`). On the AMD test host, with the Q8_0 file of `z-lab/Qwen3.8-27B-DFlash2-GGUF`, `draft_max` 7, and a context of 131,072 tokens:
+
+| Target, Q8_0 | Prompt | Without (tokens/s) | With (tokens/s) | Drafted tokens kept |
+|---|---|---|---|---|
+| `unsloth/Qwen3.8-27B-GGUF` (the base model) | code | 24.2 | 93.4 to 93.7 | 499 of 694 |
+| `unsloth/Qwen3.8-27B-GGUF` | prose | 24.2 | 46.3 | 395 of 1428 |
+| A finetune of Qwen3.8-27B (TURBO-Fable-Cold-Fusion NEO-CODER) | code | 23.4 | 20.2 | 149 of 3122 |
+| The same finetune | prose | 23.5 | 18.5 | 108 of 3409 |
+
+A drafter for the base model made this finetune slower, so the finder labels `base` matches, and the result of the test decides.
+
+The drafter's weights share the target's GPUs, and llama.cpp gives the draft context as many tokens as the target's (`common/speculative.cpp`). The fit takes the drafter's GPU weights off the budget (`FitInput.DraftWeights`) and reports them as `draft_bytes`. It does not count the drafter's cache, because every DFlash2 layer uses a 2,048-token sliding window. Before this, the automatic context of the finetune was 233,472 tokens, and the drafter failed to load with `cudaMalloc failed: out of memory`.
+
 ### Context size and memory estimate
 
 `GET /models` includes each model's GGUF metadata (`internal/gguf`, `models.ReadMeta`): the architecture, the native context, the per-token KV cache elements, and the sampling defaults in `general.sampling.*`. The System API caches it by file size and modification time. The reader reads only the header, and refuses lengths over fixed limits.

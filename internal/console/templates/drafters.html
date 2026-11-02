@@ -1,0 +1,48 @@
+{{define "title"}}Drafters{{end}}
+{{define "content"}}
+<p><a href="/console/models">Back to the models</a></p>
+<h1>Drafters for <span class="mono">{{.ID}}</span></h1>
+{{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<section class="card stack">
+  <p>A drafter guesses the next tokens, and the model checks them. Sibyl measures the model without and with the drafter before you turn it on.</p>
+  {{with .Source}}<p class="muted">Searched from <span class="mono">{{.}}</span> and its base models.</p>{{end}}
+  {{if .Base}}<p class="muted">A drafter for the base model accepts fewer tokens on a finetune, and can make it slower.</p>{{end}}
+  <table>
+    <thead><tr><th>Repository</th><th>Type</th><th>Trained for</th><th class="num">Downloads</th><th></th></tr></thead>
+    <tbody>
+    {{range .Drafters}}
+    <tr>
+      <td class="mono">{{.Repo}}</td>
+      <td>{{.SpecType}}</td>
+      <td>{{if eq .Match "model"}}this model{{else}}the base model <span class="mono">{{.Base}}</span>{{end}}</td>
+      <td class="num">{{.Downloads}}</td>
+      <td>{{if .Installed}}
+        <form method="post" action="/console/models/drafters/test"><input type="hidden" name="id" value="{{$.ID}}">
+          <input type="hidden" name="drafter" value="{{.Installed}}"><input type="hidden" name="spectype" value="{{.SpecType}}">
+          <button type="submit">Test {{.Installed}}</button></form>
+      {{else}}<a href="/console/downloads/repo?id={{.Repo}}">Download</a>{{end}}</td>
+    </tr>
+    {{else}}<tr><td class="muted" colspan="5">Hugging Face has no DFlash or EAGLE-3 drafter for this model or its base models.</td></tr>{{end}}
+    </tbody>
+  </table>
+  <p class="muted">After a download, come back to this page to test the drafter. <a href="/console/models/drafters?id={{.ID}}&amp;refresh=1">Search again</a></p>
+</section>
+{{template "test" .}}
+{{end}}
+
+{{define "test"}}
+<section class="card stack" id="test"{{with .Test}}{{if eq .Status "running"}} hx-get="/console/models/drafters/test?id={{$.ID}}" hx-trigger="every 5s" hx-swap="outerHTML"{{end}}{{end}}>
+  <h2>Last test</h2>
+  {{with .Test}}
+    {{if eq .Status "running"}}<p>Testing <span class="mono">{{.Speculative.DraftModel}}</span>. The running models are unloaded, and the test takes a few minutes.</p>
+    {{else if eq .Status "failed"}}<p class="error">The test of <span class="mono">{{.Speculative.DraftModel}}</span> failed: {{.Error}}</p>
+    {{else}}
+      <p>{{$.Result}}</p>
+      {{if not $.Faster}}<p class="bad">The drafter makes this model slower, so leave it off.</p>{{end}}
+      <form method="post" action="/console/models/drafters/enable"><input type="hidden" name="id" value="{{$.ID}}">
+        <button type="submit"{{if not $.Faster}} class="danger"{{end}}>Turn on {{.Speculative.DraftModel}}</button></form>
+    {{end}}
+  {{else}}<p class="muted">No test ran for this model.</p>{{end}}
+</section>
+{{end}}

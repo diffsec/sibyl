@@ -49,6 +49,8 @@ type modelsView struct {
 	deleting bool
 	confirm  bool
 	fields   settingsForm
+	// flow is the drafter finder, while it runs.
+	flow *drafterFlow
 }
 
 func newModelsView(c *client.Client) *modelsView { return &modelsView{c: c} }
@@ -77,7 +79,7 @@ func (v *modelsView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	return "↑/↓ select · enter edit · b benchmark the backends · d delete"
+	return "↑/↓ select · enter edit · f find a drafter · b benchmark the backends · d delete"
 }
 
 func (v *modelsView) selected() (client.Model, bool) {
@@ -113,7 +115,11 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 	drafts := []huh.Option[string]{huh.NewOption("None", "")}
 	for _, o := range v.list {
 		if o.ID != m.ID {
-			drafts = append(drafts, huh.NewOption(o.ID, o.ID))
+			label := o.ID
+			if o.Drafter {
+				label += " (drafter)"
+			}
+			drafts = append(drafts, huh.NewOption(label, o.ID))
 		}
 	}
 	kv := []huh.Option[string]{huh.NewOption("Default (f16)", "")}
@@ -251,6 +257,9 @@ func (v *modelsView) deleteForm(m client.Model) tea.Cmd {
 }
 
 func (v *modelsView) submit() tea.Cmd {
+	if v.flow != nil {
+		return v.submitFlow()
+	}
 	id := v.editing
 	if v.deleting {
 		if !v.confirm {
@@ -272,11 +281,14 @@ func (v *modelsView) submit() tea.Cmd {
 }
 
 func (v *modelsView) update(msg tea.Msg) tea.Cmd {
+	if cmd, ok := v.updateFlow(msg); ok {
+		return cmd
+	}
 	switch msg := msg.(type) {
 	case modelsLoaded:
 		v.err = msg.err
 		if msg.err == nil {
-			v.list, v.hw, v.gpus = msg.models, msg.hw, msg.gpus
+			v.list, v.hw, v.gpus = client.OrderWithDrafters(msg.models), msg.hw, msg.gpus
 		}
 		if v.cursor >= len(v.list) {
 			v.cursor = max(0, len(v.list)-1)
@@ -315,6 +327,10 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 				if m, ok := v.selected(); ok {
 					return v.deleteForm(m)
 				}
+			case "f":
+				if m, ok := v.selected(); ok {
+					return v.findDrafters(m, false)
+				}
 			case "b":
 				if m, ok := v.selected(); ok {
 					id := m.ID
@@ -331,7 +347,7 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		if msg.String() == "esc" {
-			v.form = nil
+			v.form, v.flow = nil, nil
 			return note(false, "changes discarded")
 		}
 	}
@@ -345,7 +361,7 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 		v.form = nil
 		return tea.Batch(cmd, v.submit())
 	case huh.StateAborted:
-		v.form = nil
+		v.form, v.flow = nil, nil
 	}
 	return cmd
 }
@@ -392,7 +408,13 @@ func (v *modelsView) render(int) string {
 	for i := start; i < end; i++ {
 		m := v.list[i]
 		line := fmt.Sprintf("%-40s %10s  %s", m.ID, gib(m.Size), mutedSty.Render(summary(m.Settings)))
+		if m.Drafter {
+			line = drafterLine(m, v.list)
+		}
 		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
+		if mark := drafterMark(m); mark != "" {
+			b.WriteString("    " + mutedSty.Render(mark) + "\n")
+		}
 		if bench := benchLine(m.Benchmark); bench != "" {
 			b.WriteString("    " + mutedSty.Render(bench) + "\n")
 		}

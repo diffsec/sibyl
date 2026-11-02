@@ -64,6 +64,9 @@ type Server struct {
 	GitHubBase string
 	// RouterURL is the model router, such as http://router:8080.
 	RouterURL string
+	// LlamaSwapURL is llama-swap, such as http://llama-swap:8080. Drafter
+	// tests send their requests there, past the router.
+	LlamaSwapURL string
 	// ProviderHTTP checks provider keys. Nil means a default client.
 	ProviderHTTP *http.Client
 
@@ -72,6 +75,12 @@ type Server struct {
 
 	metaMu    sync.Mutex
 	metaCache map[string]cachedMeta
+	// drafters caches the drafter searches on Hugging Face.
+	drafters     drafterCache
+	drafterTests drafterTests
+	// reloadWait is how long a drafter test waits for llama-swap to read
+	// a new configuration. Tests shorten it.
+	reloadWait time.Duration
 }
 
 // cachedMeta is a model's GGUF metadata, valid while the file keeps its
@@ -108,6 +117,21 @@ func (s *Server) modelMeta(m models.Model) *models.Meta {
 	return meta
 }
 
+// scanModels lists the installed models and marks the drafters, which
+// llama-swap, the router and the Ollama list do not serve.
+func (s *Server) scanModels() ([]models.Model, error) {
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range installed {
+		if meta := s.modelMeta(m); meta != nil && meta.DraftOnly() {
+			installed[i].Drafter = true
+		}
+	}
+	return installed, nil
+}
+
 // Handler returns the HTTP routes. Every route except /health needs the bearer token.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -125,6 +149,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("DELETE /models/{id}", s.deleteModel)
 	auth.HandleFunc("POST /models/{id}/benchmark", s.startBenchmark)
 	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
+	auth.HandleFunc("GET /models/{id}/drafters", s.getDrafters)
+	auth.HandleFunc("POST /models/{id}/drafter-test", s.startDrafterTest)
+	auth.HandleFunc("GET /models/{id}/drafter-test", s.getDrafterTest)
 	auth.HandleFunc("POST /apply", s.postApply)
 	auth.HandleFunc("GET /services", s.getServices)
 	auth.HandleFunc("GET /integrations/open-webui", s.getOpenWebUI)
@@ -270,13 +297,16 @@ type modelView struct {
 	// with, which Sibyl chooses where the settings leave them open.
 	Fit       *models.Fit `json:"fit,omitempty"`
 	Benchmark *Benchmark  `json:"benchmark,omitempty"`
+	// Drafters is the number of drafters on Hugging Face for the model,
+	// from the last search. It is missing until a search finishes.
+	Drafters *int `json:"drafters,omitempty"`
 	// Meta is what the model file says about its context, for the context
 	// size and memory estimate. It is missing when the header is unreadable.
 	Meta *models.Meta `json:"meta,omitempty"`
 }
 
 func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -295,7 +325,12 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 		if b, ok := s.readBenchmark(m.ID); ok {
 			out[i].Benchmark = &b
 		}
+		if v, ok := s.drafters.get(m.ID); ok {
+			n := len(v.Drafters)
+			out[i].Drafters = &n
+		}
 	}
+	s.warmDrafters(installed, settings)
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -426,7 +461,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -542,11 +577,22 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 			resident[g.Index] += total / int64(len(used))
 		}
 	}
+	byID := make(map[string]models.Model, len(installed))
 	for _, m := range installed {
-		if settings[m.ID].Embedding {
+		byID[m.ID] = m
+	}
+	for _, m := range installed {
+		if settings[m.ID].Embedding || m.Drafter {
 			continue
 		}
-		st, fit := s.effective(m, settings[m.ID], hw, gpus, resident)
+		var draft int64
+		if d, ok := byID[settings[m.ID].Speculative.DraftModel]; ok && d.ID != m.ID {
+			draft = d.Size
+			if meta := s.modelMeta(d); meta != nil {
+				draft = meta.VRAMWeights(d.Size, models.MoE{})
+			}
+		}
+		st, fit := s.effective(m, settings[m.ID], hw, gpus, resident, draft)
 		eff[m.ID] = st
 		if fit != nil {
 			fits[m.ID] = fit
@@ -556,9 +602,10 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 }
 
 // effective returns the settings that a chat model runs with. resident is
-// the memory that the embedding models keep on each GPU.
+// the memory that the embedding models keep on each GPU, and draft the GPU
+// weights of the model's draft model.
 func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Config, gpus []gpu.GPU,
-	resident map[int]int64) (models.Settings, *models.Fit) {
+	resident map[int]int64, draft int64) (models.Settings, *models.Fit) {
 	meta := s.modelMeta(m)
 	st.Sampling = st.EffectiveSampling(meta)
 	if meta == nil {
@@ -580,6 +627,7 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 	fit := meta.FitContext(models.FitInput{
 		Mode: st.Fit, Weights: meta.VRAMWeights(m.Size, st.MoE), VRAM: vram, Reserved: reserved,
 		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
+		DraftWeights: draft,
 	})
 	fit.TensorSplit = st.TensorSplit
 	if fit.Auto {
@@ -596,7 +644,7 @@ func (s *Server) hardware() (hardware.Config, error) {
 }
 
 func (s *Server) findModel(id string) (models.Model, error) {
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		return models.Model{}, err
 	}
@@ -669,7 +717,7 @@ func writeError(w http.ResponseWriter, code int, err error) {
 
 // OllamaModels lists installed models for the Ollama-compatible API.
 func (s *Server) OllamaModels(context.Context) ([]ollama.ModelInfo, error) {
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		return nil, err
 	}
@@ -680,7 +728,7 @@ func (s *Server) OllamaModels(context.Context) ([]ollama.ModelInfo, error) {
 	out := make([]ollama.ModelInfo, 0, len(installed))
 	for _, m := range installed {
 		st := settings[m.ID]
-		if st.Hidden {
+		if st.Hidden || m.Drafter {
 			continue
 		}
 		out = append(out, ollama.ModelInfo{ID: m.ID, Size: m.Size, Embedding: st.Embedding})

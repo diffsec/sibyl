@@ -10,13 +10,16 @@
     <tbody>
     {{range .Models}}
     <tr>
-      <td class="mono">{{.ID}}{{if .Settings.Embedding}} <span class="muted">embedding</span>{{end}}{{if .Settings.Hidden}} <span class="muted">hidden</span>{{end}}</td>
+      <td class="mono">{{if .Drafter}}↳ {{end}}{{.ID}}{{if .Settings.Embedding}} <span class="muted">embedding</span>{{end}}{{if .Settings.Hidden}} <span class="muted">hidden</span>{{end}}
+        {{if .Drafter}}<br><span class="muted">{{with .DraftFor}}drafter for {{.}}{{else}}drafter, not used{{end}}</span>{{end}}</td>
       <td class="num">{{.SizeText}}</td>
-      <td>{{.Fit}}{{with .Bench}}<br><span class="muted">{{.}}</span>{{end}}</td>
+      <td>{{.Fit}}{{with .Bench}}<br><span class="muted">{{.}}</span>{{end}}
+        {{if and (not .Drafter) (gt .DrafterCount 0) (not .Settings.Speculative.DraftModel)}}<br><a href="/console/models/drafters?id={{.ID}}">{{.DrafterCount}} drafter(s) on Hugging Face</a>{{end}}</td>
       <td><div class="actions">
-        <a href="/console/models/edit?id={{.ID}}">Settings</a>
+        {{if not .Drafter}}<a href="/console/models/edit?id={{.ID}}">Settings</a>
+        <a href="/console/models/drafters?id={{.ID}}">Drafters</a>
         <form method="post" action="/console/models/bench"><input type="hidden" name="id" value="{{.ID}}">
-          <button type="submit" class="link">Benchmark</button></form>
+          <button type="submit" class="link">Benchmark</button></form>{{end}}
         <form method="post" action="/console/models/delete"><input type="hidden" name="id" value="{{.ID}}">
           <details><summary>Delete</summary><button type="submit" class="danger">Delete {{.ID}} and its {{.SizeText}} of files</button></details></form>
       </div></td>

@@ -87,6 +87,7 @@ func run(log *slog.Logger) error {
 	}
 	s.RouterURL = env("SIBYL_ROUTER_URL", "http://router:8080")
 	llamaSwap := env("SIBYL_LLAMA_SWAP_URL", "http://llama-swap:8080")
+	s.LlamaSwapURL = llamaSwap
 	s.OpenWebUI = &api.OpenWebUI{
 		Base:    env("SIBYL_OPEN_WEBUI_URL", "http://open-webui:8080"),
 		URL:     s.RouterURL + "/v1",

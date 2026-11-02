@@ -80,7 +80,14 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `[{"id":"qwen","size_bytes":32212254720,"shards":2,"settings":{"ctx_size":65536,"sampling":{"temperature":0.6}},
 			"meta":{"architecture":"qwen3moe","context_length":262144,"expert_count":128,"reasoning":{"var":"reasoning_effort","values":["low","high","xhigh"]}},
 			"fit":{"ctx":65536,"slots":2,"slot_ctx":32768,"fits":true},"benchmark":{"status":"done","results":{"hip":{"generation_tokens_per_second":40.5,"prompt_tokens_per_second":900}},"recommended":"hip"}},
-			{"id":"gemma"},{"id":"embed","settings":{"embedding":true}}]`)
+			{"id":"gemma","drafters":2},{"id":"embed","settings":{"embedding":true}},{"id":"gemma-dflash","drafter":true}]`)
+	case "GET /models/gemma/drafters":
+		_, _ = io.WriteString(w, `{"model":"gemma","source":"org/gemma-GGUF","drafters":[
+			{"repo":"org/gemma-DFlash-GGUF","spec_type":"draft-dflash","base":"org/gemma","depth":1,"downloads":9,"match":"model","installed":"gemma-dflash"},
+			{"repo":"google/base-EAGLE3-GGUF","spec_type":"draft-eagle3","base":"google/base","depth":2,"downloads":4,"match":"base"}]}`)
+	case "GET /models/gemma/drafter-test":
+		_, _ = io.WriteString(w, `{"status":"done","speculative":{"types":["draft-dflash"],"draft_model":"gemma-dflash","draft_max":7},
+			"without":{"tokens_per_second":20},"with":{"tokens_per_second":30,"drafted":100,"accepted":80},"speedup":1.5}`)
 	case "GET /hardware":
 		_, _ = io.WriteString(w, `{"backend":"hip","gpus":[0],"layout":"span"}`)
 	case "GET /gpus":
@@ -652,5 +659,34 @@ func TestUpdateControls(t *testing.T) {
 	h.do("POST", "/console/status/update/check", url.Values{}, true)
 	if !slices.Contains(h.api.calls, "POST /host/update/check") {
 		t.Error("no check call")
+	}
+}
+
+func TestDrafters(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	page := h.do("GET", "/console/models", nil, false).Body.String()
+	for _, want := range []string{"2 drafter(s) on Hugging Face", "drafter, not used"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("models page lacks %q", want)
+		}
+	}
+	page = h.do("GET", "/console/models/drafters?id=gemma", nil, false).Body.String()
+	for _, want := range []string{"org/gemma-DFlash-GGUF", "Test gemma-dflash", "the base model", "/console/downloads/repo?id=google%2fbase-EAGLE3-GGUF",
+		"1.50 times as fast", "Turn on gemma-dflash"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("drafters page lacks %q", want)
+		}
+	}
+	h.do("POST", "/console/models/drafters/test", url.Values{"id": {"gemma"}, "drafter": {"gemma-dflash"}, "spectype": {"draft-dflash"}}, true)
+	if b := h.api.body("POST /models/gemma/drafter-test"); b["draft_model"] != "gemma-dflash" || b["draft_max"] != 7.0 {
+		t.Errorf("test body %v", b)
+	}
+	w := h.do("POST", "/console/models/drafters/enable", url.Values{"id": {"gemma"}}, true)
+	if !strings.Contains(w.Header().Get("Location"), "done=turned+on+gemma-dflash") {
+		t.Errorf("enable = %q", w.Header().Get("Location"))
+	}
+	if b := h.api.body("PUT /models/gemma"); b["speculative"].(map[string]any)["draft_model"] != "gemma-dflash" {
+		t.Errorf("enable body %v", b)
 	}
 }

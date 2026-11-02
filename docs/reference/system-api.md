@@ -140,6 +140,9 @@ A value that does not fit the variant or the detected GPUs returns `422`.
 | `DELETE /models/{id}` | None | The apply result | Deletes the model file and all of its shards, removes its settings, and applies. |
 | `POST /models/{id}/benchmark` | None | `202`, `{"status": "queued"}` | Asks the host agent to run `llama-bench` on the model with each backend image. |
 | `GET /models/{id}/benchmark` | None | The benchmark state | The progress or the result of the last benchmark. `404` if no benchmark ran. |
+| `GET /models/{id}/drafters?refresh=1` | None | The drafter search | Searches Hugging Face for DFlash and EAGLE-3 drafters of the model. A search is cached for 6 hours. `refresh=1` skips the cache. `422` for a drafter, `502` when Hugging Face fails. |
+| `POST /models/{id}/drafter-test` | The `speculative` settings to try | `202`, `{"status": "running"}` | Measures the model without and with the drafter, then restores the model's `speculative` settings. It unloads the running models. `409` while another test runs. |
+| `GET /models/{id}/drafter-test` | None | The drafter test | The progress or the result of the last drafter test. `404` if no test ran. |
 
 Each model in `GET /models` has these fields:
 
@@ -148,8 +151,10 @@ Each model in `GET /models` has these fields:
 | `id`, `path`, `pool`, `size_bytes`, `shards` | The model, its file, its pool (empty for the models directory), its size and its number of shard files |
 | `settings` | The settings that the owner chose |
 | `fit` | The context size and KV cache types that the model runs with, where Sibyl chooses them |
-| `meta` | What the model file says about its context. Missing if the file header cannot be read. |
+| `meta` | What the model file says about its context, and `base_repos`, the Hugging Face repositories in its `general.base_model.*` keys. Missing if the file header cannot be read. |
 | `benchmark` | The last benchmark, if one ran |
+| `drafter` | `true` for a DFlash or EAGLE-3 drafter. llama-swap, the router and the Ollama list do not serve it, and it has no `fit`. |
+| `drafters` | The number of drafters on Hugging Face, from the last search. Missing until a search finishes. `GET /models` starts the searches in the background. |
 
 The settings body of `PUT /models/{id}` has these fields: `layout`, `ctx_size`, `embedding`, `hidden`, `sampling`, `speculative`, `kv_cache`, `moe`, `fit`, `preset`, `reasoning`, `parallel`, `tensor_split` and `args`. [Configuration](configuration.md) describes each field and its range. The route returns `404` for a model that is not installed. It returns `422` in these cases:
 
@@ -167,6 +172,20 @@ The benchmark state has these fields:
 | `updated` | The time of the last status change |
 | `results` | Per backend: `prompt_tokens_per_second`, `generation_tokens_per_second`, or `error` |
 | `recommended` | The backend with the fastest token generation |
+
+The drafter search has these fields:
+
+| Field | Content |
+|---|---|
+| `model` | The model ID |
+| `source` | The repository that the search started from: the model's download record, or else the first `base_repos` of its file |
+| `lineage` | Each repository in the search, with its number of `base_model` steps above the source |
+| `drafters` | Each drafter: `repo`, `spec_type` (`draft-dflash` or `draft-eagle3`), `base` (the repository that its card names), `depth`, `downloads`, `likes`, `match` and `installed` |
+| `searched` | The time of the search |
+
+`match` is `model` when the drafter's card names the source or the repository one step above it, and `base` for a model further up. `installed` is the ID of the installed model that came from the drafter's repository.
+
+The drafter test has these fields: `status` (`running`, `done` or `failed`), `updated`, `speculative`, `without` and `with`, `speedup` and `error`. `without` and `with` each have `tokens_per_second`, `tokens`, `drafted` and `accepted`. `speedup` is `with` over `without`.
 
 The benchmark leaves out HIP when a selected GPU has a ROCm target that the HIP image does not support. That backend then shows the error `not run: the HIP image does not support a selected GPU`.
 

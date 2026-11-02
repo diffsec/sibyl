@@ -8,6 +8,7 @@ func (c *Console) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+Prefix+"status", c.signedIn(c.statusPage))
 	c.routerRoutes(mux)
 	c.modelRoutes(mux)
+	c.drafterRoutes(mux)
 	c.hostRoutes(mux)
 }
 

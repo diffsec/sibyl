@@ -94,6 +94,18 @@ Speculative decoding guesses the next tokens cheaply and lets the model check th
 
 A model cannot be its own draft model. If you delete a draft model, Sibyl turns speculative decoding off for the models that used it and reports an issue. Those models keep running.
 
+#### Find a drafter
+
+A drafter is a small model that is trained to draft tokens for one model, such as a DFlash or EAGLE-3 drafter. It runs inside its model's llama-server, and it cannot answer requests by itself. Sibyl does not list it as a model that clients can call. The model list shows it under the model that uses it.
+
+1. On the Models screen, select a model and press `f`. In the web console, choose Drafters on the Models page.
+2. Sibyl searches Hugging Face for drafters of the model and of the models that it was made from. A drafter marked "for the base model" was trained for a model further up. It accepts fewer of its tokens on a finetune, and it can make the finetune slower.
+3. Choose a drafter. If it is not installed, choose a file to download. Q8_0 is the default. When the download finishes, open the drafter list again.
+4. Choose the installed drafter, and confirm the test. Sibyl runs two prompts without and with the drafter. The test unloads the running models and takes a few minutes.
+5. Read the result. It gives the speed without and with the drafter, and how many drafted tokens the model kept. If the drafter makes the model faster, turn it on.
+
+The drafter's weights use GPU memory, so the automatic context of its model gets shorter when you turn it on.
+
 ### Mixture of Experts models
 
 A Mixture of Experts (MoE) model sends each token through a few of its experts, so most expert weights are idle at any time. The form shows the Mixture of Experts settings only for a MoE model, and its description gives the size of the experts that stay in system RAM.
