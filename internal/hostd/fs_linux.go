@@ -64,3 +64,25 @@ func openNoFollow(path string) (*os.File, error) {
 func setLabel(path, label string) error {
 	return unix.Lsetxattr(path, "security.selinux", append([]byte(label), 0), 0)
 }
+
+// readSecret reads and removes one file of the secret directory. The
+// directory belongs to the sibyl user, so no path component may be a
+// symlink, and the file must be a regular file.
+func readSecret(dir, name string) ([]byte, error) {
+	if dir == "" {
+		return nil, errors.New("no secret directory")
+	}
+	fd, err := unix.Openat2(unix.AT_FDCWD, dir, &unix.OpenHow{
+		Flags:   unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_NO_SYMLINKS,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", dir, err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	data, err := readOne(fd, name)
+	if rmErr := unix.Unlinkat(fd, name, 0); rmErr != nil && err == nil {
+		err = fmt.Errorf("remove the secret: %w", rmErr)
+	}
+	return data, err
+}

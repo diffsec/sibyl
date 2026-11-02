@@ -3,6 +3,7 @@
 package hostd
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,6 +36,21 @@ func readQueue(dir string) ([]queued, error) {
 		out = append(out, q)
 	}
 	return out, nil
+}
+
+// readSecret is the portable form of the Linux reader, for tests.
+func readSecret(dir, name string) ([]byte, error) {
+	if dir == "" {
+		return nil, errors.New("no secret directory")
+	}
+	p := filepath.Join(dir, name)
+	defer func() { _ = os.Remove(p) }()
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(io.LimitReader(f, MaxRequestSize))
 }
 
 func openNoFollow(path string) (*os.File, error) { return os.Open(path) }

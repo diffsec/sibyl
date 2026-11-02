@@ -295,6 +295,17 @@ These routes are host actions. They return `200`, `202` or `422` as [host action
 
 `update` in `GET /host` has these fields: `image`, `booted`, `booted_digest`, `staged`, `available`, and `window` with `enabled`, `start` and `end`. [Updates](../guides/updates.md) explains the update and the rollback.
 
+## Tailscale
+
+These routes are host actions. They return `200`, `202` or `422` as [host actions](#host-actions-and-the-202-queued-response) describes.
+
+| Method and path | Body | Response | What it does |
+|---|---|---|---|
+| `POST /host/tailscale` | `{}` or `{"auth_key": "tskey-…"}` | A host action result | Starts Tailscale and joins a tailnet. With an auth key, the host logs in with it. Without one, the result message and `tailscale.auth_url` of `GET /host` hold a login link. A key that does not start with `tskey-` gets `422`. |
+| `DELETE /host/tailscale` | None | A host action result | Logs out and stops Tailscale. |
+
+`tailscale` in `GET /host` has these fields: `enabled`, `backend` (`NeedsLogin`, `Running`, `Stopped` or empty), `auth_url`, `host_name`, `dns_name`, `tailnet`, `ips` and `error`. It is missing on a host image without Tailscale. [Host](../guides/host.md#tailscale) explains how to use the tailnet.
+
 ## Router
 
 These routes manage the model router: its clients, providers and profiles. The System API writes the router's files in `/var/lib/sibyl/config/router/`, and the router reloads them within two seconds. [Router](../guides/router.md) explains how to use them, and [Configuration](configuration.md) lists the fields of each file.

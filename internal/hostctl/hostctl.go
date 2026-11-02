@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/diffsec/sibyl/internal/hostd"
@@ -111,6 +112,9 @@ type HostClient struct {
 	Queue string // the request queue, <run>/host
 	// AuthQueue is the memory queue for password checks, /run/sibyl-auth/req.
 	AuthQueue string
+	// SecretDir holds the secrets that a request names, such as a Tailscale
+	// auth key, in memory: /run/sibyl-secret.
+	SecretDir string
 	Out       string // sibyl-hostd's state.json and results/, mounted read-only
 	now       func() time.Time
 	// Poll is how often Wait checks for a result.
@@ -253,4 +257,35 @@ func (c *HostClient) CheckPassword(ctx context.Context, user, password string) e
 		case <-t.C:
 		}
 	}
+}
+
+// SubmitTailscaleUp queues a Tailscale login. An auth key goes to
+// SecretDir, which is in memory, and the request names its file, so the key
+// never reaches the request queue on disk. An empty key logs in with a link.
+func (c *HostClient) SubmitTailscaleUp(authKey string) (string, error) {
+	authKey = strings.TrimSpace(authKey)
+	if authKey == "" {
+		return c.Submit(hostd.TailscaleUp, hostd.TailscaleUpRequest{})
+	}
+	if !hostd.AuthKeyRE.MatchString(authKey) {
+		return "", &InvalidError{errors.New("auth key: paste a key that starts with tskey-")}
+	}
+	if c.SecretDir == "" {
+		return "", errors.New("secrets are not configured")
+	}
+	ref := strconv.FormatInt(c.now().UnixNano(), 10)
+	path := filepath.Join(c.SecretDir, ref+".key")
+	tmp := filepath.Join(c.SecretDir, ".tmp-"+ref)
+	if err := os.WriteFile(tmp, []byte(authKey), 0o600); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	id, err := c.Submit(hostd.TailscaleUp, hostd.TailscaleUpRequest{AuthKeyRef: ref})
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return id, err
 }

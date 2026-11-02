@@ -437,6 +437,17 @@ func (c *Client) ConfirmNetwork(ctx context.Context) (hostd.Result, error) {
 }
 
 // CheckUpdate asks the registry for a newer host image.
+// TailscaleUp joins the host to a tailnet. With no auth key, the result
+// and the host state hold a login link.
+func (c *Client) TailscaleUp(ctx context.Context, authKey string) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPost, "/host/tailscale", map[string]string{"auth_key": authKey})
+}
+
+// TailscaleDown takes the host off the tailnet and stops tailscaled.
+func (c *Client) TailscaleDown(ctx context.Context) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodDelete, "/host/tailscale", struct{}{})
+}
+
 // SetUpdateWindow sets the nightly update window, in host time, or turns
 // nightly updates off.
 func (c *Client) SetUpdateWindow(ctx context.Context, w hostd.UpdateWindow) (hostd.Result, error) {

@@ -136,7 +136,38 @@ func (s *Server) hostAction(w http.ResponseWriter, r *http.Request, a hostd.Acti
 		writeError(w, http.StatusServiceUnavailable, errors.New("host actions are not configured"))
 		return
 	}
-	id, err := s.HostAgent.Submit(a, body)
+	s.hostSubmit(w, r, func() (string, error) { return s.HostAgent.Submit(a, body) })
+}
+
+// tailscaleUpBody is the body of POST /host/tailscale.
+type tailscaleUpBody struct {
+	// AuthKey is optional. Without it, the host logs in with a link that
+	// GET /host shows.
+	AuthKey string `json:"auth_key,omitempty"`
+}
+
+// postTailscale joins the host to a tailnet.
+func (s *Server) postTailscale(w http.ResponseWriter, r *http.Request) {
+	if s.HostAgent == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("host actions are not configured"))
+		return
+	}
+	var b tailscaleUpBody
+	if err := readJSON(r, &b); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.hostSubmit(w, r, func() (string, error) { return s.HostAgent.SubmitTailscaleUp(b.AuthKey) })
+}
+
+// deleteTailscale takes the host off the tailnet.
+func (s *Server) deleteTailscale(w http.ResponseWriter, r *http.Request) {
+	s.hostAction(w, r, hostd.TailscaleDown, struct{}{})
+}
+
+// hostSubmit queues a request with submit, and waits for its result.
+func (s *Server) hostSubmit(w http.ResponseWriter, r *http.Request, submit func() (string, error)) {
+	id, err := submit()
 	var inv *hostctl.InvalidError
 	if errors.As(err, &inv) {
 		writeError(w, http.StatusUnprocessableEntity, err)

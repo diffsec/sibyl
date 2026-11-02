@@ -17,23 +17,36 @@ type service struct {
 }
 
 // serviceLinks returns the addresses of the Sibyl services on each IPv4
-// address of the connected interfaces. nftables redirects 443, 8443 and
+// address of the connected interfaces, and on the Tailscale address. nftables redirects 443, 8443 and
 // 9443 to Caddy.
 func serviceLinks(st hostd.State) []service {
-	var out []service
+	var ips []string
 	for _, it := range st.Interfaces {
 		if it.State != "connected" {
 			continue
 		}
 		for _, a := range it.Addresses {
 			ip, _, _ := strings.Cut(a, "/")
-			out = append(out,
-				service{"Open WebUI", "https://" + ip + "/", "chat"},
-				service{"Arcane", "https://" + ip + ":9443/", "containers"},
-				service{"OpenAI API", "https://" + ip + ":8443/v1", "needs a client key"},
-				service{"Ollama API", "https://" + ip + ":8443/api", "needs a client key"},
-			)
+			ips = append(ips, ip)
 		}
+	}
+	// The Tailscale address, which the host certificate also holds. The
+	// certificate is for IPv4 addresses only.
+	if t := st.Tailscale; t != nil && t.Backend == "Running" {
+		for _, ip := range t.IPs {
+			if !strings.Contains(ip, ":") {
+				ips = append(ips, ip)
+			}
+		}
+	}
+	var out []service
+	for _, ip := range ips {
+		out = append(out,
+			service{"Open WebUI", "https://" + ip + "/", "chat"},
+			service{"Arcane", "https://" + ip + ":9443/", "containers"},
+			service{"OpenAI API", "https://" + ip + ":8443/v1", "needs a client key"},
+			service{"Ollama API", "https://" + ip + ":8443/api", "needs a client key"},
+		)
 	}
 	return out
 }

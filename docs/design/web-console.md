@@ -91,7 +91,7 @@ The console has the pages Router, Models, Downloads, Hardware, Host, Status and 
 | Models | Installed models with size, fit, context, layout, benchmark and load state. Each drafter is under the model that uses it. | Load or unload, model settings (the TUI settings form), benchmark, delete |
 | Drafters | The drafters on Hugging Face for one model, and its last drafter test. The test block refreshes while a test runs. | Test an installed drafter, open the download page of the others, turn the drafter on after a test |
 | Downloads | Hugging Face search, the queue with progress | Search, pick a file, start, cancel, retry, set the Hugging Face token |
-| Host | Hostname, network, users, SSH keys, model pools | Change each, with the same checks as `sibyl-hostd` |
+| Host | Hostname, network, Tailscale, users, SSH keys, model pools | Change each, with the same checks as `sibyl-hostd` |
 | Router | Clients, providers, profiles and rules, calibration, last decisions | Every control of the TUI Router screen, including `m`, `r`, `c`, `s`, `a` and `C` |
 | Setup | The steps of `sibyl setup` | A link to the page of each step |
 

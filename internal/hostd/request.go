@@ -52,7 +52,7 @@ const (
 
 // Actions are every action that sibyl-hostd accepts.
 var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh, CreatePool, DetachPool,
-	UpdateCheck, UpdateApply, Reboot, SetUpdateWindow}
+	UpdateCheck, UpdateApply, Reboot, SetUpdateWindow, TailscaleUp, TailscaleDown}
 
 // MaxRequestSize is the largest request file that sibyl-hostd reads.
 const MaxRequestSize = 64 << 10
@@ -320,6 +320,15 @@ func Decode(a Action, data []byte) (any, error) {
 			return nil, err
 		}
 		return w, w.Validate()
+	case TailscaleUp:
+		var t TailscaleUpRequest
+		if err := dec(&t); err != nil {
+			return nil, err
+		}
+		return t, t.Validate()
+	case TailscaleDown:
+		var none struct{}
+		return nil, dec(&none)
 	case ConfirmNetwork, Refresh, UpdateCheck, Reboot:
 		return nil, nil
 	}
@@ -348,6 +357,8 @@ type State struct {
 	Pools      []Pool          `json:"pools,omitempty"`
 	// Update is the host image and the online update.
 	Update *UpdateState `json:"update,omitempty"`
+	// Tailscale is nil when the image has no tailscaled.
+	Tailscale *TailscaleState `json:"tailscale,omitempty"`
 	// Disks are the whole disks, with the reason when one cannot be a pool.
 	Disks  []disks.Disk `json:"disks,omitempty"`
 	Errors []string     `json:"errors,omitempty"`

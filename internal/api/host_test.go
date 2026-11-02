@@ -225,3 +225,41 @@ func TestHuggingFaceToken(t *testing.T) {
 		t.Fatalf("after DELETE = %d %v", code, body)
 	}
 }
+
+func TestHostTailscaleKeyStaysOffDisk(t *testing.T) {
+	f := newHostFixture(t, false)
+	secrets := t.TempDir()
+	f.server.HostAgent.SecretDir = secrets
+	queue := filepath.Join(f.run, "host")
+
+	if code, body := f.do(t, "POST", "/host/tailscale", `{"auth_key":"--ssh"}`, true); code != http.StatusUnprocessableEntity {
+		t.Fatalf("a bad key = %d %v", code, body)
+	}
+	if q, _ := os.ReadDir(queue); len(q) != 0 {
+		t.Fatalf("a bad key queued %v", q)
+	}
+	if s, _ := os.ReadDir(secrets); len(s) != 0 {
+		t.Fatalf("a bad key was written: %v", s)
+	}
+
+	key := "tskey-auth-kAbC123-secretpart"
+	if code, body := f.do(t, "POST", "/host/tailscale", `{"auth_key":"`+key+`"}`, true); code != http.StatusAccepted {
+		t.Fatalf("POST /host/tailscale = %d %v", code, body)
+	}
+	q, _ := os.ReadDir(queue)
+	s, _ := os.ReadDir(secrets)
+	if len(q) != 1 || len(s) != 1 {
+		t.Fatalf("queue %v, secrets %v", q, s)
+	}
+	req, _ := os.ReadFile(filepath.Join(queue, q[0].Name()))
+	ref := strings.TrimSuffix(s[0].Name(), ".key")
+	if strings.Contains(string(req), "tskey") || string(req) != `{"auth_key_ref":"`+ref+`"}` {
+		t.Errorf("request on disk: %s", req)
+	}
+	if b, _ := os.ReadFile(filepath.Join(secrets, s[0].Name())); string(b) != key {
+		t.Errorf("secret file %q", b)
+	}
+	if code, body := f.do(t, "DELETE", "/host/tailscale", ``, true); code != http.StatusAccepted {
+		t.Errorf("DELETE /host/tailscale = %d %v", code, body)
+	}
+}

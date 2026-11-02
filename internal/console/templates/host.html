@@ -36,6 +36,29 @@
   </details>
 </section>
 <section class="card stack">
+  <h2>Tailscale</h2>
+  {{with $h.Tailscale}}
+    {{if eq .Backend "Running"}}
+      <p class="good">On the tailnet {{.Tailnet}} as <span class="mono">{{.DNSName}}</span>, <span class="mono">{{join .IPs " "}}</span></p>
+      <p class="muted">Every port of the host is open to the tailnet, the containers that Arcane runs too. The tailnet's access rules decide who gets in. Open WebUI is at <span class="mono">https://{{index .IPs 0}}/</span>.</p>
+      <form method="post" action="/console/host/tailscale/off"><button type="submit" class="danger">Leave the tailnet</button></form>
+    {{else}}
+      {{if .AuthURL}}<p class="warn">Waiting for a login. Open <a href="{{.AuthURL}}" target="_blank" rel="noopener noreferrer">{{.AuthURL}}</a> on any device, and sign in to Tailscale.</p>
+      {{else if .Enabled}}<p class="muted">Tailscale is {{or .Backend "starting"}}.</p>
+      {{else}}<p class="muted">Off. Join a tailnet to reach Open WebUI, the APIs, Arcane and its containers from your other Tailscale devices.</p>{{end}}
+      <form method="post" action="/console/host/tailscale" class="stack">
+        <label>Auth key, optional <input name="authkey" type="password" autocomplete="off" placeholder="tskey-auth-…" pattern="tskey-[A-Za-z0-9-]{8,200}"></label>
+        <p class="muted">Without a key, the host gets a login link. The host uses a key once and does not keep it.</p>
+        <button type="submit">Join a tailnet</button>
+      </form>
+      {{if .Enabled}}<form method="post" action="/console/host/tailscale/off"><button type="submit">Stop Tailscale</button></form>{{end}}
+      {{with .Error}}<p class="error">{{.}}</p>{{end}}
+    {{end}}
+  {{else}}
+    <p class="muted">This host image has no Tailscale. Update the host.</p>
+  {{end}}
+</section>
+<section class="card stack">
   <h2>Operator accounts</h2>
   <p class="muted">An operator is in sibyl-operators: it can run sibyl over SSH, but not sudo.</p>
   <table>

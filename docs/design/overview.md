@@ -546,7 +546,8 @@ A bundle is a directory:
 
 - SELinux stays enforcing. Only Arcane runs with `SecurityLabelDisable=true`.
 - Secure Boot uses the Fedora shim and kernel. The NVIDIA variant adds the project MOK key.
-- nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open.
+- nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open on the LAN. When the owner joins a tailnet, every port is open on `tailscale0`, and the tailnet's access rules decide who gets in. UDP 41641 is open for direct Tailscale connections.
+- A Tailscale auth key goes from the System API to `sibyl-hostd` through `/run/sibyl-secret`, in memory. The request in the disk queue names only the key file. `sibyl-hostd` reads it without following a symlink, removes it, and gives `tailscale` the key in a file in its private `/tmp`, not on the command line.
 - SSH accepts keys only. Root login is off.
 - `bootc` and Podman auto-update are off by default. Updates are explicit, from the TUI, the web console, the System API, or `bootc upgrade`.
 - Every Quadlet container drops all capabilities, sets `NoNewPrivileges=true` and `ReadOnly=true`, and gets a tmpfs for `/tmp`. Writable state goes to named volumes only.
