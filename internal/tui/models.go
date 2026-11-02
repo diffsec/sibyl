@@ -92,10 +92,13 @@ func (v *modelsView) capturing() bool { return v.form != nil }
 
 func (v *modelsView) help() string {
 	if v.form != nil {
-		return "enter next · shift+tab back · esc discard"
+		return formHelp(v.saveable())
 	}
 	return "↑/↓ select · enter edit · l load · u unload · f find a drafter · b benchmark the backends · d delete"
 }
+
+// saveable is true for the settings form, which saveKey saves.
+func (v *modelsView) saveable() bool { return v.form != nil && v.flow == nil && !v.deleting }
 
 func (v *modelsView) selected() (client.Model, bool) {
 	if v.cursor < 0 || v.cursor >= len(v.list) {
@@ -375,6 +378,10 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 		if msg.String() == "esc" {
 			v.form, v.flow = nil, nil
 			return note(false, "changes discarded")
+		}
+		if msg.String() == saveKey && v.saveable() {
+			v.form = nil
+			return v.submit()
 		}
 	}
 	if v.form == nil {

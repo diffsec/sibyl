@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -111,7 +112,7 @@ func (v *routerView) capturing() bool { return v.form != nil }
 
 func (v *routerView) help() string {
 	if v.form != nil {
-		return "enter next · shift+tab back · esc discard"
+		return formHelp(v.saveable())
 	}
 	h := "n new client · e edit · p add or change provider · x delete provider · m profiles · r rules · c calibration · s classifier · ↑/↓ select"
 	if len(v.cal.Proposals) > 0 {
@@ -167,6 +168,13 @@ func budgetFields(daily, monthly *string) []huh.Field {
 			Value(monthly).Validate(validUSD),
 	}
 }
+
+// editModes are the forms that saveKey saves: clients, providers,
+// profiles, rules, calibration and the classifier. The delete, new key,
+// apply and pick forms need their last answer.
+var editModes = []string{"new", "edit", "catalog", "provider", "profile", "rule", "calibration", "classifier"}
+
+func (v *routerView) saveable() bool { return v.form != nil && slices.Contains(editModes, v.mode) }
 
 func (v *routerView) newForm() tea.Cmd {
 	v.mode, v.name, v.policy, v.daily, v.monthly = "new", "", "local-only", "", ""
@@ -538,6 +546,10 @@ func (v *routerView) update(msg tea.Msg) tea.Cmd {
 		if msg.String() == "esc" {
 			v.form, v.apiKey = nil, ""
 			return note(false, "changes discarded")
+		}
+		if msg.String() == saveKey && v.saveable() {
+			v.form = nil
+			return v.submit()
 		}
 	}
 	if v.form == nil {

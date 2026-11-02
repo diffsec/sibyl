@@ -72,7 +72,7 @@ func (v *hostView) capturing() bool { return v.form != nil }
 
 func (v *hostView) help() string {
 	if v.form != nil {
-		return "enter next · shift+tab back · esc discard"
+		return formHelp(v.saveable())
 	}
 	h := "h hostname · n network · a add operator · p new pool · x detach pool"
 	if u, ok := v.selected(); ok && u.Managed {
@@ -91,6 +91,13 @@ func (v *hostView) selected() (hostd.Account, bool) {
 		return hostd.Account{}, false
 	}
 	return v.st.Users[v.cursor], true
+}
+
+// saveable is true for the hostname, network and operator forms, which
+// saveKey saves. A network change still rolls back unless it is confirmed.
+// The pool form erases a disk, so it needs its typed confirmation.
+func (v *hostView) saveable() bool {
+	return v.form != nil && (v.mode == "hostname" || v.mode == "network" || v.mode == "user")
 }
 
 func (v *hostView) hostnameForm() tea.Cmd {
@@ -309,6 +316,10 @@ func (v *hostView) update(msg tea.Msg) tea.Cmd {
 		if msg.String() == "esc" {
 			v.form = nil
 			return note(false, "changes discarded")
+		}
+		if msg.String() == saveKey && v.saveable() {
+			v.form = nil
+			return v.submit()
 		}
 	}
 	if v.form == nil {

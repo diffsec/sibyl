@@ -59,7 +59,7 @@ func (v *hardwareView) capturing() bool { return v.form != nil }
 
 func (v *hardwareView) help() string {
 	if v.form != nil {
-		return "enter next · shift+tab back · esc discard"
+		return formHelp(true)
 	}
 	return "e edit"
 }
@@ -178,6 +178,10 @@ func (v *hardwareView) update(msg tea.Msg) tea.Cmd {
 		if msg.String() == "esc" {
 			v.form = nil
 			return note(false, "changes discarded")
+		}
+		if msg.String() == saveKey {
+			v.form = nil
+			return v.save()
 		}
 	}
 	if v.form == nil {
