@@ -66,6 +66,11 @@
                     "type": "insecureAcceptAnything"
                 }
             ],
+            "xtc6g4dmzn.registry.depot.dev": [
+                {
+                    "type": "insecureAcceptAnything"
+                }
+            ],
             "ghcr.io/diffsec": [
                 {
                     "type": "sigstoreSigned",
