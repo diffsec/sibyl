@@ -296,7 +296,10 @@ func (v *statusView) formStep(msg tea.Msg) tea.Cmd {
 		call(save, func(o client.OpenWebUI, err error) tea.Msg { return owuiSaved{o, err} }))
 }
 
-func (v *statusView) render(int) string {
+// statusWideWidth is the screen width from which Status shows two columns.
+const statusWideWidth = 120
+
+func (v *statusView) render(width int) string {
 	if v.form != nil {
 		return v.form.View()
 	}
@@ -308,26 +311,25 @@ func (v *statusView) render(int) string {
 	s := v.data.status
 	fmt.Fprintf(&b, "Version %s · backend %s · layout %s · GPUs in use %v\n\n",
 		s.Version, s.Hardware.Backend, s.Hardware.Layout, s.Hardware.GPUs)
+	top := strings.Count(b.String(), "\n")
+	// The services list is first, so its rows keep their lines in both
+	// layouts.
+	left := v.leftColumn(top)
+	right := v.rightColumn()
+	if width >= statusWideWidth {
+		lw := 60
+		b.WriteString(columns(left, right, width, lw))
+	} else {
+		b.WriteString(left + "\n" + right)
+	}
+	return b.String()
+}
 
-	b.WriteString(titleSty.Render("Addresses") + "\n")
-	b.WriteString(renderLinks(v.data.host) + "\n")
-	if a := v.data.arcane; a.Password != "" {
-		b.WriteString("  " + badSty.Render("Arcane login: "+a.User+" / "+a.Password+
-			". Sibyl set this password; change it in Arcane, and this line goes away.") + "\n\n")
-	}
-	b.WriteString(titleSty.Render("GPUs") + "\n")
-	for _, g := range v.data.gpus {
-		used := ""
-		if g.VRAMTotal > 0 {
-			used = fmt.Sprintf("%s / %s", gib(int64(g.VRAMUsed)), gib(int64(g.VRAMTotal)))
-		}
-		fmt.Fprintf(&b, "  %d  %-14s %-7s %-20s PCIe x%s\n", g.Index, g.PCIAddr, g.Vendor, used, g.LinkWidth)
-		if g.SmallBAR() {
-			b.WriteString("     " + badSty.Render("Resizable BAR is off. Vulkan can run 9 times slower. Turn on Above 4G Decoding and Resizable BAR in the firmware setup.") + "\n")
-		}
-	}
-	b.WriteString("\n" + titleSty.Render("Loaded models") + "\n")
-	b.WriteString(loadedText(v.data.running) + "\n")
+// leftColumn holds the services, the GPUs and the loaded models. top is
+// the line on which it starts.
+func (v *statusView) leftColumn(top int) string {
+	var b strings.Builder
+	s := v.data.status
 	b.WriteString(titleSty.Render("Services") + "\n")
 	for i, u := range v.units {
 		st := s.Services.Units[u]
@@ -337,11 +339,37 @@ func (v *statusView) render(int) string {
 		} else {
 			state = badSty.Render(state)
 		}
-		v.rows.mark(&b, i)
+		v.rows.lines[top+strings.Count(b.String(), "\n")] = i
 		b.WriteString(cursorLine(i == v.cursor, fmt.Sprintf("%-12s %s", u, state)) + "\n")
 	}
 	if s.Services.Updated != "" {
 		b.WriteString(mutedSty.Render("  updated "+s.Services.Updated) + "\n")
+	}
+	b.WriteString("\n" + titleSty.Render("GPUs") + "\n")
+	for _, g := range v.data.gpus {
+		used := ""
+		if g.VRAMTotal > 0 {
+			used = fmt.Sprintf("%s / %s", gib(int64(g.VRAMUsed)), gib(int64(g.VRAMTotal)))
+		}
+		fmt.Fprintf(&b, "  %d  %-14s %-7s %-20s PCIe x%s\n", g.Index, g.PCIAddr, g.Vendor, used, g.LinkWidth)
+		if g.SmallBAR() {
+			b.WriteString("     " + badSty.Render("Resizable BAR is off. Vulkan can run 9 times slower.") + "\n")
+			b.WriteString("     " + badSty.Render("Turn on Above 4G Decoding and Resizable BAR in the firmware.") + "\n")
+		}
+	}
+	b.WriteString("\n" + titleSty.Render("Loaded models") + "\n")
+	b.WriteString(loadedText(v.data.running))
+	return b.String()
+}
+
+// rightColumn holds the addresses, the update and Open WebUI.
+func (v *statusView) rightColumn() string {
+	var b strings.Builder
+	b.WriteString(titleSty.Render("Addresses") + "\n")
+	b.WriteString(renderLinks(v.data.host))
+	if a := v.data.arcane; a.Password != "" {
+		b.WriteString("  " + badSty.Render("Arcane login: "+a.User+" / "+a.Password) + "\n")
+		b.WriteString("  " + badSty.Render("Sibyl set this password. Change it in Arcane, and this line goes away.") + "\n")
 	}
 	if u := v.data.host.Update; u != nil {
 		b.WriteString("\n" + titleSty.Render("Update") + "\n")
@@ -353,7 +381,7 @@ func (v *statusView) render(int) string {
 			b.WriteString("  " + goodSty.Render("available "+u.Available) + " · press U to apply\n")
 		}
 		if u.Staged != "" {
-			b.WriteString("  staged " + u.Staged + " · it starts at the next boot · press B to reboot now\n")
+			b.WriteString("  staged " + u.Staged + "\n  It starts at the next boot. Press B to reboot now.\n")
 		}
 		for _, r := range []hostd.UnitRun{u.Check, u.Download, u.DownloadReboot} {
 			if r.Active == "activating" {
@@ -369,7 +397,8 @@ func (v *statusView) render(int) string {
 	o := v.data.owui
 	switch {
 	case !o.Configured:
-		b.WriteString("  " + mutedSty.Render("not connected · press o to add an API key, so Sibyl can set the embedding model") + "\n")
+		b.WriteString("  " + mutedSty.Render("not connected · press o to add an API key,") + "\n")
+		b.WriteString("  " + mutedSty.Render("so Sibyl can set the embedding model") + "\n")
 	case o.Error != "":
 		b.WriteString("  " + badSty.Render(o.Error) + "\n")
 	default:
