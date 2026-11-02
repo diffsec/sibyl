@@ -295,6 +295,9 @@ func (v *statusView) render(int) string {
 			used = fmt.Sprintf("%s / %s", gib(int64(g.VRAMUsed)), gib(int64(g.VRAMTotal)))
 		}
 		fmt.Fprintf(&b, "  %d  %-14s %-7s %-20s PCIe x%s\n", g.Index, g.PCIAddr, g.Vendor, used, g.LinkWidth)
+		if g.SmallBAR() {
+			b.WriteString("     " + badSty.Render("Resizable BAR is off. Vulkan can run 9 times slower. Turn on Above 4G Decoding and Resizable BAR in the firmware setup.") + "\n")
+		}
 	}
 	b.WriteString("\n" + titleSty.Render("Services") + "\n")
 	for i, u := range v.units {

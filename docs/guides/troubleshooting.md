@@ -25,6 +25,18 @@ The services are `llama-swap`, `router`, `open-webui`, `system-api`, `caddy` and
 
 Sibyl refuses HIP for the cards that it knows the HIP image does not support.
 
+## Vulkan is much slower than HIP
+
+If the benchmark shows Vulkan far behind HIP, Resizable BAR can be off. Without it, the CPU can map only 256 MiB of each card's VRAM, and Vulkan puts some buffers in system memory instead. On two RX 7900 XTX cards, generation fell from 48.7 to 5.5 tokens per second. HIP was not affected.
+
+1. On the Status screen in `sibyl`, look for "Resizable BAR is off" under a GPU.
+2. If you see it, restart the host and open the firmware setup.
+3. Turn on "Above 4G Decoding" and "Re-Size BAR Support". The names change between board makers.
+4. Start Sibyl, and make sure that the warning is gone.
+5. Run the benchmark again.
+
+`sibyl-diag hardware` shows `visible_vram_bytes` for each GPU. With Resizable BAR on, it is the same as `vram_total_bytes`.
+
 ## `sibyl` says that you are not in the sibyl-operators group
 
 1. An administrator adds you to the group:
