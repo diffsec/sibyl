@@ -64,6 +64,9 @@ type Server struct {
 	GitHubBase string
 	// RouterURL is the model router, such as http://router:8080.
 	RouterURL string
+	// LlamaSwapURL is llama-swap, such as http://llama-swap:8080. Drafter
+	// tests send their requests there, past the router.
+	LlamaSwapURL string
 	// ProviderHTTP checks provider keys. Nil means a default client.
 	ProviderHTTP *http.Client
 
@@ -73,7 +76,11 @@ type Server struct {
 	metaMu    sync.Mutex
 	metaCache map[string]cachedMeta
 	// drafters caches the drafter searches on Hugging Face.
-	drafters drafterCache
+	drafters     drafterCache
+	drafterTests drafterTests
+	// reloadWait is how long a drafter test waits for llama-swap to read
+	// a new configuration. Tests shorten it.
+	reloadWait time.Duration
 }
 
 // cachedMeta is a model's GGUF metadata, valid while the file keeps its
@@ -143,6 +150,8 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /models/{id}/benchmark", s.startBenchmark)
 	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
 	auth.HandleFunc("GET /models/{id}/drafters", s.getDrafters)
+	auth.HandleFunc("POST /models/{id}/drafter-test", s.startDrafterTest)
+	auth.HandleFunc("GET /models/{id}/drafter-test", s.getDrafterTest)
 	auth.HandleFunc("POST /apply", s.postApply)
 	auth.HandleFunc("GET /services", s.getServices)
 	auth.HandleFunc("GET /integrations/open-webui", s.getOpenWebUI)

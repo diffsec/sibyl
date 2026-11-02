@@ -5,13 +5,16 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/diffsec/sibyl/internal/gguf"
 	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // TestDrafterFinder checks that the finder starts from the download record,
@@ -93,5 +96,70 @@ func TestDrafterFinder(t *testing.T) {
 	}
 	if code, _ := f.doRaw(t, "GET", "/models/gone/drafters"); code != http.StatusNotFound {
 		t.Errorf("drafters of a missing model = %d, want 404", code)
+	}
+}
+
+// TestDrafterTest checks that a drafter test measures the model without and
+// with the drafter, restores the model's speculative settings, and keeps
+// its other settings.
+func TestDrafterTest(t *testing.T) {
+	f := newFixture(t)
+	f.server.reloadWait = time.Millisecond
+	var unloads atomic.Int32
+	swap := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/unload" {
+			unloads.Add(1)
+			return
+		}
+		cfg, _ := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+		// 100 tokens in 4 s without the drafter, in 2 s with it.
+		tm := map[string]any{"predicted_n": 100, "predicted_ms": 4000}
+		if strings.Contains(string(cfg), "--spec-draft-model") {
+			tm = map[string]any{"predicted_n": 100, "predicted_ms": 2000, "draft_n": 80, "draft_n_accepted": 60}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"timings": tm})
+	}))
+	t.Cleanup(swap.Close)
+	f.server.LlamaSwapURL = swap.URL
+
+	header := func(arch string) string {
+		data, err := gguf.Encode(map[string]any{"general.architecture": arch, arch + ".block_count": 2, arch + ".context_length": 4096})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	write(t, filepath.Join(f.paths.Models, "fat.gguf"), header("llama"))
+	write(t, filepath.Join(f.paths.Models, "drafter.gguf"), header("dflash"))
+	if code, b := f.do(t, "PUT", "/models/fat", `{"ctx_size":4096}`, true); code != 200 {
+		t.Fatalf("fat = %d %v", code, b)
+	}
+
+	if code, _ := f.do(t, "POST", "/models/fat/drafter-test", `{"types":["draft-dflash"],"draft_model":"fat"}`, true); code != http.StatusUnprocessableEntity {
+		t.Errorf("own draft model = %d, want 422", code)
+	}
+	if code, b := f.do(t, "POST", "/models/fat/drafter-test", `{"types":["draft-dflash"],"draft_model":"drafter","draft_max":7}`, true); code != http.StatusAccepted {
+		t.Fatalf("start = %d %v", code, b)
+	}
+	var res DrafterTest
+	for range 200 {
+		_, body := f.doRaw(t, "GET", "/models/fat/drafter-test")
+		_ = json.Unmarshal(body, &res)
+		if res.Status != "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if res.Status != "done" || res.Without.TokensPerSecond != 25 || res.With.TokensPerSecond != 50 ||
+		res.Speedup != 2 || res.With.Accepted != 120 {
+		t.Fatalf("result = %+v without %+v with %+v", res, res.Without, res.With)
+	}
+	if unloads.Load() != 2 {
+		t.Errorf("unloads = %d, want one before each side", unloads.Load())
+	}
+	cfg, _ := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	settings, _ := models.LoadSettings(f.server.Paths.settingsFile())
+	if strings.Contains(string(cfg), "--spec-draft-model") || len(settings["fat"].Speculative.Types) != 0 || settings["fat"].CtxSize != 4096 {
+		t.Errorf("after the test: settings %+v, config:\n%s", settings["fat"], cfg)
 	}
 }
