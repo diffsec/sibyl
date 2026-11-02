@@ -17,13 +17,15 @@ Run `sibyl` on the host. The TUI has six screens.
 | `tab`, `shift+tab` | Go to the next or the previous screen |
 | `q` | Quit |
 | `ctrl+c` | Quit, also while a form is open |
+| `ctrl+t` | Turn the mouse off, so a drag selects text, and on again |
 
 The bottom of each screen shows its actions as buttons, such as `[n] new client`. Press the key, or click the button. The buttons stay at the bottom on a small screen, and the screen above them scrolls.
 
 - Click a tab to open it. Click a list row to select it, and click it again to open it, as `enter` does.
 - The mouse wheel, `PgUp` and `PgDn` scroll the screen. A line at the bottom of the screen says when there is more.
 - While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form. A click on a field moves to it, and a click on an option of the selected list picks it. In a settings form, `ctrl+s` saves from any field. A form that deletes, erases a disk or asks you to confirm has no `ctrl+s`: answer its last field.
-- The TUI takes the mouse, so to select text with it, hold `shift` (or `option` in the macOS Terminal) while you drag.
+- The TUI takes the mouse, so a drag does not select text. Press `ctrl+t` to give the mouse back to the terminal, then drag to select. Press `ctrl+t` again to click in the TUI. In most terminals, `shift` (or `option` in the macOS Terminal) with a drag also selects text.
+- A new client key turns the mouse off until you hide the key, so a drag or a double click selects it. `y` copies the key to the clipboard and `x` hides it. The copy uses OSC 52, a terminal escape code. Some terminals block it, for example the macOS Terminal.
 
 ### Screens and keys
 

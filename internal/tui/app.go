@@ -60,6 +60,10 @@ type App struct {
 	bodyTop  int
 	bodyRows int
 	scroll   map[int]*scroller
+
+	// mouseOff gives the mouse back to the terminal, so a drag selects
+	// text. ctrl+t turns it on and off.
+	mouseOff bool
 }
 
 // New returns the app for one API client.
@@ -115,6 +119,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return a, tea.Quit
+		}
+		if msg.String() == selectKey {
+			if a.showsSecret() {
+				return a, note(true, "the mouse stays off while the key shows: drag to select it")
+			}
+			a.mouseOff = !a.mouseOff
+			if a.mouseOff {
+				return a, note(true, "mouse off: drag to select text, ctrl+t turns the mouse on")
+			}
+			return a, note(true, "mouse on: click the tabs, rows and buttons")
 		}
 		if !a.views[a.active].capturing() {
 			switch k := msg.String(); k {
@@ -190,6 +204,14 @@ func (a *App) View() tea.View {
 	if !a.views[a.active].capturing() {
 		keys += " · tab/1-6 switch · q quit"
 	}
+	mouse := a.mouseOn()
+	switch {
+	case a.showsSecret():
+	case mouse:
+		keys += " · " + selectKey + " select text"
+	default:
+		keys += " · " + selectKey + " mouse on"
+	}
 	width := a.width
 	if width <= 0 {
 		width = 80
@@ -222,9 +244,29 @@ func (a *App) View() tea.View {
 	lines = append(lines, buttons...)
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	if mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	v.WindowTitle = "Sibyl"
 	return v
+}
+
+// selectKey turns the mouse off and on. It works in a form too.
+const selectKey = "ctrl+t"
+
+// secretShower is a view that can show a secret once, such as a new client
+// key. While it does, the mouse is off, so a drag selects the secret.
+type secretShower interface {
+	secret() string
+}
+
+// mouseOn tells whether the TUI takes the mouse in this frame.
+func (a *App) mouseOn() bool { return !a.mouseOff && !a.showsSecret() }
+
+// showsSecret tells whether the active view shows a secret.
+func (a *App) showsSecret() bool {
+	s, ok := a.views[a.active].(secretShower)
+	return ok && s.secret() != ""
 }
 
 // bodyHeight is the number of rows that the view had in the last frame.
