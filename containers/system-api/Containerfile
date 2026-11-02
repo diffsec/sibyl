@@ -2,7 +2,7 @@
 # Build context: the repository root.
 
 
-FROM cgr.dev/chainguard/go:latest@sha256:0d2e83bf723e1edef67732d22b9272dd1311c7a19dff695bd6928a7831c31a9f AS build
+FROM cgr.dev/chainguard/go:latest@sha256:7633fb5a27db3d39d8194be6f29c7b92fb919c3b9d0b7014c2c6999b6b14869f AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
