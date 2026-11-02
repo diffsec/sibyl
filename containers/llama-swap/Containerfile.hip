@@ -62,10 +62,14 @@ COPY check-libs.sh /usr/local/bin/check-libs.sh
 # Fail the build if any binary or library has an unresolved dependency.
 RUN LD_LIBRARY_PATH=/opt/rocm/lib:/opt/llama/lib /usr/local/bin/check-libs.sh /opt/llama/bin /opt/llama/lib /opt/rocm/lib
 
+# GPU_MAX_HW_QUEUES=1: with the default of 4 queues per process, two idle
+# llama-server processes on one RX 7900 XTX kept it 100% busy at its top
+# clock (60 to 120 W). With 1, it idles at 20 W, at the same speed.
 ENV PATH=/app:/opt/llama/bin:${PATH} \
     LD_LIBRARY_PATH=/opt/rocm/lib:/opt/llama/lib \
     ROCBLAS_TENSILE_LIBPATH=/opt/rocm/lib/rocblas/library \
     HIPBLASLT_TENSILE_LIBPATH=/opt/rocm/lib/hipblaslt/library \
+    GPU_MAX_HW_QUEUES=1 \
     SIBYL_GPU_BACKEND=ROCm
 
 USER 10001:10001
