@@ -265,6 +265,9 @@ func (a *App) click(m tea.Mouse) tea.Cmd {
 	if m.Y < a.bodyTop || a.views[a.active].capturing() {
 		return nil
 	}
+	if pc, ok := a.views[a.active].(pointClicker); ok {
+		return pc.clickAt(m.Y-a.bodyTop+a.scroller().offset, m.X)
+	}
 	if rc, ok := a.views[a.active].(rowClicker); ok {
 		return rc.clickLine(m.Y - a.bodyTop + a.scroller().offset)
 	}

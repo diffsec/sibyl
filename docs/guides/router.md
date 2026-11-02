@@ -4,7 +4,7 @@ The model router decides where each API request runs. It sends a request to a lo
 
 You can do each task in three places:
 
-- The Router screen of the `sibyl` TUI. Press `6` to open it.
+- The Router screen of the `sibyl` TUI. Press `6` to open it. It has five sections: Clients, Providers, Profiles, Calibration and Activity. The `←` and `→` keys, or a click on a section name, change the section. Each section lists its items on the left and shows the selected item on the right.
 - The Router page of the web console at `https://<address>:8443/console/router`.
 - The System API at `https://<address>:8443/system/router`.
 
@@ -55,7 +55,7 @@ A client name has 1 to 32 lowercase letters, digits and dashes. It starts with a
 
 The answer shows the new key once. Sibyl stores only its hash and cannot show it again, so copy the key at once.
 
-- TUI: press `n`. Give the name, the policy and the budget.
+- TUI: in the Clients section, press `n`. Give the name, the policy and the budget.
 - Web console: open New client, fill in the form, and select Create and show the key.
 - API:
 
@@ -73,7 +73,7 @@ You can change the policy, the budget, Allow the cloud hint and Calibrate.
 
 Do these steps:
 
-- TUI: select the client with `↑` and `↓`, and press `e`.
+- TUI: in the Clients section, select the client with `↑` and `↓`, and press `e`.
 - Web console: open Change on the client's row, and select Save.
 - API: send `PUT /system/router/clients/{name}`. This example lets the client use providers:
 
@@ -92,8 +92,8 @@ A new key stops the old key at once. A deleted client's key also stops at once. 
 
 | Task | TUI | Web console | API |
 |---|---|---|---|
-| New key | `k` | Change, then New key for the client | `POST /system/router/clients/{name}/key` |
-| Delete | `d` | Change, then Delete | `DELETE /system/router/clients/{name}` |
+| New key | `K` in the Clients section | Change, then New key for the client | `POST /system/router/clients/{name}/key` |
+| Delete | `d` in the Clients section | Change, then Delete | `DELETE /system/router/clients/{name}` |
 
 ## Providers
 
@@ -106,12 +106,14 @@ A provider is a cloud service that serves models, such as Anthropic, OpenAI or O
 
 ### Add a provider in the TUI
 
-1. Press `p`.
+1. In the Providers section, press `n`.
 2. Pick the provider from the models.dev index. Sibyl keeps a copy of this index on the host and updates it daily.
 3. Type the API key. Sibyl fills in the type and the base URL.
 4. Choose the models to list. Sibyl shows each model with its context size and price.
 
 To add a provider that the index does not list, pick "Other". Then type the type, the base URL, the key and the models yourself.
+
+To change a provider, select it and press `e`. An empty API key keeps the stored key.
 
 ### Add a provider in the web console
 
@@ -137,7 +139,7 @@ A `PUT` without `api_key` keeps the stored key.
 
 Its key is deleted too. If a profile names the provider, change the profile first.
 
-- TUI: press `x`.
+- TUI: in the Providers section, select the provider and press `d`.
 - Web console: open Delete on the provider's row.
 - API: `DELETE /system/router/providers/{name}`.
 
@@ -206,8 +208,10 @@ A rule that names a provider does not match a `local-only` client, so the next r
 
 ### Change profiles and rules in the TUI
 
-- `m` makes, changes or deletes a profile: its local model, its fallback routes and its local wait.
-- `r` adds, edits, moves or deletes a rule.
+The Profiles section lists each profile with its rules under it.
+
+- Select a profile and press `e` to change its local model, its fallback routes and its local wait. `d` deletes it, and `n` makes a new profile.
+- Select a rule and press `e` to edit it, `<` or `>` to move it up or down, or `d` to delete it. `a` adds a rule to the profile.
 
 The rule form shows the common conditions. It keeps the conditions that it does not show.
 
@@ -287,7 +291,7 @@ Your examples add to the starter examples. `GET /system/router/examples` returns
 
 Sensitive words mark a request as `sensitive`. The classifier settings are the embedding model, the number of voting examples, the timeout, the prefix, and whether to use the starter examples.
 
-- TUI: press `s`.
+- TUI: in the Profiles section, press `s`.
 - Web console: the Sensitive words and classifier section.
 - API: the `sensitive_words` and `classifier` parts of `PUT /system/router/profiles`.
 
@@ -350,7 +354,7 @@ Calibration has its own provider budget, 1 US dollar per UTC day by default. A p
 
 The settings are the sample rate, the daily budget, the judge, the provider to compare with, the keep time, the most samples kept, the measurement of new local models, and the automatic proposals.
 
-- TUI: press `c`.
+- TUI: in the Calibration section, press `e`.
 - Web console: the Calibration settings section.
 - API: the `calibration` part of `PUT /system/router/profiles`.
 
@@ -368,7 +372,7 @@ calibration:
 
 The results show, for each local model, task and difficulty, how often the local answer won or tied. They also show the provider cost and the latency of each side.
 
-- TUI: the Router screen shows the samples, the reason the worker waits, the rate per task and difficulty, and the proposals.
+- TUI: the Calibration section shows the samples, the reason the worker waits, the rate per task and difficulty, and the proposals. When the samples wait for a model that is not loaded, `l` loads it.
 - Web console: the Calibration section of the Router page.
 - API: `GET /system/router/calibration`.
 
@@ -381,7 +385,7 @@ After 50 comparisons for a task and difficulty, the results propose a rule chang
 
 To apply a proposal:
 
-- TUI: press `a`, pick the proposal, and confirm.
+- TUI: in the Calibration section, press `a`, pick the proposal, and confirm.
 - Web console: select Apply next to the proposal.
 - API: send its `id`:
 
@@ -406,7 +410,7 @@ A rule can test the calibration results of each request with `needs_provider: tr
 
 This deletes every calibration sample, with the results that come from them.
 
-- TUI: press `C`.
+- TUI: in the Calibration section, press `C`.
 - Web console: open Delete every sample.
 - API: `DELETE /system/router/calibration`.
 
@@ -423,5 +427,5 @@ Each response has an `X-Sibyl-Route` header that names the route, such as `local
 
 The router keeps a decision log in `/var/lib/sibyl/config/router/log/decisions.jsonl`. It has one line per request: the time, the client, the requested model, the route, the rule, the status, the token counts, the cost and the latency. It never records message content.
 
-- TUI and web console: the Router screen shows the requests, the routes, the spend per client and the last decisions. It also counts the requests with no price, and the requests that a client asked again within a minute.
+- TUI and web console: the Activity section of the Router screen shows the requests, the routes, the spend per client and the last decisions. It also counts the requests with no price, and the requests that a client asked again within a minute.
 - API: `GET /system/router/stats` shows the requests per client and per route.

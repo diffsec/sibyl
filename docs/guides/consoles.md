@@ -34,7 +34,7 @@ The bottom of each screen shows its actions as buttons, such as `[n] new client`
 | `3` | Models | `enter` edits the settings of the selected model. `b` benchmarks the backends. `d` deletes the model. |
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `c` cancels a download. `R` retries one. |
 | `5` | Host | `h` hostname. `n` network. `a` adds an operator. `p` makes a model pool. `x` detaches a pool. For a selected operator, `k` changes the SSH keys and `d` deletes the operator. After a network change, `c` keeps the change. |
-| `6` | Router | `n` new client and key. `e` edits a client. `p` adds or changes a provider. `x` deletes a provider. `m` profiles. `r` rules. `c` calibration. `s` sensitive words and classifier. For a client that is not built in, `K` makes a new key and `d` deletes the client. `a` applies a calibration proposal, when one exists. `C` deletes the calibration samples, when some exist. |
+| `6` | Router | Five sections: Clients, Providers, Profiles, Calibration and Activity. `←` and `→` change the section. Clients: `n` new client, `e` edit, `K` new key, `d` delete. Providers: `n` add, `e` change, `d` delete. Profiles: `n` new profile, `e` edit the selected profile or rule, `a` add a rule, `<` and `>` move a rule, `d` delete, `s` sensitive words and classifier. Calibration: `e` settings, `l` loads the model that the samples wait for, `a` applies a proposal, `C` deletes the samples. |
 
 Use `↑` and `↓` to select a row in a list.
 

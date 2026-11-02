@@ -85,8 +85,8 @@ func (v *routerView) modelsLoaded(msg modelsForForm) tea.Cmd {
 	}
 	v.models = msg.models
 	switch msg.next {
-	case "profilepick":
-		return v.profilePickForm()
+	case "profile":
+		return v.profileForm()
 	case "classifier":
 		return v.classifierForm()
 	}
@@ -162,31 +162,6 @@ func itoa(n int) string {
 
 // The profile forms.
 
-func (v *routerView) profilePickForm() tea.Cmd {
-	opts := []huh.Option[string]{huh.NewOption("New profile", newProfile)}
-	for _, n := range v.profileNames() {
-		model := n
-		if n != "auto" {
-			model = "auto:" + n
-		}
-		opts = append(opts, huh.NewOption(model+" · local "+v.r.Profiles.Profiles[n].LocalModel, n))
-	}
-	v.mode, v.pf.profile, v.pf.action = "profilepick", opts[0].Value, "settings"
-	if len(opts) > 1 {
-		v.pf.profile = opts[1].Value
-	}
-	v.form = huh.NewForm(
-		huh.NewGroup(huh.NewSelect[string]().Title("Profile").
-			Description("A client asks for a profile with the model auto or auto:<name>.").
-			Options(opts...).Value(&v.pf.profile)),
-		huh.NewGroup(huh.NewSelect[string]().Title("Change").Options(
-			huh.NewOption("Local model, fallback and wait", "settings"),
-			huh.NewOption("Delete the profile", "delete"),
-		).Value(&v.pf.action)).WithHideFunc(func() bool { return v.pf.profile == newProfile }),
-	).WithShowHelp(false)
-	return v.form.Init()
-}
-
 func (v *routerView) profileForm() tea.Cmd {
 	p := v.r.Profiles.Profiles[v.pf.profile]
 	v.mode = "profile"
@@ -240,34 +215,6 @@ func (v *routerView) profileDeleteForm() tea.Cmd {
 // The rule forms.
 
 func whenText(w router.When) string { return w.Text() }
-
-func (v *routerView) rulePickForm() tea.Cmd {
-	var opts []huh.Option[string]
-	for _, n := range v.profileNames() {
-		p := v.r.Profiles.Profiles[n]
-		for i, r := range p.Rules {
-			opts = append(opts, huh.NewOption(fmt.Sprintf("%s %d. %s · %s → %s", n, i+1, r.Name, whenText(r.When), r.Route),
-				n+"\x00"+strconv.Itoa(i)))
-		}
-		opts = append(opts, huh.NewOption(n+": add a rule", n+"\x00"+addRule))
-	}
-	if len(opts) == 0 {
-		return note(false, "make a profile first: press m")
-	}
-	v.mode, v.pf.pick, v.pf.action = "rulepick", opts[0].Value, "edit"
-	v.form = huh.NewForm(
-		huh.NewGroup(huh.NewSelect[string]().Title("Rule").
-			Description("The first rule that matches a request picks its route.").
-			Options(opts...).Height(14).Value(&v.pf.pick)),
-		huh.NewGroup(huh.NewSelect[string]().Title("Change").Options(
-			huh.NewOption("Edit", "edit"),
-			huh.NewOption("Move up", "up"),
-			huh.NewOption("Move down", "down"),
-			huh.NewOption("Delete", "delete"),
-		).Value(&v.pf.action)).WithHideFunc(func() bool { return strings.HasSuffix(v.pf.pick, "\x00"+addRule) }),
-	).WithShowHelp(false)
-	return v.form.Init()
-}
 
 func triOptions() []huh.Option[string] {
 	return []huh.Option[string]{
@@ -501,15 +448,9 @@ func (v *routerView) clearForm() tea.Cmd {
 // mode that it does not handle.
 func (v *routerView) submitProfiles() (tea.Cmd, bool) {
 	switch v.mode {
-	case "profilepick", "profile", "profiledel", "rulepick", "rule", "calibration", "classifier", "clear":
+	case "profile", "profiledel", "rulepick", "rule", "calibration", "classifier", "clear":
 	default:
 		return nil, false
-	}
-	if v.mode == "profilepick" {
-		if v.pf.profile != newProfile && v.pf.action == "delete" {
-			return v.profileDeleteForm(), true
-		}
-		return v.profileForm(), true
 	}
 	if v.mode == "rulepick" {
 		_, i := v.pickedRule()
@@ -622,23 +563,4 @@ func (v *routerView) changeProfiles(f *router.ProfilesFile) (string, error) {
 		return "save the classifier settings", nil
 	}
 	return "", nil
-}
-
-// renderRules lists each profile with its rules.
-func (v *routerView) renderRules(b *strings.Builder) {
-	for _, n := range v.profileNames() {
-		p := v.r.Profiles.Profiles[n]
-		model := n
-		if n != "auto" {
-			model = "auto:" + n
-		}
-		fmt.Fprintf(b, "  %-14s local %s", model, p.LocalModel)
-		if len(p.Fallback) > 0 {
-			b.WriteString(mutedSty.Render(" · fallback " + strings.Join(p.Fallback, " ")))
-		}
-		b.WriteString("\n")
-		for i, r := range p.Rules {
-			fmt.Fprintf(b, "    %d. %-28s %s → %s\n", i+1, r.Name, mutedSty.Render(whenText(r.When)), r.Route)
-		}
-	}
 }

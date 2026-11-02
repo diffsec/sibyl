@@ -41,24 +41,46 @@ func routerFixture() routerLoaded {
 func TestRouterRender(t *testing.T) {
 	v := newRouterView(nil)
 	v.update(routerFixture())
-	out := ansiRE.ReplaceAllString(v.render(120), "")
-	for _, want := range []string{
-		"default", "stays on this host",
-		"open-webui", "$0.50 today, $0.50 this month  no budget",
-		"laptop", "$1.25 today of $2.00, $4.00 this month",
-		"orcarouter", "key set", "deepseek/deepseek-v4.1-flash-1017",
-		"auto           local qwen",
-		"1. secrets", "sensitive=true → local",
-		"2. long", "prompt>local_context → orcarouter/deepseek/deepseek-v4.1-flash-1017",
-		"12 requests, 1 errors, 3 with no price", "$0.0123  long",
+	show := func(section, cursor int) string {
+		v.section = section
+		*v.cur() = cursor
+		return ansiRE.ReplaceAllString(v.render(120), "")
+	}
+	for _, c := range []struct {
+		section, cursor int
+		want            []string
+	}{
+		{secClients, 0, []string{"Clients", "default", "every request stays on this host", "Built in"}},
+		{secClients, 1, []string{"open-webui", "$0.50 today, $0.50 this month  no budget"}},
+		{secClients, 2, []string{"laptop", "$1.25 today of $2.00, $4.00 this month"}},
+		{secProviders, 0, []string{"orcarouter", "key set", "https://api.orcarouter.ai/v1", "deepseek/deepseek-v4.1-flash-1017  no price"}},
+		{secProfiles, 0, []string{"auto", "1. secrets → local", "2. long → orcarouter/", "Local model  qwen"}},
+		{secProfiles, 1, []string{"Rule 1 of auto", "sensitive=true", "local is qwen"}},
+		{secProfiles, 2, []string{"Rule 2 of auto", "prompt>local_context"}},
+		{secActivity, 0, []string{"12 requests, 1 errors, 3 with no price", "$0.0123  long"}},
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("render lacks %q:\n%s", want, out)
+		out := show(c.section, c.cursor)
+		for _, want := range c.want {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s row %d lacks %q:\n%s", sectionNames[c.section], c.cursor, want, out)
+			}
 		}
 	}
 	// Built-in clients cannot be deleted.
+	v.section, v.cursor = secClients, 0
 	if v.keyPress("d") != nil || v.form != nil {
 		t.Error("d opened a form for a built-in client")
+	}
+	// The arrows move between sections, and a click on the bar picks one.
+	v.keyPress("right")
+	if v.section != secProviders {
+		t.Errorf("section %d after right", v.section)
+	}
+	v.render(120)
+	z := v.secZones[secActivity]
+	v.clickAt(z.y, z.x0)
+	if v.section != secActivity {
+		t.Errorf("section %d after a click on Activity", v.section)
 	}
 }
 
@@ -217,16 +239,11 @@ func TestRouterProfileLocalModel(t *testing.T) {
 	c, got := profileAPI(t)
 	v := newRouterView(c)
 	v.update(routerFixture())
-	for _, m := range drain(v.keyPress("m")) {
+	v.section, v.fcur = secProfiles, 0
+	for _, m := range drain(v.keyPress("e")) {
 		v.update(m)
 	}
-	if v.mode != "profilepick" || v.pf.profile != "auto" {
-		t.Fatalf("mode %q profile %q", v.mode, v.pf.profile)
-	}
-	v.pf.action = "settings"
-	v.form = nil
-	v.submit()
-	if v.mode != "profile" || v.pf.model != "qwen" {
+	if v.mode != "profile" || v.pf.profile != "auto" || v.pf.model != "qwen" {
 		t.Fatalf("mode %q model %q", v.mode, v.pf.model)
 	}
 	v.pf.model, v.pf.fallback = "gemma", "local orcarouter/deepseek/deepseek-v4.1-flash-1017"
@@ -249,19 +266,20 @@ func TestRouterRuleEdits(t *testing.T) {
 	v := newRouterView(c)
 	v.update(routerFixture())
 
-	// Move the second rule up.
-	v.keyPress("r")
-	v.pf.pick, v.pf.action = "auto\x001", "up"
-	finish(v)
+	// The rows are the profile, rule 1 and rule 2. Move the second rule up.
+	v.section, v.fcur = secProfiles, 2
+	for _, m := range drain(v.keyPress("<")) {
+		v.update(m)
+	}
 	if r := got.Profiles["auto"].Rules; len(r) != 2 || r[0].Name != "long" {
 		t.Fatalf("rules after move %+v", r)
 	}
+	if v.fcur != 1 {
+		t.Errorf("the cursor did not follow the rule: %d", v.fcur)
+	}
 
 	// Add a rule.
-	v.keyPress("r")
-	v.pf.pick = "auto\x00" + addRule
-	v.form = nil
-	v.submit()
+	v.keyPress("a")
 	if v.mode != "rule" {
 		t.Fatalf("mode %q, want rule", v.mode)
 	}
@@ -273,11 +291,9 @@ func TestRouterRuleEdits(t *testing.T) {
 		t.Fatalf("rules after add %+v", r)
 	}
 
-	// Edit the first rule: its prompt condition stays when the field is kept.
-	v.keyPress("r")
-	v.pf.pick, v.pf.action = "auto\x001", "edit"
-	v.form = nil
-	v.submit()
+	// Edit the second rule: its prompt condition stays when the field is kept.
+	v.fcur = 2
+	v.keyPress("e")
 	if v.pf.promptOver != "local_context" {
 		t.Fatalf("prompt field %q", v.pf.promptOver)
 	}
@@ -287,9 +303,13 @@ func TestRouterRuleEdits(t *testing.T) {
 		t.Errorf("edited rule %+v", r)
 	}
 
-	// Delete it.
-	v.keyPress("r")
-	v.pf.pick, v.pf.action = "auto\x000", "delete"
+	// Delete the first rule, after the confirm.
+	v.fcur = 1
+	v.keyPress("d")
+	if v.mode != "ruledel" {
+		t.Fatalf("mode %q, want ruledel", v.mode)
+	}
+	v.confirm = true
 	finish(v)
 	if r := got.Profiles["auto"].Rules; len(r) != 1 || r[0].Name != "long" {
 		t.Errorf("rules after delete %+v", r)
@@ -300,7 +320,8 @@ func TestRouterCalibrationSettings(t *testing.T) {
 	c, got := profileAPI(t)
 	v := newRouterView(c)
 	v.update(routerFixture())
-	v.keyPress("c")
+	v.section = secCalibration
+	v.keyPress("e")
 	if v.pf.rate != "20" || v.pf.daily != "1" || !v.pf.seed {
 		t.Fatalf("form values %+v", v.pf)
 	}
@@ -319,6 +340,7 @@ func TestRouterClassifierAndNewProfile(t *testing.T) {
 	c, got := profileAPI(t)
 	v := newRouterView(c)
 	v.update(routerFixture())
+	v.section = secProfiles
 	for _, m := range drain(v.keyPress("s")) {
 		v.update(m)
 	}
@@ -331,12 +353,12 @@ func TestRouterClassifierAndNewProfile(t *testing.T) {
 		t.Errorf("classifier %+v words %q", got.Classifier, got.SensitiveWords)
 	}
 
-	for _, m := range drain(v.keyPress("m")) {
+	for _, m := range drain(v.keyPress("n")) {
 		v.update(m)
 	}
-	v.pf.profile = newProfile
-	v.form = nil
-	v.submit()
+	if v.mode != "profile" || v.pf.profile != newProfile {
+		t.Fatalf("mode %q profile %q after n", v.mode, v.pf.profile)
+	}
 	v.pf.name, v.pf.model = "coding", "gemma"
 	finish(v)
 	if p, ok := got.Profiles["coding"]; !ok || p.LocalModel != "gemma" || len(got.Profiles) != 2 {
