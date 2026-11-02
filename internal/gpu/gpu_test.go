@@ -30,12 +30,13 @@ func fakeCard(t *testing.T, root, card, addr string, files map[string]string) {
 func TestDetectOrdersByPCIAndSkipsConnectors(t *testing.T) {
 	root := t.TempDir()
 	xtx := map[string]string{
-		"vendor":              "0x1002",
-		"device":              "0x744c",
-		"mem_info_vram_total": "25753026560",
-		"mem_info_vram_used":  "104857600",
-		"current_link_width":  "16",
-		"current_link_speed":  "16.0 GT/s PCIe",
+		"vendor":                  "0x1002",
+		"device":                  "0x744c",
+		"mem_info_vram_total":     "25753026560",
+		"mem_info_vram_used":      "104857600",
+		"mem_info_vis_vram_total": "268435456",
+		"current_link_width":      "16",
+		"current_link_speed":      "16.0 GT/s PCIe",
 	}
 	// card0 has the higher PCI address, so it must sort second.
 	fakeCard(t, root, "card0", "0000:83:00.0", xtx)
@@ -63,6 +64,27 @@ func TestDetectOrdersByPCIAndSkipsConnectors(t *testing.T) {
 	g := gpus[0]
 	if g.Vendor != "amd" || g.DeviceID != "0x744c" || g.VRAMTotal != 25753026560 || g.LinkWidth != "16" {
 		t.Errorf("unexpected fields: %+v", g)
+	}
+	if g.VisibleVRAM != 268435456 || !g.SmallBAR() {
+		t.Errorf("visible VRAM = %d, SmallBAR = %v, want 268435456 and true", g.VisibleVRAM, g.SmallBAR())
+	}
+}
+
+func TestSmallBAR(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		total, vis uint64
+		want       bool
+	}{
+		{"256 MiB BAR", 25753026560, 268435456, true},
+		{"Resizable BAR on", 25753026560, 25753026560, false},
+		{"no visible VRAM file", 25753026560, 0, false},
+		{"no VRAM file", 0, 268435456, false},
+	} {
+		g := GPU{VRAMTotal: tc.total, VisibleVRAM: tc.vis}
+		if got := g.SmallBAR(); got != tc.want {
+			t.Errorf("%s: SmallBAR = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 

@@ -119,7 +119,7 @@ After each apply, the System API also updates Open WebUI in the background. See 
 | `GET /hardware` | None | `backend`, `gpus`, `layout` | The current hardware choice. |
 | `PUT /hardware` | `{"backend", "gpus", "layout"}` | The apply result | Saves the hardware choice and applies it. |
 
-Each GPU in `GET /gpus` has these fields: `index`, `pci_address`, `vendor`, `vendor_id`, `device_id`, `driver`, `vram_total_bytes`, `vram_used_bytes`, `pcie_link_width`, `pcie_link_speed` and `arch`. Some fields are missing when sysfs does not report them.
+Each GPU in `GET /gpus` has these fields: `index`, `pci_address`, `vendor`, `vendor_id`, `device_id`, `driver`, `vram_total_bytes`, `vram_used_bytes`, `visible_vram_bytes`, `pcie_link_width`, `pcie_link_speed` and `arch`. Some fields are missing when sysfs does not report them.
 
 The hardware fields:
 

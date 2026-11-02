@@ -29,8 +29,11 @@ type GPU struct {
 	Driver    string `json:"driver"`
 	VRAMTotal uint64 `json:"vram_total_bytes,omitempty"`
 	VRAMUsed  uint64 `json:"vram_used_bytes,omitempty"`
-	LinkWidth string `json:"pcie_link_width,omitempty"`
-	LinkSpeed string `json:"pcie_link_speed,omitempty"`
+	// VisibleVRAM is the VRAM that the CPU can map through the PCI BAR.
+	// It is less than VRAMTotal when Resizable BAR is off.
+	VisibleVRAM uint64 `json:"visible_vram_bytes,omitempty"`
+	LinkWidth   string `json:"pcie_link_width,omitempty"`
+	LinkSpeed   string `json:"pcie_link_speed,omitempty"`
 	// Arch is the ROCm target of an AMD GPU, such as gfx1100. It is empty
 	// when the amdkfd driver does not report one.
 	Arch string `json:"arch,omitempty"`
@@ -76,6 +79,8 @@ func Detect(sysRoot string) ([]GPU, error) {
 			LinkSpeed: readTrim(dev, "current_link_speed"),
 			VRAMTotal: readUint(dev, "mem_info_vram_total"),
 			VRAMUsed:  readUint(dev, "mem_info_vram_used"),
+
+			VisibleVRAM: readUint(dev, "mem_info_vis_vram_total"),
 		}
 		if drv, err := filepath.EvalSymlinks(filepath.Join(dev, "driver")); err == nil {
 			g.Driver = filepath.Base(drv)
@@ -90,6 +95,14 @@ func Detect(sysRoot string) ([]GPU, error) {
 		gpus[i].Arch = archs[gpus[i].PCIAddr]
 	}
 	return gpus, nil
+}
+
+// SmallBAR reports that the CPU can map only part of the GPU's VRAM, because
+// Resizable BAR is off. On two RX 7900 XTX cards with a 256 MiB BAR, some
+// Vulkan buffers went to system memory, and generation fell from 48.7 to
+// 5.5 tokens per second. ROCm was not affected.
+func (g GPU) SmallBAR() bool {
+	return g.VisibleVRAM > 0 && g.VisibleVRAM < g.VRAMTotal
 }
 
 // kfdArchs maps PCI addresses to ROCm targets. amdkfd lists one topology
