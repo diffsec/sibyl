@@ -26,6 +26,10 @@ type Model struct {
 	Pool   string `json:"pool,omitempty"` // empty for the models directory
 	Size   int64  `json:"size_bytes"`
 	Shards int    `json:"shards"`
+	// Drafter is true for a draft model that cannot answer requests by
+	// itself, such as a DFlash or EAGLE-3 drafter. The scan does not set
+	// it: the System API reads it from the file's architecture.
+	Drafter bool `json:"drafter,omitempty"`
 }
 
 // PoolRE matches the name of a model pool directory.

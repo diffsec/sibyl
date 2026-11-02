@@ -189,6 +189,14 @@ func (m Meta) BytesPerToken(typeK, typeV string) int64 {
 	return int64(per)
 }
 
+// draftArchs are the llama.cpp b11889 architectures (src/llama-arch.cpp)
+// that only draft tokens for a target model.
+var draftArchs = map[string]bool{"dflash": true, "eagle3": true}
+
+// DraftOnly reports a model that only drafts tokens for another model and
+// cannot answer requests by itself.
+func (m Meta) DraftOnly() bool { return draftArchs[m.Architecture] }
+
 // ContextBytes estimates the GPU memory for ctx tokens of context. A ctx of
 // 0 means the native context.
 func (m Meta) ContextBytes(ctx int, typeK, typeV string) int64 {

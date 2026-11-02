@@ -676,6 +676,86 @@ func TestEmbeddingReserveSplitAndSlots(t *testing.T) {
 	}
 }
 
+// TestDrafterHiddenAndCounted checks that a DFlash drafter gets no
+// llama-swap entry and no router entry, that GET /models marks it, and that
+// its weights come off its target's automatic context.
+func TestDrafterHiddenAndCounted(t *testing.T) {
+	f := newFixture(t)
+	for _, addr := range []string{"0000:03:00.0", "0000:83:00.0"} {
+		write(t, filepath.Join(f.paths.SysfsRoot, "devices", addr, "mem_info_vram_total"), strconv.Itoa(4<<30))
+	}
+	header := func(arch string) string {
+		data, err := gguf.Encode(map[string]any{
+			"general.architecture": arch, arch + ".block_count": 32, arch + ".context_length": 131072,
+			arch + ".attention.head_count": 8, arch + ".attention.head_count_kv": 8, arch + ".attention.key_length": 128,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	if code, b := f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[0,1],"layout":"span"}`, true); code != 200 {
+		t.Fatalf("hardware = %d %v", code, b)
+	}
+	write(t, filepath.Join(f.paths.Models, "fat.gguf"), header("llama"))
+	drafter := filepath.Join(f.paths.Models, "drafter.gguf")
+	write(t, drafter, header("dflash"))
+	// A sparse 1 GiB file: with no tensors, the fit counts the file size.
+	if err := os.Truncate(drafter, 1<<30); err != nil {
+		t.Fatal(err)
+	}
+	ctxOf := func() int {
+		cfg, err := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := regexp.MustCompile(`fat\.gguf.*--ctx-size (\d+)`).FindStringSubmatch(string(cfg))
+		if m == nil {
+			t.Fatalf("no fat command:\n%s", cfg)
+		}
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	if code, b := f.do(t, "POST", "/apply", "", true); code != 200 {
+		t.Fatalf("apply = %d %v", code, b)
+	}
+	before := ctxOf()
+	if code, b := f.do(t, "PUT", "/models/fat", `{"speculative":{"types":["draft-dflash"],"draft_model":"drafter"}}`, true); code != 200 {
+		t.Fatalf("fat = %d %v", code, b)
+	}
+	if after := ctxOf(); after >= before {
+		t.Errorf("context %d with the drafter, %d without: the drafter's weights must come off", after, before)
+	}
+
+	cfg, _ := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	if strings.Contains(string(cfg), "name: drafter") || !strings.Contains(string(cfg), "--spec-draft-model /models/drafter.gguf") {
+		t.Errorf("llama-swap config:\n%s", cfg)
+	}
+	raw, _ := os.ReadFile(filepath.Join(f.paths.Config, "router", "models.json"))
+	if strings.Contains(string(raw), `"drafter"`) {
+		t.Errorf("router models.json lists the drafter: %s", raw)
+	}
+	_, body := f.doRaw(t, "GET", "/models")
+	var list []struct {
+		ID      string      `json:"id"`
+		Drafter bool        `json:"drafter"`
+		Fit     *models.Fit `json:"fit"`
+	}
+	_ = json.Unmarshal(body, &list)
+	for _, m := range list {
+		switch m.ID {
+		case "drafter":
+			if !m.Drafter || m.Fit != nil {
+				t.Errorf("drafter: drafter=%v fit=%+v", m.Drafter, m.Fit)
+			}
+		case "fat":
+			if m.Drafter || m.Fit == nil || m.Fit.Draft != 1<<30 {
+				t.Errorf("fat: drafter=%v fit=%+v", m.Drafter, m.Fit)
+			}
+		}
+	}
+}
+
 // TestMoESettings checks that a MoE model gets the expert flags, and that
 // a dense model refuses them.
 func TestMoESettings(t *testing.T) {

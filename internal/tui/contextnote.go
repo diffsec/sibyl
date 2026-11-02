@@ -24,13 +24,15 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	weights := m.Meta.Weights(m.Size)
 	moe := formMoE(f)
 	gpuWeights := m.Meta.VRAMWeights(m.Size, moe)
-	var reserved int64
+	// The draft model is the saved one: a drafter chosen in this form
+	// counts after the save.
+	var reserved, draft int64
 	if m.Fit != nil {
-		reserved = m.Fit.Reserved
+		reserved, draft = m.Fit.Reserved, m.Fit.Draft
 	}
 	slots, _ := strconv.Atoi(strings.TrimSpace(f.Parallel))
 	fit := m.Meta.FitContext(models.FitInput{Mode: models.FitMode(f.Fit), Weights: gpuWeights, VRAM: vram,
-		Reserved: reserved, Ctx: max(set, 0), TypeK: f.KVTypeK, TypeV: f.KVTypeV, Slots: slots})
+		Reserved: reserved, Ctx: max(set, 0), TypeK: f.KVTypeK, TypeV: f.KVTypeV, Slots: slots, DraftWeights: draft})
 	ctx, typeK, typeV := fit.Ctx, fit.TypeK, fit.TypeV
 	if ctx == 0 {
 		ctx = native
@@ -57,13 +59,16 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 		lines = append(lines, "This is over the native context, so answers can get worse.")
 	}
 	cost := m.Meta.ContextBytes(ctx, typeK, typeV)
-	total := cost + gpuWeights + reserved
+	total := cost + gpuWeights + reserved + draft
 	line := fmt.Sprintf("At %s tokens: context about %s + weights %s", thousands(ctx), gib(cost), gib(gpuWeights))
 	if moe.Enabled() {
 		line = fmt.Sprintf("At %s tokens: context about %s + weights and expert cache %s", thousands(ctx), gib(cost), gib(gpuWeights))
 	}
 	if reserved > 0 {
 		line += fmt.Sprintf(" + embedding models %s", gib(reserved))
+	}
+	if draft > 0 {
+		line += fmt.Sprintf(" + draft model %s", gib(draft))
 	}
 	line += " = " + gib(total)
 	if vram > 0 {

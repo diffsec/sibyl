@@ -40,6 +40,8 @@ type Fit struct {
 	SlotCtx int `json:"slot_ctx,omitempty"`
 	// Reserved is the VRAM that other models keep on the same GPUs.
 	Reserved int64 `json:"reserved_bytes,omitempty"`
+	// Draft is the GPU weights of the draft model, which share the GPUs.
+	Draft int64 `json:"draft_bytes,omitempty"`
 	// TensorSplit is the share of the layers on each GPU, when the model
 	// spans GPUs.
 	TensorSplit []float64 `json:"tensor_split,omitempty"`
@@ -65,6 +67,11 @@ type FitInput struct {
 	TypeK, TypeV string
 	// Slots is the number of parallel requests. 0 counts as 1.
 	Slots int
+	// DraftWeights are the GPU weights of the draft model for speculative
+	// decoding. llama-server loads it on the same GPUs. Its cache holds
+	// as many tokens as the target's, but the DFlash and EAGLE-3 drafters
+	// use a sliding window, so only the weights grow the budget.
+	DraftWeights int64
 }
 
 // cacheSteps are the KV cache types that FitContext tries, in order.
@@ -82,7 +89,8 @@ func (m Meta) FitContext(in FitInput) (f Fit) {
 	if target <= 0 {
 		target = native * slots
 	}
-	f = Fit{Ctx: in.Ctx, TypeK: in.TypeK, TypeV: in.TypeV, Mode: mode, Slots: slots, Reserved: in.Reserved}
+	f = Fit{Ctx: in.Ctx, TypeK: in.TypeK, TypeV: in.TypeV, Mode: mode, Slots: slots, Reserved: in.Reserved,
+		Draft: in.DraftWeights}
 	defer func() {
 		if f.Ctx > 0 {
 			f.SlotCtx = f.Ctx / slots
@@ -93,7 +101,7 @@ func (m Meta) FitContext(in FitInput) (f Fit) {
 		f.Note = "the VRAM or the native context is not known"
 		return f
 	}
-	budget := int64(FitMargin*float64(in.VRAM)) - in.Reserved - in.Weights
+	budget := int64(FitMargin*float64(in.VRAM)) - in.Reserved - in.Weights - in.DraftWeights
 	steps := [][2]string{{in.TypeK, in.TypeV}}
 	if in.TypeK == "" && in.TypeV == "" && mode == FitContext {
 		steps = nil

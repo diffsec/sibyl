@@ -89,6 +89,16 @@ func TestFitSlotsAndReserved(t *testing.T) {
 	}
 }
 
+func TestFitDraftWeights(t *testing.T) {
+	m := fitMeta()
+	gib := int64(1 << 30)
+	free := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 60 * gib})
+	draft := m.FitContext(FitInput{Weights: 10 * gib, VRAM: 60 * gib, DraftWeights: 5 * gib})
+	if draft.Ctx >= free.Ctx || draft.Draft != 5*gib {
+		t.Errorf("draft: %d tokens, %d without, draft %d", draft.Ctx, free.Ctx, draft.Draft)
+	}
+}
+
 func TestSplitFor(t *testing.T) {
 	gib := int64(1 << 30)
 	got := SplitFor([]int64{24 * gib, 24 * gib}, []int64{0, 4 * gib})

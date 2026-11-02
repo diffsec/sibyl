@@ -108,6 +108,21 @@ func (s *Server) modelMeta(m models.Model) *models.Meta {
 	return meta
 }
 
+// scanModels lists the installed models and marks the drafters, which
+// llama-swap, the router and the Ollama list do not serve.
+func (s *Server) scanModels() ([]models.Model, error) {
+	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	if err != nil {
+		return nil, err
+	}
+	for i, m := range installed {
+		if meta := s.modelMeta(m); meta != nil && meta.DraftOnly() {
+			installed[i].Drafter = true
+		}
+	}
+	return installed, nil
+}
+
 // Handler returns the HTTP routes. Every route except /health needs the bearer token.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -276,7 +291,7 @@ type modelView struct {
 }
 
 func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -426,7 +441,7 @@ func (s *Server) Apply() (ApplyResult, error) {
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -542,11 +557,22 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 			resident[g.Index] += total / int64(len(used))
 		}
 	}
+	byID := make(map[string]models.Model, len(installed))
 	for _, m := range installed {
-		if settings[m.ID].Embedding {
+		byID[m.ID] = m
+	}
+	for _, m := range installed {
+		if settings[m.ID].Embedding || m.Drafter {
 			continue
 		}
-		st, fit := s.effective(m, settings[m.ID], hw, gpus, resident)
+		var draft int64
+		if d, ok := byID[settings[m.ID].Speculative.DraftModel]; ok && d.ID != m.ID {
+			draft = d.Size
+			if meta := s.modelMeta(d); meta != nil {
+				draft = meta.VRAMWeights(d.Size, models.MoE{})
+			}
+		}
+		st, fit := s.effective(m, settings[m.ID], hw, gpus, resident, draft)
 		eff[m.ID] = st
 		if fit != nil {
 			fits[m.ID] = fit
@@ -556,9 +582,10 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 }
 
 // effective returns the settings that a chat model runs with. resident is
-// the memory that the embedding models keep on each GPU.
+// the memory that the embedding models keep on each GPU, and draft the GPU
+// weights of the model's draft model.
 func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Config, gpus []gpu.GPU,
-	resident map[int]int64) (models.Settings, *models.Fit) {
+	resident map[int]int64, draft int64) (models.Settings, *models.Fit) {
 	meta := s.modelMeta(m)
 	st.Sampling = st.EffectiveSampling(meta)
 	if meta == nil {
@@ -580,6 +607,7 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 	fit := meta.FitContext(models.FitInput{
 		Mode: st.Fit, Weights: meta.VRAMWeights(m.Size, st.MoE), VRAM: vram, Reserved: reserved,
 		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
+		DraftWeights: draft,
 	})
 	fit.TensorSplit = st.TensorSplit
 	if fit.Auto {
@@ -596,7 +624,7 @@ func (s *Server) hardware() (hardware.Config, error) {
 }
 
 func (s *Server) findModel(id string) (models.Model, error) {
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		return models.Model{}, err
 	}
@@ -669,7 +697,7 @@ func writeError(w http.ResponseWriter, code int, err error) {
 
 // OllamaModels lists installed models for the Ollama-compatible API.
 func (s *Server) OllamaModels(context.Context) ([]ollama.ModelInfo, error) {
-	installed, err := models.ScanAll(s.Paths.Models, s.Paths.Pools)
+	installed, err := s.scanModels()
 	if err != nil {
 		return nil, err
 	}
@@ -680,7 +708,7 @@ func (s *Server) OllamaModels(context.Context) ([]ollama.ModelInfo, error) {
 	out := make([]ollama.ModelInfo, 0, len(installed))
 	for _, m := range installed {
 		st := settings[m.ID]
-		if st.Hidden {
+		if st.Hidden || m.Drafter {
 			continue
 		}
 		out = append(out, ollama.ModelInfo{ID: m.ID, Size: m.Size, Embedding: st.Embedding})
