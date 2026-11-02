@@ -96,7 +96,7 @@ func (v *modelsView) help() string {
 	if v.form != nil {
 		return formHelp(v.saveable())
 	}
-	return "↑/↓ select · enter edit · l load · u unload · f find a drafter · b benchmark the backends · d delete"
+	return "↑/↓ select · enter edit · l load or unload · f find a drafter · b benchmark the backends · d delete"
 }
 
 // saveable is true for the settings form, which saveKey saves.
@@ -358,9 +358,11 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 				if m, ok := v.selected(); ok {
 					return v.findDrafters(m, false)
 				}
-			case "l", "u":
+			case "l":
+				// l loads a model that is not loaded, and unloads one that
+				// is loaded or loading.
 				if m, ok := v.selected(); ok {
-					return tea.Batch(v.loadAction(m, msg.String() == "l"), v.fetchRunning())
+					return tea.Batch(v.loadAction(m, v.running.State(m.ID) == ""), v.fetchRunning())
 				}
 			case "b":
 				if m, ok := v.selected(); ok {
@@ -507,7 +509,7 @@ func (v *modelsView) details(m client.Model) string {
 	case "":
 		state = mutedSty.Render("not loaded · l loads it")
 	case "ready":
-		state = goodSty.Render("loaded") + mutedSty.Render(" · u unloads it")
+		state = goodSty.Render("loaded") + mutedSty.Render(" · l unloads it")
 	}
 	fmt.Fprintf(&b, "State     %s\n", state)
 	if m.Settings.Embedding {

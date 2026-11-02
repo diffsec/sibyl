@@ -245,6 +245,28 @@ func twoPane(list, details string, width int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right) + "\n"
 }
 
+// columns puts two blocks of lines side by side, row by row. Each line of
+// left keeps its line number, so a click maps to its row. Lines are cut to
+// their column, not wrapped.
+func columns(left, right string, width, lw int) string {
+	l := strings.Split(strings.TrimRight(left, "\n"), "\n")
+	r := strings.Split(strings.TrimRight(right, "\n"), "\n")
+	rw := max(width-lw-3, 1)
+	sep := mutedSty.Render(" │ ")
+	var b strings.Builder
+	for i := range max(len(l), len(r)) {
+		var a, c string
+		if i < len(l) {
+			a = ansi.Truncate(l[i], lw, "…")
+		}
+		if i < len(r) {
+			c = ansi.Truncate(r[i], rw, "…")
+		}
+		b.WriteString(a + strings.Repeat(" ", max(lw-ansi.StringWidth(a), 0)) + sep + c + "\n")
+	}
+	return b.String()
+}
+
 // redrawMsg asks a huh form to redraw. huh passes it to its fields, which
 // ignore it.
 type redrawMsg struct{}

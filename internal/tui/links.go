@@ -30,8 +30,8 @@ func serviceLinks(st hostd.State) []service {
 			out = append(out,
 				service{"Open WebUI", "https://" + ip + "/", "chat"},
 				service{"Arcane", "https://" + ip + ":9443/", "containers"},
-				service{"OpenAI API", "https://" + ip + ":8443/v1", "needs a client key (Router screen)"},
-				service{"Ollama API", "https://" + ip + ":8443/api", "needs a client key (Router screen)"},
+				service{"OpenAI API", "https://" + ip + ":8443/v1", "needs a client key"},
+				service{"Ollama API", "https://" + ip + ":8443/api", "needs a client key"},
 			)
 		}
 	}
@@ -53,6 +53,8 @@ func renderLinks(st hostd.State) string {
 	for _, s := range links {
 		fmt.Fprintf(&b, "  %-11s %s  %s\n", s.name, link(s.url), mutedSty.Render(s.note))
 	}
-	b.WriteString("  " + mutedSty.Render("The certificate is self-signed: the browser warns once. Ctrl or Cmd+click opens a link.") + "\n")
+	b.WriteString("  " + mutedSty.Render("Make a client key on the Router screen.") + "\n")
+	b.WriteString("  " + mutedSty.Render("The certificate is self-signed, so the browser warns once.") + "\n")
+	b.WriteString("  " + mutedSty.Render("Ctrl or Cmd+click opens a link.") + "\n")
 	return b.String()
 }

@@ -168,7 +168,7 @@ func (v *downloadView) help() string {
 	case stageConfirm:
 		return "←/→ choose · enter confirm · esc back"
 	default:
-		return "/ search · t Hugging Face token · ↑/↓ select · c cancel · R retry"
+		return "/ search · t Hugging Face token · ↑/↓ select · x cancel · R retry"
 	}
 }
 
@@ -358,7 +358,7 @@ func (v *downloadView) key(msg tea.KeyPressMsg) tea.Cmd {
 				return v.confirmForm(v.repo.Variants[v.cursor])
 			}
 		}
-	case "c", "R":
+	case "x", "R":
 		if v.stage != stageJobs || v.cursor >= len(v.jobs) {
 			return nil
 		}
@@ -368,7 +368,7 @@ func (v *downloadView) key(msg tea.KeyPressMsg) tea.Cmd {
 			defer cancel()
 			var err error
 			action := "canceled"
-			if k == "c" {
+			if k == "x" {
 				err = v.c.CancelDownload(ctx, id)
 			} else {
 				action = "queued again"
