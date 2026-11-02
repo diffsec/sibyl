@@ -409,4 +409,4 @@ func (v *statusView) rightColumn() string {
 
 func (v *statusView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }
 
-func (v *statusView) clickForm(line, _ int) tea.Cmd { return formClick(v.form, line) }
+func (v *statusView) clickForm(line, x int) tea.Cmd { return formClick(v.form, line, x) }
