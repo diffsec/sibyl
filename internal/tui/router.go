@@ -602,3 +602,5 @@ func budgetText(c client.RouterClient, s client.RouterSpend) string {
 	}
 	return day + ", " + month
 }
+
+func (v *routerView) clickForm(line int) tea.Cmd { return formClick(v.form, line) }

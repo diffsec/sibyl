@@ -603,3 +603,5 @@ func intAsFloat(v *int) *float64 {
 }
 
 func (v *modelsView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }
+
+func (v *modelsView) clickForm(line int) tea.Cmd { return formClick(v.form, line) }

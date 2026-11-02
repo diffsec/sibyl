@@ -247,3 +247,5 @@ func (v *hardwareView) render(int) string {
 	b.WriteString(mutedSty.Render("  Press e to change them. Saving rewrites the llama-swap configuration.") + "\n")
 	return b.String()
 }
+
+func (v *hardwareView) clickForm(line int) tea.Cmd { return formClick(v.form, line) }

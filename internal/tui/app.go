@@ -262,7 +262,13 @@ func (a *App) click(m tea.Mouse) tea.Cmd {
 		}
 		return nil
 	}
-	if m.Y < a.bodyTop || a.views[a.active].capturing() {
+	if m.Y < a.bodyTop {
+		return nil
+	}
+	if a.views[a.active].capturing() {
+		if fc, ok := a.views[a.active].(formClicker); ok {
+			return fc.clickForm(m.Y - a.bodyTop + a.scroller().offset)
+		}
 		return nil
 	}
 	if pc, ok := a.views[a.active].(pointClicker); ok {
