@@ -81,6 +81,8 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"meta":{"architecture":"qwen3moe","context_length":262144,"expert_count":128,"reasoning":{"var":"reasoning_effort","values":["low","high","xhigh"]}},
 			"fit":{"ctx":65536,"slots":2,"slot_ctx":32768,"fits":true},"benchmark":{"status":"done","results":{"hip":{"generation_tokens_per_second":40.5,"prompt_tokens_per_second":900}},"recommended":"hip"}},
 			{"id":"gemma","drafters":2},{"id":"embed","settings":{"embedding":true}},{"id":"gemma-dflash","drafter":true}]`)
+	case "GET /running":
+		_, _ = io.WriteString(w, `{"models":[{"id":"qwen","state":"ready"}],"loading":["gemma"],"errors":{"embed":"llama-swap /upstream/embed/health: 502 Bad Gateway"}}`)
 	case "GET /models/gemma/drafters":
 		_, _ = io.WriteString(w, `{"model":"gemma","source":"org/gemma-GGUF","drafters":[
 			{"repo":"org/gemma-DFlash-GGUF","spec_type":"draft-dflash","base":"org/gemma","depth":1,"downloads":9,"match":"model","installed":"gemma-dflash"},
@@ -688,5 +690,36 @@ func TestDrafters(t *testing.T) {
 	}
 	if b := h.api.body("PUT /models/gemma"); b["speculative"].(map[string]any)["draft_model"] != "gemma-dflash" {
 		t.Errorf("enable body %v", b)
+	}
+}
+
+func TestLoadedModels(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	page := h.do("GET", "/console/status", nil, false).Body.String()
+	for _, want := range []string{"Loaded models", ">qwen<", "loading", "the last load failed", `hx-get="/console/status/loaded"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("status page lacks %q", want)
+		}
+	}
+	if live := h.do("GET", "/console/status/loaded", nil, false).Body.String(); !strings.Contains(live, `id="loaded"`) || strings.Contains(live, "<html") {
+		t.Errorf("the live block is not the partial:\n%s", live)
+	}
+	page = h.do("GET", "/console/models", nil, false).Body.String()
+	for _, want := range []string{`action="/console/models/unload"`, `action="/console/models/load"`, ">loaded<"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("models page lacks %q", want)
+		}
+	}
+	w := h.do("POST", "/console/models/load", url.Values{"id": {"gemma"}}, true)
+	if !strings.Contains(w.Header().Get("Location"), "/console/models?done=loading+gemma") {
+		t.Errorf("load = %q", w.Header().Get("Location"))
+	}
+	w = h.do("POST", "/console/models/unload", url.Values{"id": {"qwen"}, "back": {"status"}}, true)
+	if !strings.Contains(w.Header().Get("Location"), "/console/status?done=unloaded+qwen") {
+		t.Errorf("unload = %q", w.Header().Get("Location"))
+	}
+	if !slices.Contains(h.api.calls, "POST /models/gemma/load") || !slices.Contains(h.api.calls, "POST /models/qwen/unload") {
+		t.Errorf("API calls %v", h.api.calls)
 	}
 }

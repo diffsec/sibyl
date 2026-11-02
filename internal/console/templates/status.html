@@ -15,6 +15,7 @@
   </dl>
   {{range .Errors}}<p class="error">{{.}}</p>{{end}}
 </section>
+{{template "loaded" $}}
 <section class="card">
   <h2>Services</h2>
   <p class="muted">Updated {{.Services.Updated}}</p>
@@ -75,5 +76,28 @@
       <button type="submit">Connect</button>
     </form>
   </details>
+</section>
+{{end}}
+
+{{define "loaded"}}
+<section class="card" id="loaded" hx-get="/console/status/loaded" hx-trigger="every 5s" hx-swap="outerHTML">
+  <h2>Loaded models</h2>
+  {{with .RunningError}}<p class="error">llama-swap does not answer: {{.}}</p>{{end}}
+  {{with .Running}}
+  {{if or .Models .Loading .Errors}}
+  <table>
+    <thead><tr><th>Model</th><th>State</th><th></th></tr></thead>
+    <tbody>
+    {{range .Models}}
+      <tr><td class="mono">{{.ID}}</td><td class="{{if eq .State "ready"}}good{{end}}">{{.State}}</td>
+        <td><form method="post" action="/console/models/unload"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="back" value="status">
+          <button type="submit" class="secondary">Unload</button></form></td></tr>
+    {{end}}
+    {{range .Loading}}<tr><td class="mono">{{.}}</td><td class="muted">loading</td><td></td></tr>{{end}}
+    {{range $id, $e := .Errors}}<tr><td class="mono">{{$id}}</td><td class="bad" colspan="2">the last load failed: {{$e}}</td></tr>{{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">None. A request, or Load on the <a href="/console/models">Models</a> page, loads a model.</p>{{end}}
+  {{end}}
 </section>
 {{end}}

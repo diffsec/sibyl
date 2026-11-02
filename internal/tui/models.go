@@ -51,11 +51,26 @@ type modelsView struct {
 	fields   settingsForm
 	// flow is the drafter finder, while it runs.
 	flow *drafterFlow
+	// running is what llama-swap runs. The list refreshes it every 5
+	// seconds while the screen is open.
+	running client.Running
+	ticks   bool
 }
+
+type runningTick struct{}
 
 func newModelsView(c *client.Client) *modelsView { return &modelsView{c: c} }
 
 func (v *modelsView) activate() tea.Cmd {
+	cmds := []tea.Cmd{v.fetchRunning(), v.fetchModels()}
+	if !v.ticks {
+		v.ticks = true
+		cmds = append(cmds, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return runningTick{} }))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (v *modelsView) fetchModels() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -79,7 +94,7 @@ func (v *modelsView) help() string {
 	if v.form != nil {
 		return "enter next · shift+tab back · esc discard"
 	}
-	return "↑/↓ select · enter edit · f find a drafter · b benchmark the backends · d delete"
+	return "↑/↓ select · enter edit · l load · u unload · f find a drafter · b benchmark the backends · d delete"
 }
 
 func (v *modelsView) selected() (client.Model, bool) {
@@ -285,6 +300,13 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 		return cmd
 	}
 	switch msg := msg.(type) {
+	case runningLoaded:
+		if msg.err == nil {
+			v.running = msg.r
+		}
+		return nil
+	case runningTick:
+		return tea.Batch(v.fetchRunning(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return runningTick{} }))
 	case modelsLoaded:
 		v.err = msg.err
 		if msg.err == nil {
@@ -330,6 +352,10 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 			case "f":
 				if m, ok := v.selected(); ok {
 					return v.findDrafters(m, false)
+				}
+			case "l", "u":
+				if m, ok := v.selected(); ok {
+					return tea.Batch(v.loadAction(m, msg.String() == "l"), v.fetchRunning())
 				}
 			case "b":
 				if m, ok := v.selected(); ok {
@@ -408,6 +434,9 @@ func (v *modelsView) render(int) string {
 	for i := start; i < end; i++ {
 		m := v.list[i]
 		line := fmt.Sprintf("%-40s %10s  %s", m.ID, gib(m.Size), mutedSty.Render(summary(m.Settings)))
+		if mark := runningMark(v.running, m.ID); mark != "" {
+			line = fmt.Sprintf("%-40s %10s  %s  %s", m.ID, gib(m.Size), mark, mutedSty.Render(summary(m.Settings)))
+		}
 		if m.Drafter {
 			line = drafterLine(m, v.list)
 		}

@@ -21,7 +21,9 @@ type statusMsg struct {
 	owui   client.OpenWebUI
 	arcane client.Arcane
 	host   hostd.State
-	err    error
+	// running is nil when llama-swap does not answer.
+	running *client.Running
+	err     error
 }
 
 type owuiSaved struct {
@@ -65,8 +67,12 @@ func (v *statusView) fetch() tea.Cmd {
 		// The addresses are extra: a missing host state does not hide the rest.
 		h, _ := v.c.Host(ctx)
 		a, _ := v.c.Arcane(ctx)
+		var run *client.Running
+		if r, err := v.c.Running(ctx); err == nil {
+			run = &r
+		}
 		o, err := v.c.OpenWebUI(ctx)
-		return statusMsg{status: s, gpus: g, owui: o, arcane: a, host: h, err: err}
+		return statusMsg{status: s, gpus: g, owui: o, arcane: a, host: h, running: run, err: err}
 	}
 }
 
@@ -299,7 +305,9 @@ func (v *statusView) render(int) string {
 			b.WriteString("     " + badSty.Render("Resizable BAR is off. Vulkan can run 9 times slower. Turn on Above 4G Decoding and Resizable BAR in the firmware setup.") + "\n")
 		}
 	}
-	b.WriteString("\n" + titleSty.Render("Services") + "\n")
+	b.WriteString("\n" + titleSty.Render("Loaded models") + "\n")
+	b.WriteString(loadedText(v.data.running) + "\n")
+	b.WriteString(titleSty.Render("Services") + "\n")
 	for i, u := range v.units {
 		st := s.Services.Units[u]
 		state := st.Active + "/" + st.Sub

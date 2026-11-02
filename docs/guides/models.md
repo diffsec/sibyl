@@ -49,6 +49,15 @@ Sibyl checks the token with Hugging Face and shows the account name. Searches an
 
 If Hugging Face refuses a request, the error says so, and the download stops at once. After you fix the cause, press `R` to resume the download.
 
+## Load and unload a model
+
+llama-swap loads a model when a request asks for it. A model that spans the GPUs runs alone, with the embedding models. Models pinned to different GPUs run together. The Status screen of `sibyl` and the Status page of the web console list the loaded models.
+
+1. To load a model before a request needs it, select it on the Models screen and press `l`. In the web console, choose Load on the Models page. llama-swap first stops the models that cannot run with it.
+2. To free its GPU memory, press `u`, or choose Unload on the Models page or the Status page.
+
+A large model takes a minute or more to load. The Status screen shows "loading" until it is ready. If the load fails, the Status screen shows the error.
+
 ## Change a model's settings
 
 1. On the Models screen, select a model and press Enter. In the web console, open the model from the Models page.
