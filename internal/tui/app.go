@@ -257,7 +257,7 @@ const selectKey = "ctrl+t"
 // secretShower is a view that can show a secret once, such as a new client
 // key. While it does, the mouse is off, so a drag selects the secret.
 type secretShower interface {
-	secret() string
+	shownSecret() string
 }
 
 // mouseOn tells whether the TUI takes the mouse in this frame.
@@ -266,7 +266,7 @@ func (a *App) mouseOn() bool { return !a.mouseOff && !a.showsSecret() }
 // showsSecret tells whether the active view shows a secret.
 func (a *App) showsSecret() bool {
 	s, ok := a.views[a.active].(secretShower)
-	return ok && s.secret() != ""
+	return ok && s.shownSecret() != ""
 }
 
 // bodyHeight is the number of rows that the view had in the last frame.

@@ -84,6 +84,9 @@ func (v *hostView) help() string {
 	if v.st.Pending != nil {
 		h = "c keep the network change · " + h
 	}
+	if v.secret != "" {
+		h = "y copy the key · esc hide the key · " + h
+	}
 	return h
 }
 
@@ -338,9 +341,22 @@ func (v *hostView) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// shownSecret is the recovery key of a new pool while it shows.
+func (v *hostView) shownSecret() string { return v.secret }
+
 func (v *hostView) key(k string) tea.Cmd {
 	u, ok := v.selected()
 	switch k {
+	case "y":
+		if v.secret != "" {
+			return tea.Batch(tea.SetClipboard(v.secret),
+				note(true, "recovery key sent to the clipboard. If your terminal blocks that, drag to select it"))
+		}
+	case "esc":
+		if v.secret != "" {
+			v.secret = ""
+			return note(true, "recovery key hidden")
+		}
 	case "up":
 		if v.cursor > 0 {
 			v.cursor--
@@ -426,7 +442,10 @@ func (v *hostView) render(int) string {
 	}
 	if v.secret != "" {
 		b.WriteString(badSty.Render("  Recovery key for the new pool. Write it down now, it is not shown again:") + "\n")
-		b.WriteString("    " + selSty.Render(v.secret) + "\n")
+		// The key has a line of its own, so a double click or a drag
+		// selects only the key.
+		b.WriteString(selSty.Render(v.secret) + "\n")
+		b.WriteString(mutedSty.Render("  The mouse is off while the key shows, so a drag selects it. y copies it, esc hides it.") + "\n")
 	}
 
 	b.WriteString("\n" + titleSty.Render("Accounts") + "\n")
