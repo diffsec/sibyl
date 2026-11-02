@@ -87,6 +87,9 @@ func (v *routerView) help() string {
 		return formHelp(v.saveable())
 	}
 	h := "←/→ section"
+	if v.key != "" {
+		h = "y copy the key · esc hide the key · " + h
+	}
 	if v.sectionLen() > 0 {
 		h += " · ↑/↓ select"
 	}
@@ -133,6 +136,16 @@ func (v *routerView) help() string {
 
 func (v *routerView) keyPress(k string) tea.Cmd {
 	switch k {
+	case "y":
+		if v.key != "" {
+			return tea.Batch(tea.SetClipboard(v.key),
+				note(true, "key for %s sent to the clipboard. If your terminal blocks that, drag to select it", v.keyFor))
+		}
+	case "esc":
+		if v.key != "" {
+			v.key, v.keyFor = "", ""
+			return note(true, "key hidden")
+		}
 	case "left", "h":
 		v.section = (v.section + len(sectionNames) - 1) % len(sectionNames)
 		return nil
@@ -326,7 +339,10 @@ func (v *routerView) render(width int) string {
 	b.WriteString("\n\n")
 	if v.key != "" {
 		b.WriteString(badSty.Render("Key for "+v.keyFor+". Copy it now, it is not shown again:") + "\n")
-		b.WriteString("  " + selSty.Render(v.key) + "\n\n")
+		// The key has a line of its own, so a double click or a drag
+		// selects only the key.
+		b.WriteString(selSty.Render(v.key) + "\n")
+		b.WriteString(mutedSty.Render("Drag over it, or press y, to copy it. esc hides it.") + "\n\n")
 	}
 	top := strings.Count(b.String(), "\n")
 	var list, details string

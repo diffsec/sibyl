@@ -23,7 +23,9 @@ The bottom of each screen shows its actions as buttons, such as `[n] new client`
 - Click a tab to open it. Click a list row to select it, and click it again to open it, as `enter` does.
 - The mouse wheel, `PgUp` and `PgDn` scroll the screen. A line at the bottom of the screen says when there is more.
 - While a form is open, `enter` goes to the next field, `shift+tab` goes back, and `esc` discards the form. A click on a field moves to it, and a click on an option of the selected list picks it. In a settings form, `ctrl+s` saves from any field. A form that deletes, erases a disk or asks you to confirm has no `ctrl+s`: answer its last field.
-- The TUI takes the mouse, so to select text with it, hold `shift` (or `option` in the macOS Terminal) while you drag.
+- A drag selects text, and the release copies it to the clipboard. The selection stays highlighted until the next key or click. A click without a drag clicks, as before.
+- The copy uses OSC 52, a terminal escape code. In iTerm2, turn on Settings > General > Selection > "Applications in terminal may access clipboard". The macOS Terminal does not support OSC 52. There, hold `fn` while you drag, so that the terminal itself selects the text. In iTerm2, `option` with a drag does the same.
+- A new client key on Router and the recovery key of a new pool on Host show only once. Each has a line of its own. Drag over the key, or press `y`, to copy it. `esc` hides it.
 
 ### Screens and keys
 
