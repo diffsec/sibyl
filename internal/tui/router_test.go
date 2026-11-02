@@ -41,7 +41,7 @@ func routerFixture() routerLoaded {
 func TestRouterRender(t *testing.T) {
 	v := newRouterView(nil)
 	v.update(routerFixture())
-	out := ansi.ReplaceAllString(v.render(120), "")
+	out := ansiRE.ReplaceAllString(v.render(120), "")
 	for _, want := range []string{
 		"default", "stays on this host",
 		"open-webui", "$0.50 today, $0.50 this month  no budget",
@@ -95,7 +95,7 @@ func TestRouterNewClientShowsKey(t *testing.T) {
 	if got["name"] != "laptop" || got["policy"] != "hybrid" || got["budget"].(map[string]any)["daily_usd"] != 3.5 {
 		t.Errorf("request %v", got)
 	}
-	out := ansi.ReplaceAllString(v.render(120), "")
+	out := ansiRE.ReplaceAllString(v.render(120), "")
 	if !strings.Contains(out, "Key for laptop") || !strings.Contains(out, "sib-newkey") {
 		t.Errorf("key not shown:\n%s", out)
 	}
@@ -151,7 +151,7 @@ func TestProviderPicker(t *testing.T) {
 		{ID: "anthropic", Name: "Anthropic", Type: "anthropic", Models: 17},
 	}}})
 	_ = cmd
-	out := ansi.ReplaceAllString(v.render(160), "")
+	out := ansiRE.ReplaceAllString(v.render(160), "")
 	for _, want := range []string{"Other: enter the API", "OrcaRouter (orcarouter) · 117 models · OpenAI API", "2026-10-29"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("picker lacks %q:\n%s", want, out)
@@ -166,7 +166,7 @@ func TestProviderPicker(t *testing.T) {
 			BaseURL: "https://api.orcarouter.ai/v1", Env: []string{"ORCAROUTER_API_KEY"}},
 		Models: []client.CatalogModel{{ID: "deepseek/deepseek-v4-flash", Context: 1048576, ToolCall: true, Cost: &price}},
 	}})
-	out = ansi.ReplaceAllString(v.render(160), "")
+	out = ansiRE.ReplaceAllString(v.render(160), "")
 	for _, want := range []string{"https://api.orcarouter.ai/v1", "ORCAROUTER_API_KEY", "deepseek/deepseek-v4-flash  1048k ctx  $0.15/$0.6 per M"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("model form lacks %q:\n%s", want, out)

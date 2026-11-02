@@ -25,14 +25,14 @@ func TestDownloadSearchTakesPaste(t *testing.T) {
 func TestDownloadTokenForm(t *testing.T) {
 	v := newDownloadView(nil)
 	v.update(hfResult{hf: client.HuggingFace{Configured: true, User: "ihavespoons"}})
-	if !strings.Contains(ansi.ReplaceAllString(v.render(120), ""), "signed in as ihavespoons") {
+	if !strings.Contains(ansiRE.ReplaceAllString(v.render(120), ""), "signed in as ihavespoons") {
 		t.Fatalf("no account shown:\n%s", v.render(120))
 	}
 	v.key(tea.KeyPressMsg{Code: 't', Text: "t"})
 	if v.tokenForm == nil || !v.capturing() {
 		t.Fatal("t did not open the token form")
 	}
-	if !strings.Contains(ansi.ReplaceAllString(v.render(120), ""), "Sign out") {
+	if !strings.Contains(ansiRE.ReplaceAllString(v.render(120), ""), "Sign out") {
 		t.Fatalf("no sign-out choice:\n%s", v.render(120))
 	}
 }

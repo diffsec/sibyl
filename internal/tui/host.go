@@ -30,6 +30,7 @@ type hostTick struct{}
 // hostView is the host part of the setup wizard: hostname, network and
 // operator accounts. The System API passes each change to sibyl-hostd.
 type hostView struct {
+	rows   rowMap // the line of each list row, for clicks
 	c      *client.Client
 	st     hostd.State
 	err    error
@@ -381,6 +382,7 @@ func (v *hostView) render(int) string {
 		return v.form.View()
 	}
 	var b strings.Builder
+	v.rows.reset()
 	if v.err != nil {
 		b.WriteString(badSty.Render("API error: "+v.err.Error()) + "\n\n")
 	}
@@ -440,6 +442,7 @@ func (v *hostView) render(int) string {
 			tags = append(tags, "created by Sibyl")
 		}
 		line := fmt.Sprintf("%-16s uid %-6d %d SSH keys  %s", u.Name, u.UID, u.Keys, strings.Join(tags, ", "))
+		v.rows.mark(&b, i)
 		b.WriteString(cursorLine(i == v.cursor, line) + "\n")
 	}
 	b.WriteString(mutedSty.Render("  Sibyl manages only the operator accounts that it created. Administrators use sudo.") + "\n")
@@ -455,3 +458,5 @@ func orNone(s string) string {
 	}
 	return s
 }
+
+func (v *hostView) clickLine(line int) tea.Cmd { return v.rows.click(line, &v.cursor, v.update) }

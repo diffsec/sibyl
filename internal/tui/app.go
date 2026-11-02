@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/diffsec/sibyl/internal/client"
 )
@@ -26,6 +27,7 @@ var (
 	goodSty  = lipgloss.NewStyle().Foreground(good)
 	badSty   = lipgloss.NewStyle().Foreground(bad)
 	selSty   = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	btnSty   = lipgloss.NewStyle().Foreground(accent)
 )
 
 // view is one screen of the app.
@@ -46,15 +48,23 @@ type App struct {
 	names  []string
 	active int
 	width  int
+	height int
 	note   string
 	noteOK bool
 	opts   Options
 	step   int // wizard step
+
+	// The layout of the last frame, for the mouse: the clickable zones,
+	// the screen row of the view's first line, and its scroll position.
+	zones    []zone
+	bodyTop  int
+	bodyRows int
+	scroll   map[int]*scroller
 }
 
 // New returns the app for one API client.
 func New(c *client.Client, opts Options) *App {
-	a := &App{c: c, opts: opts}
+	a := &App{c: c, opts: opts, scroll: map[int]*scroller{}}
 	a.views = []view{newStatusView(c), newHardwareView(c), newModelsView(c), newDownloadView(c), newHostView(c), newRouterView(c)}
 	a.names = []string{"Status", "Hardware", "Models", "Download", "Host", "Router"}
 	if opts.Wizard {
@@ -87,8 +97,18 @@ func (a *App) Init() tea.Cmd { return a.views[a.active].activate() }
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		a.width = msg.Width
+		a.width, a.height = msg.Width, msg.Height
 		listHeight = msg.Height - 12
+	case tea.MouseClickMsg:
+		return a, a.click(tea.Mouse(msg))
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			a.scroller().scroll(-3)
+		case tea.MouseWheelDown:
+			a.scroller().scroll(3)
+		}
+		return a, nil
 	case noteMsg:
 		a.note, a.noteOK = msg.text, msg.ok
 		return a, nil
@@ -100,6 +120,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch k := msg.String(); k {
 			case "q":
 				return a, tea.Quit
+			case "pgup", "pgdown":
+				n := max(a.bodyHeight()-1, 1)
+				if k == "pgup" {
+					n = -n
+				}
+				a.scroller().scroll(n)
+				return a, nil
 			case "]", "[":
 				if a.opts.Wizard {
 					delta := 1
@@ -137,40 +164,111 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) View() tea.View {
-	var b strings.Builder
-	b.WriteString(titleSty.Render("Sibyl") + "  ")
+	a.zones = a.zones[:0]
+	var head strings.Builder
+	head.WriteString(titleSty.Render("Sibyl") + "  ")
+	x := ansi.StringWidth("Sibyl  ")
 	for i, n := range a.names {
 		label := fmt.Sprintf("%d %s", i+1, n)
 		if i == a.active {
-			b.WriteString(tabOn.Render(label))
+			head.WriteString(tabOn.Render(label))
 		} else {
-			b.WriteString(tabOff.Render(label))
+			head.WriteString(tabOff.Render(label))
 		}
-		b.WriteString("  ")
+		w := ansi.StringWidth(label)
+		a.zones = append(a.zones, zone{x0: x, x1: x + w, y: 0, tab: i})
+		head.WriteString("  ")
+		x += w + 2
 	}
-	b.WriteString("\n\n")
+	head.WriteString("\n\n")
 	if a.opts.Wizard {
-		b.WriteString(a.wizardHeader())
+		head.WriteString(a.wizardHeader())
 	}
-	b.WriteString(a.views[a.active].render(a.width))
-	b.WriteString("\n")
-	if a.note != "" {
-		if a.noteOK {
-			b.WriteString(goodSty.Render(a.note))
-		} else {
-			b.WriteString(badSty.Render(a.note))
-		}
-		b.WriteString("\n")
-	}
+	header := strings.Split(strings.TrimSuffix(head.String(), "\n"), "\n")
+
 	keys := a.views[a.active].help()
 	if !a.views[a.active].capturing() {
 		keys += " · tab/1-6 switch · q quit"
 	}
-	b.WriteString(mutedSty.Render(keys))
-	v := tea.NewView(b.String())
+	width := a.width
+	if width <= 0 {
+		width = 80
+	}
+	var footer []string
+	if a.note != "" {
+		sty := badSty
+		if a.noteOK {
+			sty = goodSty
+		}
+		footer = append(footer, sty.Render(ansi.Truncate(a.note, width, "…")))
+	}
+	bodyH := a.height - len(header) - len(footer) - 1
+	buttons, zones := buttonBar(parseHelp(keys), width, 0)
+	bodyH -= len(buttons)
+	body := fit(strings.Split(strings.TrimRight(a.views[a.active].render(width), "\n"), "\n"), width)
+	if a.height > 0 {
+		body = a.scroller().window(body, bodyH)
+		for len(body) < bodyH {
+			body = append(body, "")
+		}
+	}
+	a.bodyTop, a.bodyRows = len(header), max(bodyH, 1)
+	top := len(header) + len(body) + 1 + len(footer)
+	for _, z := range zones {
+		z.y += top
+		a.zones = append(a.zones, z)
+	}
+	lines := append(append(append(header, body...), ""), footer...)
+	lines = append(lines, buttons...)
+	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Sibyl"
 	return v
+}
+
+// bodyHeight is the number of rows that the view had in the last frame.
+func (a *App) bodyHeight() int { return max(a.bodyRows, 1) }
+
+// scroller returns the active view's scroll position.
+func (a *App) scroller() *scroller {
+	s, ok := a.scroll[a.active]
+	if !ok {
+		s = &scroller{focus: -1}
+		a.scroll[a.active] = s
+	}
+	return s
+}
+
+// click handles a left click on a tab, a button, or a list row.
+func (a *App) click(m tea.Mouse) tea.Cmd {
+	if m.Button != tea.MouseLeft {
+		return nil
+	}
+	for _, z := range a.zones {
+		if m.Y != z.y || m.X < z.x0 || m.X >= z.x1 {
+			continue
+		}
+		if z.tab >= 0 {
+			if a.views[a.active].capturing() {
+				return note(false, "finish or discard the form first: esc discards")
+			}
+			a.active, a.note = z.tab, ""
+			return a.views[a.active].activate()
+		}
+		if k, ok := keyMsg(z.key); ok {
+			_, cmd := a.Update(k)
+			return cmd
+		}
+		return nil
+	}
+	if m.Y < a.bodyTop || a.views[a.active].capturing() {
+		return nil
+	}
+	if rc, ok := a.views[a.active].(rowClicker); ok {
+		return rc.clickLine(m.Y - a.bodyTop + a.scroller().offset)
+	}
+	return nil
 }
 
 func gib(b int64) string { return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30)) }
