@@ -341,9 +341,6 @@ func (v *hostView) update(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// shownSecret is the recovery key of a new pool while it shows.
-func (v *hostView) shownSecret() string { return v.secret }
-
 func (v *hostView) key(k string) tea.Cmd {
 	u, ok := v.selected()
 	switch k {
@@ -445,7 +442,7 @@ func (v *hostView) render(int) string {
 		// The key has a line of its own, so a double click or a drag
 		// selects only the key.
 		b.WriteString(selSty.Render(v.secret) + "\n")
-		b.WriteString(mutedSty.Render("  The mouse is off while the key shows, so a drag selects it. y copies it, esc hides it.") + "\n")
+		b.WriteString(mutedSty.Render("  Drag over it, or press y, to copy it. esc hides it.") + "\n")
 	}
 
 	b.WriteString("\n" + titleSty.Render("Accounts") + "\n")

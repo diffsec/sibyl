@@ -61,9 +61,10 @@ type App struct {
 	bodyRows int
 	scroll   map[int]*scroller
 
-	// mouseOff gives the mouse back to the terminal, so a drag selects
-	// text. ctrl+t turns it on and off.
-	mouseOff bool
+	// sel is the text selection of a mouse drag, and frame the plain
+	// lines of the last frame, for the text of a selection.
+	sel   selection
+	frame []string
 }
 
 // New returns the app for one API client.
@@ -104,7 +105,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width, a.height = msg.Width, msg.Height
 		listHeight = msg.Height - 12
 	case tea.MouseClickMsg:
-		return a, a.click(tea.Mouse(msg))
+		// A press starts a selection. The release tells a click from a
+		// drag.
+		if msg.Button == tea.MouseLeft {
+			a.sel = selection{active: true, x0: msg.X, y0: msg.Y, x1: msg.X, y1: msg.Y}
+		}
+		return a, nil
+	case tea.MouseMotionMsg:
+		if a.sel.active {
+			a.sel.x1, a.sel.y1 = msg.X, msg.Y
+			a.sel.moved = a.sel.moved || msg.X != a.sel.x0 || msg.Y != a.sel.y0
+		}
+		return a, nil
+	case tea.MouseReleaseMsg:
+		if !a.sel.active {
+			return a, nil
+		}
+		s := a.sel
+		a.sel.active = false
+		if !s.moved {
+			a.sel = selection{}
+			return a, a.click(tea.Mouse{X: s.x0, Y: s.y0, Button: tea.MouseLeft})
+		}
+		return a, a.copySelection(s)
 	case tea.MouseWheelMsg:
 		switch msg.Button {
 		case tea.MouseWheelUp:
@@ -120,16 +143,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return a, tea.Quit
 		}
-		if msg.String() == selectKey {
-			if a.showsSecret() {
-				return a, note(true, "the mouse stays off while the key shows: drag to select it")
-			}
-			a.mouseOff = !a.mouseOff
-			if a.mouseOff {
-				return a, note(true, "mouse off: drag to select text, ctrl+t turns the mouse on")
-			}
-			return a, note(true, "mouse on: click the tabs, rows and buttons")
-		}
+		a.sel = selection{} // a key clears the highlight of the last copy
 		if !a.views[a.active].capturing() {
 			switch k := msg.String(); k {
 			case "q":
@@ -204,14 +218,6 @@ func (a *App) View() tea.View {
 	if !a.views[a.active].capturing() {
 		keys += " · tab/1-6 switch · q quit"
 	}
-	mouse := a.mouseOn()
-	switch {
-	case a.showsSecret():
-	case mouse:
-		keys += " · " + selectKey + " select text"
-	default:
-		keys += " · " + selectKey + " mouse on"
-	}
 	width := a.width
 	if width <= 0 {
 		width = 80
@@ -242,31 +248,18 @@ func (a *App) View() tea.View {
 	}
 	lines := append(append(append(header, body...), ""), footer...)
 	lines = append(lines, buttons...)
+	a.frame = a.frame[:0]
+	for _, l := range lines {
+		a.frame = append(a.frame, ansi.Strip(l))
+	}
+	lines = highlight(lines, a.sel)
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
-	if mouse {
-		v.MouseMode = tea.MouseModeCellMotion
-	}
+	// Cell motion reports a move only while a button is down, so a drag
+	// reaches the app and a still mouse costs nothing.
+	v.MouseMode = tea.MouseModeCellMotion
 	v.WindowTitle = "Sibyl"
 	return v
-}
-
-// selectKey turns the mouse off and on. It works in a form too.
-const selectKey = "ctrl+t"
-
-// secretShower is a view that can show a secret once, such as a new client
-// key. While it does, the mouse is off, so a drag selects the secret.
-type secretShower interface {
-	shownSecret() string
-}
-
-// mouseOn tells whether the TUI takes the mouse in this frame.
-func (a *App) mouseOn() bool { return !a.mouseOff && !a.showsSecret() }
-
-// showsSecret tells whether the active view shows a secret.
-func (a *App) showsSecret() bool {
-	s, ok := a.views[a.active].(secretShower)
-	return ok && s.shownSecret() != ""
 }
 
 // bodyHeight is the number of rows that the view had in the last frame.
