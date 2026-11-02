@@ -59,25 +59,6 @@ type drafterFlow struct {
 	result  client.DrafterTest
 }
 
-// drafterLine is the row of a drafter in the model list.
-func drafterLine(m client.Model, list []client.Model) string {
-	for _, o := range list {
-		if o.Settings.Speculative.DraftModel == m.ID {
-			return fmt.Sprintf("  ↳ %-36s %10s  %s", m.ID, gib(m.Size), mutedSty.Render("drafter for "+o.ID))
-		}
-	}
-	return fmt.Sprintf("  ↳ %-36s %10s  %s", m.ID, gib(m.Size), mutedSty.Render("drafter, not used: d deletes it"))
-}
-
-// drafterMark tells that a model has drafters on Hugging Face and no draft
-// model yet.
-func drafterMark(m client.Model) string {
-	if m.Drafter || m.Drafters == nil || *m.Drafters == 0 || m.Settings.Speculative.DraftModel != "" {
-		return ""
-	}
-	return fmt.Sprintf("%d drafter(s) on Hugging Face: press f", *m.Drafters)
-}
-
 func (v *modelsView) findDrafters(m client.Model, refresh bool) tea.Cmd {
 	if m.Drafter {
 		return note(false, "%s is a drafter; select the model that it drafts for", m.ID)

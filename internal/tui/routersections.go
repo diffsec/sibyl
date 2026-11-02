@@ -9,7 +9,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -25,10 +24,6 @@ const (
 )
 
 var sectionNames = []string{"Clients", "Providers", "Profiles", "Calibration", "Activity"}
-
-// twoPaneWidth is the screen width from which the details sit next to the
-// list.
-const twoPaneWidth = 100
 
 // profRow is one row of the Profiles section: a profile, or one of its
 // rules.
@@ -351,24 +346,6 @@ func (v *routerView) render(width int) string {
 	}
 	b.WriteString(twoPane(list, details, width))
 	return b.String()
-}
-
-// twoPane puts the details next to the list on a wide screen, and under it
-// on a narrow one.
-func twoPane(list, details string, width int) string {
-	if width < twoPaneWidth {
-		return list + "\n" + details
-	}
-	lw := min(max(width*2/5, 32), 56)
-	// A list row stays on one line, so a click maps to its row.
-	rows := strings.Split(strings.TrimRight(list, "\n"), "\n")
-	for i, r := range rows {
-		rows[i] = ansi.Truncate(r, lw, "…")
-	}
-	left := lipgloss.NewStyle().Width(lw).Render(strings.Join(rows, "\n"))
-	right := lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(muted).PaddingLeft(1).Width(width - lw - 2).Render(strings.TrimRight(details, "\n"))
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right) + "\n"
 }
 
 // rowLine marks a list row for clicks. top is the line of the screen view
