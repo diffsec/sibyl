@@ -310,9 +310,6 @@ func (v *routerView) ruleDeleteForm(r profRow) tea.Cmd {
 }
 
 // render draws the section bar, then the current section.
-// shownSecret is the new client key while it shows.
-func (v *routerView) shownSecret() string { return v.key }
-
 func (v *routerView) render(width int) string {
 	if v.form != nil {
 		return v.form.View()
@@ -345,7 +342,7 @@ func (v *routerView) render(width int) string {
 		// The key has a line of its own, so a double click or a drag
 		// selects only the key.
 		b.WriteString(selSty.Render(v.key) + "\n")
-		b.WriteString(mutedSty.Render("The mouse is off while the key shows, so a drag selects it. y copies it, esc hides it.") + "\n\n")
+		b.WriteString(mutedSty.Render("Drag over it, or press y, to copy it. esc hides it.") + "\n\n")
 	}
 	top := strings.Count(b.String(), "\n")
 	var list, details string
