@@ -78,6 +78,7 @@ type Server struct {
 	// drafters caches the drafter searches on Hugging Face.
 	drafters     drafterCache
 	drafterTests drafterTests
+	loads        loads
 	// reloadWait is how long a drafter test waits for llama-swap to read
 	// a new configuration. Tests shorten it.
 	reloadWait time.Duration
@@ -150,6 +151,9 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /models/{id}/benchmark", s.startBenchmark)
 	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
 	auth.HandleFunc("GET /models/{id}/drafters", s.getDrafters)
+	auth.HandleFunc("POST /models/{id}/load", s.loadModel)
+	auth.HandleFunc("POST /models/{id}/unload", s.unloadModel)
+	auth.HandleFunc("GET /running", s.getRunning)
 	auth.HandleFunc("POST /models/{id}/drafter-test", s.startDrafterTest)
 	auth.HandleFunc("GET /models/{id}/drafter-test", s.getDrafterTest)
 	auth.HandleFunc("POST /apply", s.postApply)

@@ -140,6 +140,9 @@ A value that does not fit the variant or the detected GPUs returns `422`.
 | `DELETE /models/{id}` | None | The apply result | Deletes the model file and all of its shards, removes its settings, and applies. |
 | `POST /models/{id}/benchmark` | None | `202`, `{"status": "queued"}` | Asks the host agent to run `llama-bench` on the model with each backend image. |
 | `GET /models/{id}/benchmark` | None | The benchmark state | The progress or the result of the last benchmark. `404` if no benchmark ran. |
+| `GET /running` | None | The running models | The models that llama-swap runs, the loads that wait, and the last failed load of each model. `502` when llama-swap does not answer. |
+| `POST /models/{id}/load` | None | `202`, `{"status": "loading"}` | Starts the model in the background, through llama-swap. llama-swap first stops the models that cannot run with it. `409` while the model is loading, `422` for a drafter. |
+| `POST /models/{id}/unload` | None | `{"status": "unloaded"}` | Stops the model. `422` for a drafter, which stops with its model. |
 | `GET /models/{id}/drafters?refresh=1` | None | The drafter search | Searches Hugging Face for DFlash and EAGLE-3 drafters of the model. A search is cached for 6 hours. `refresh=1` skips the cache. `422` for a drafter, `502` when Hugging Face fails. |
 | `POST /models/{id}/drafter-test` | The `speculative` settings to try | `202`, `{"status": "running"}` | Measures the model without and with the drafter, then restores the model's `speculative` settings. It unloads the running models. `409` while another test runs. |
 | `GET /models/{id}/drafter-test` | None | The drafter test | The progress or the result of the last drafter test. `404` if no test ran. |
@@ -172,6 +175,8 @@ The benchmark state has these fields:
 | `updated` | The time of the last status change |
 | `results` | Per backend: `prompt_tokens_per_second`, `generation_tokens_per_second`, or `error` |
 | `recommended` | The backend with the fastest token generation |
+
+`GET /running` returns `models`, a list of `id` and `state` (llama-swap's process state, such as `starting` or `ready`), and `loading`, the IDs that a load still waits for. `errors` maps each model to the error of its last failed load. An error goes away when the model loads again.
 
 The drafter search has these fields:
 

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -274,6 +275,50 @@ func (c *Client) DeleteModel(ctx context.Context, id string) (ApplyResult, error
 
 func (c *Client) StartBenchmark(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/benchmark", nil, nil)
+}
+
+// RunningModel is one model that llama-swap has started. State is
+// llama-swap's process state, such as "starting" or "ready".
+type RunningModel struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+// Running is the state of the models that llama-swap runs, with the loads
+// that the owner started and the last error of each failed load.
+type Running struct {
+	Models  []RunningModel    `json:"models"`
+	Loading []string          `json:"loading,omitempty"`
+	Errors  map[string]string `json:"errors,omitempty"`
+}
+
+// State returns a model's state: "loading" while a load waits, llama-swap's
+// state while it runs, and "" when it is not loaded.
+func (r Running) State(id string) string {
+	if slices.Contains(r.Loading, id) {
+		return "loading"
+	}
+	for _, m := range r.Models {
+		if m.ID == id {
+			return m.State
+		}
+	}
+	return ""
+}
+
+func (c *Client) Running(ctx context.Context) (Running, error) {
+	var r Running
+	return r, c.do(ctx, http.MethodGet, "/running", nil, &r)
+}
+
+// LoadModel starts a model in the background. llama-swap first stops the
+// models that cannot run with it.
+func (c *Client) LoadModel(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/load", nil, nil)
+}
+
+func (c *Client) UnloadModel(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/unload", nil, nil)
 }
 
 // FindDrafters searches Hugging Face for drafters of a model. refresh skips

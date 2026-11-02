@@ -113,14 +113,17 @@ func (c *Console) modelsPage(w http.ResponseWriter, r *http.Request) {
 		// the drafters on Hugging Face from the last search.
 		DraftFor     string
 		DrafterCount int
+		// State is "loading", llama-swap's state, or "" when not loaded.
+		State string
 	}
+	run := c.loadedData(r, data)
 	var rows []row
 	for _, m := range client.OrderWithDrafters(list) {
 		n := 0
 		if m.Drafters != nil {
 			n = *m.Drafters
 		}
-		rows = append(rows, row{m, gib(m.Size), fitText(m.Fit), benchText(m.Benchmark), drafterFor(m, list), n})
+		rows = append(rows, row{m, gib(m.Size), fitText(m.Fit), benchText(m.Benchmark), drafterFor(m, list), n, run.State(m.ID)})
 	}
 	data["Models"] = rows
 	c.render(w, r, http.StatusOK, "models", data)
