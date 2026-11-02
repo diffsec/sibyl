@@ -437,6 +437,12 @@ func (c *Client) ConfirmNetwork(ctx context.Context) (hostd.Result, error) {
 }
 
 // CheckUpdate asks the registry for a newer host image.
+// SetUpdateWindow sets the nightly update window, in host time, or turns
+// nightly updates off.
+func (c *Client) SetUpdateWindow(ctx context.Context, w hostd.UpdateWindow) (hostd.Result, error) {
+	return c.hostAction(ctx, http.MethodPut, "/host/update/window", w)
+}
+
 func (c *Client) CheckUpdate(ctx context.Context) (hostd.Result, error) {
 	return c.hostAction(ctx, http.MethodPost, "/host/update/check", struct{}{})
 }

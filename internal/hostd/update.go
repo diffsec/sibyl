@@ -50,6 +50,8 @@ type UpdateState struct {
 	Staged string `json:"staged,omitempty"`
 	// Available is a newer version that the last check found, if any.
 	Available string `json:"available,omitempty"`
+	// Window is the nightly update window, and whether it is on.
+	Window *UpdateWindow `json:"window,omitempty"`
 	// Check, Download and DownloadReboot are the states of the units.
 	Check          UnitRun `json:"check"`
 	Download       UnitRun `json:"download"`
@@ -108,6 +110,9 @@ func (a *Agent) updateState(ctx context.Context) (*UpdateState, error) {
 		Check:          a.unitRun(ctx, CheckUnit),
 		Download:       a.unitRun(ctx, DownloadUnit),
 		DownloadReboot: a.unitRun(ctx, DownloadBootUnit),
+	}
+	if w, err := a.updateWindow(ctx); err == nil {
+		u.Window = w
 	}
 	sctx, cancel := context.WithTimeout(ctx, bootcStatusWait)
 	defer cancel()

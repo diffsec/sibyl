@@ -52,6 +52,16 @@
     <button type="submit">Apply update {{.Available}}</button>
   </form>
   {{end}}
+  <form method="post" action="/console/status/update/window" class="stack">
+    <h3>Nightly updates</h3>
+    <p class="muted">Sibyl stages a new image and reboots into it in this window, host time, when no request ran for 30 minutes. It runs every 30 minutes from the first run to the last.</p>
+    <label class="check"><input type="checkbox" name="enabled"{{if $.Window.Enabled}} checked{{end}}> On</label>
+    <div class="row">
+      <label>First run <select name="start">{{range $.WindowTimes}}<option{{if eq . $.Window.Start}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <label>Last run <select name="end">{{range $.WindowTimes}}<option{{if eq . $.Window.End}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+    </div>
+    <button type="submit" class="secondary">Save the window</button>
+  </form>
   {{if .Staged}}
   <form method="post" action="/console/status/reboot">
     <details><summary>Reboot now</summary><button type="submit" class="danger">Reboot into {{.Staged}}</button></details></form>

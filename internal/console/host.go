@@ -34,6 +34,11 @@ func (c *Console) hostRoutes(mux *http.ServeMux) {
 		res, err := c.client.ApplyUpdate(r.Context(), r.PostFormValue("reboot") == "on")
 		return "update", res, err
 	})))
+	mux.HandleFunc("POST "+Prefix+"status/update/window", c.signedIn(c.statusChange(func(r *http.Request) (string, hostd.Result, error) {
+		w := hostd.UpdateWindow{Enabled: r.PostFormValue("enabled") == "on", Start: r.PostFormValue("start"), End: r.PostFormValue("end")}
+		res, err := c.client.SetUpdateWindow(r.Context(), w)
+		return "update window", res, err
+	})))
 	mux.HandleFunc("POST "+Prefix+"status/reboot", c.signedIn(c.statusChange(func(r *http.Request) (string, hostd.Result, error) {
 		res, err := c.client.Reboot(r.Context())
 		return "reboot", res, err
@@ -246,6 +251,16 @@ func (c *Console) statusData(ctx context.Context, data map[string]any) {
 	if h, err := c.client.Host(ctx); err == nil && h.Update != nil {
 		u := h.Update
 		data["Update"] = u
+		win := hostd.UpdateWindow{Enabled: true, Start: hostd.DefaultWindowStart, End: hostd.DefaultWindowEnd}
+		if u.Window != nil {
+			win = *u.Window
+		}
+		data["Window"] = win
+		times := make([]string, 0, 48)
+		for i := range 48 {
+			times = append(times, fmt.Sprintf("%02d:%02d", i/2, i%2*30))
+		}
+		data["WindowTimes"] = times
 		data["UpdateBusy"] = u.Check.Active == "activating" || u.Download.Active == "activating" || u.DownloadReboot.Active == "activating"
 		data["UpdateFailed"] = u.Check.Result != "" && u.Check.Result != "success" ||
 			u.Download.Result != "" && u.Download.Result != "success" ||

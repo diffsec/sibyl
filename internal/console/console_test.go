@@ -100,8 +100,9 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"users":[{"name":"admin","groups":["wheel"],"admin":true},{"name":"ops","groups":["sibyl-operators"],"managed":true,"keys":1}],
 			"pending_network":{"interface":"enp8s0","expires":"soon"},
 			"disks":[{"name":"sdb","path":"/dev/sdb","size":64000000000,"model":"USB","serial":"SER123"}],
-			"update":{"image":"ghcr.io/diffsec/sibyl-os:latest-amd","booted":"sha-old-amd","available":"sha-new-amd","check":{"active":"inactive","result":"success"}}}`)
-	case "POST /host/update/check", "POST /host/update/apply", "POST /host/reboot":
+			"update":{"image":"ghcr.io/diffsec/sibyl-os:latest-amd","booted":"sha-old-amd","available":"sha-new-amd","check":{"active":"inactive","result":"success"},
+			"window":{"enabled":true,"start":"02:00","end":"04:30"}}}`)
+	case "POST /host/update/check", "POST /host/update/apply", "POST /host/reboot", "PUT /host/update/window":
 		_, _ = io.WriteString(w, `{"ok":true,"message":"started by hostd"}`)
 	case "GET /downloads":
 		_, _ = io.WriteString(w, `[{"id":"j1","repo":"org/model-GGUF","variant":"Q8_0","status":"downloading","bytes_done":5368709120,"bytes_total":10737418240},
@@ -721,5 +722,20 @@ func TestLoadedModels(t *testing.T) {
 	}
 	if !slices.Contains(h.api.calls, "POST /models/gemma/load") || !slices.Contains(h.api.calls, "POST /models/qwen/unload") {
 		t.Errorf("API calls %v", h.api.calls)
+	}
+}
+
+func TestUpdateWindow(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	page := h.do("GET", "/console/status", nil, false).Body.String()
+	for _, want := range []string{"Nightly updates", "<option selected>02:00</option>", "<option selected>04:30</option>", `name="enabled" checked`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("status page lacks %q", want)
+		}
+	}
+	h.do("POST", "/console/status/update/window", url.Values{"start": {"23:00"}, "end": {"01:00"}}, true)
+	if b := h.api.body("PUT /host/update/window"); b["enabled"] != false || b["start"] != "23:00" || b["end"] != "01:00" {
+		t.Errorf("window body %v", b)
 	}
 }

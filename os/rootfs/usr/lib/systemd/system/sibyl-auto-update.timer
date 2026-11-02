@@ -3,8 +3,16 @@ Description=Nightly Sibyl update window
 
 [Timer]
 # Every 30 minutes from 03:00 to 05:30, host time. A run that finds the
-# models busy leaves the update staged for the next run.
-OnCalendar=*-*-* 03,04,05:00,30:00
+# models busy leaves the update staged for the next run. The Status screen
+# and the web console move the window with a drop-in
+# (internal/hostd/window.go), and a test keeps these lines in step with
+# hostd.DefaultWindowStart and DefaultWindowEnd.
+OnCalendar=*-*-* 03:00:00
+OnCalendar=*-*-* 03:30:00
+OnCalendar=*-*-* 04:00:00
+OnCalendar=*-*-* 04:30:00
+OnCalendar=*-*-* 05:00:00
+OnCalendar=*-*-* 05:30:00
 RandomizedDelaySec=5min
 
 [Install]

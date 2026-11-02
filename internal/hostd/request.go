@@ -52,7 +52,7 @@ const (
 
 // Actions are every action that sibyl-hostd accepts.
 var Actions = []Action{SetHostname, SetNetwork, ConfirmNetwork, SetUser, DeleteUser, Refresh, CreatePool, DetachPool,
-	UpdateCheck, UpdateApply, Reboot}
+	UpdateCheck, UpdateApply, Reboot, SetUpdateWindow}
 
 // MaxRequestSize is the largest request file that sibyl-hostd reads.
 const MaxRequestSize = 64 << 10
@@ -314,6 +314,12 @@ func Decode(a Action, data []byte) (any, error) {
 			return nil, err
 		}
 		return u, nil
+	case SetUpdateWindow:
+		var w UpdateWindow
+		if err := dec(&w); err != nil {
+			return nil, err
+		}
+		return w, w.Validate()
 	case ConfirmNetwork, Refresh, UpdateCheck, Reboot:
 		return nil, nil
 	}
