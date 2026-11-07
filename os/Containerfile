@@ -6,7 +6,8 @@
 
 # sibyl-hostd runs the privileged host actions, sibyl-install is the disk
 # installer, sibyl-update applies offline bundles, and sibyl-diag is the
-# diagnostics and inference watchdog. They run on the host, so they are
+# diagnostics and inference watchdog. sibyl-docker-shim gives Arcane the
+# BuildKit endpoints that Podman lacks. They run on the host, so they are
 # built here.
 FROM cgr.dev/chainguard/go:latest@sha256:7633fb5a27db3d39d8194be6f29c7b92fb919c3b9d0b7014c2c6999b6b14869f AS hostd
 WORKDIR /src
@@ -17,14 +18,15 @@ COPY internal/ internal/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/sibyl-hostd \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-install ./cmd/sibyl-install \
     && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-update ./cmd/sibyl-update \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-diag ./cmd/sibyl-diag
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-diag ./cmd/sibyl-diag \
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-docker-shim ./cmd/sibyl-docker-shim
 
 # The variant build scripts, as a stage: a RUN step on an SELinux build host
 # cannot read a bind mount taken straight from the build context.
 FROM scratch AS variants
 COPY os/variants/ /
 
-FROM quay.io/fedora/fedora-bootc:44@sha256:291bda73006a5cfc6d4ac24f9a261915624f9f555d9ff1a426cb412928f152ac
+FROM quay.io/fedora/fedora-bootc:44@sha256:3f4b21855f45581d8c82cd44931c2a06e8a13e93d871f0c70fc387fad7e89e01
 
 ARG GPU_VARIANT=amd
 ARG SIBYL_VERSION=dev
@@ -56,6 +58,7 @@ COPY --from=hostd /out/sibyl-hostd /usr/libexec/sibyl/hostd
 COPY --from=hostd /out/sibyl-install /usr/sbin/sibyl-install
 COPY --from=hostd /out/sibyl-update /usr/sbin/sibyl-update
 COPY --from=hostd /out/sibyl-diag /usr/sbin/sibyl-diag
+COPY --from=hostd /out/sibyl-docker-shim /usr/libexec/sibyl/docker-shim
 
 # render and video live in /usr/lib/group, where systemd-sysusers cannot add
 # members. Copy them to /etc/group so the "m" lines in sysusers.d apply.
@@ -69,7 +72,7 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
         sibyl-hostd.path sibyl-hostd-auth.path sibyl-hostd-state.timer sibyl-tls.timer sibyl-provision.service \
         sibyl-diag-boot.service sibyl-diag-watchdog.service sibyl-diag-metrics.service sibyl-diag-upload.timer \
         sibyl-auto-update.timer \
-    && systemctl --global enable podman.socket sibyl-agent.path sibyl-status.timer \
+    && systemctl --global enable podman.socket sibyl-docker-shim.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
     && mkdir -p /etc/containers/systemd/users/1001/llama-swap.container.d \
     && cp "/usr/share/sibyl/backend/${GPU_VARIANT}.conf" \

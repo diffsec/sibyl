@@ -1,0 +1,15 @@
+[Unit]
+Description=Sibyl Docker API shim for Arcane builds
+Documentation=https://github.com/diffsec/sibyl/blob/main/internal/dockershim/shim.go
+ConditionUser=sibyl
+Requires=podman.socket sibyl-docker-shim.socket
+After=podman.socket sibyl-docker-shim.socket
+
+[Service]
+ExecStart=/usr/libexec/sibyl/docker-shim
+# A build context can be large, so it goes on disk, not in the /run tmpfs.
+CacheDirectory=sibyl-docker-shim
+Environment=TMPDIR=%C/sibyl-docker-shim
+NoNewPrivileges=yes
+Restart=always
+RestartSec=2
