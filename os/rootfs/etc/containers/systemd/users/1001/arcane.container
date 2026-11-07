@@ -2,8 +2,8 @@
 # for rootless Podman with systemd (Quadlet) control over D-Bus.
 [Unit]
 Description=Sibyl Arcane container manager
-Requires=podman.socket
-After=podman.socket
+Requires=podman.socket sibyl-docker-shim.socket
+After=podman.socket sibyl-docker-shim.socket
 
 [Container]
 ContainerName=arcane
@@ -15,7 +15,9 @@ SecurityLabelDisable=true
 PodmanArgs=--cgroupns=host
 User=0:0
 UserNS=keep-id
-Volume=%t/podman/podman.sock:/var/run/docker.sock
+# The Docker API comes through sibyl-docker-shim, which adds the BuildKit
+# endpoints that Arcane builds with. Every other call goes to Podman.
+Volume=%t/sibyl-docker.sock:/var/run/docker.sock
 Volume=%t/bus:%t/bus
 Volume=arcane.volume:/app/data
 Volume=/var/lib/sibyl/stacks:/var/lib/sibyl/stacks

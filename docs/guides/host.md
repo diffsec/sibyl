@@ -109,6 +109,8 @@ Arcane is a web interface for containers. Use it to run other containers and Com
 
 Arcane uses the same Podman as the Sibyl services, so it can also stop them. A Sibyl service that you stop starts again at the next boot.
 
+Arcane can build images from a Compose `build:` section with the local build provider. Podman builds them with Buildah. Build secrets, SSH forwarding and BuildKit cache import or export do not work on this host. For those, use the Depot build provider.
+
 The host accepts images from these public registries:
 
 - Docker Hub

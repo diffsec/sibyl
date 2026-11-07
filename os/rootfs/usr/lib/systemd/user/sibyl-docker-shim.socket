@@ -1,0 +1,12 @@
+[Unit]
+Description=Sibyl Docker API shim socket for Arcane
+ConditionUser=sibyl
+
+# systemd keeps the socket file. A restart of the shim does not change it, so
+# the bind mount in the Arcane container stays valid.
+[Socket]
+ListenStream=%t/sibyl-docker.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target

@@ -17,6 +17,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 - `internal/modelform` is the model settings form that the TUI and the console share.
 - `internal/console` is the web console at `/console/`. It calls the System API through `internal/client` in process. Keep every console change on an existing API route, and `docs/design/web-console.md` in step.
 - `cmd/sibyl-diag` and `internal/diag` are the diagnostics and inference watchdog. They run as root on the host. The design is in `docs/design/diagnostics.md`. A new capture step must go through the redactor before it can reach a bundle.
+- `cmd/sibyl-docker-shim` and `internal/dockershim` give Arcane the Docker API with the BuildKit endpoints that Podman lacks. It runs as the `sibyl` user. Every call other than `/session` and `/grpc` goes to Podman unchanged.
 - `.github/workflows/bootc.yml` builds, pushes and signs all images.
 
 ## Rules

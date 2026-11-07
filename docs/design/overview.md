@@ -59,7 +59,9 @@ All Sibyl containers run rootless under one system user, `sibyl` (UID 1001). Roo
 
 systemd owns the core services. The Quadlet files are in the OS image under `/etc/containers/systemd/users/1001/`. Arcane can stop a core container, but the next boot or `systemctl --user restart` brings it back from the image definition. User stacks that Arcane creates live under `/var/lib/sibyl/stacks`.
 
-Arcane uses the same user's Podman socket, so it sees and controls the core containers. It runs with `SecurityLabelDisable=true`, because the Arcane docs require it on SELinux hosts. The socket proxy from the earlier design is not used. A proxy cannot filter the Quadlet and D-Bus calls that Arcane needs, and rootless Podman already removes root from the blast radius.
+Arcane uses the same user's Podman socket, so it sees and controls the core containers. It runs with `SecurityLabelDisable=true`, because the Arcane docs require it on SELinux hosts. The filtering socket proxy from the earlier design is not used. A proxy cannot filter the Quadlet and D-Bus calls that Arcane needs, and rootless Podman already removes root from the blast radius.
+
+Arcane builds images with BuildKit only. It needs the `/session` and `/grpc` endpoints of the Docker API, and Podman has neither. `sibyl-docker-shim` (`cmd/sibyl-docker-shim`, `internal/dockershim`) runs as the `sibyl` user, and Arcane mounts its socket, `%t/sibyl-docker.sock`, as `/var/run/docker.sock`. The shim sends every other call to Podman unchanged, so it filters nothing and adds no privilege. It keeps the build session as dockerd does. For a `/grpc` build it pulls the context through the session and builds it with Podman's `/build`, which runs Buildah. Only Dockerfile builds into the local image store work. Other frontends, other exporters, build secrets, SSH forwarding and cache import or export do not. `sibyl-docker-shim.socket` owns the socket file, so a restart of the shim does not break the mount in Arcane.
 
 | Container | Image | Port on the `sibyl` network | Exposed on the host |
 |---|---|---|---|
