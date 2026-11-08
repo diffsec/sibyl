@@ -57,7 +57,7 @@ docs/                        # documentation
 
 All Sibyl containers run rootless under one system user, `sibyl` (UID 1001). Rootless Podman confines each container to that user's subordinate UID range. A container escape gives an unprivileged user, not root.
 
-systemd owns the core services. The Quadlet files are in the OS image under `/etc/containers/systemd/users/1001/`. Arcane can stop a core container, but the next boot or `systemctl --user restart` brings it back from the image definition. User stacks that Arcane creates live under `/var/lib/sibyl/stacks`.
+systemd owns the core services. The Quadlet files are in the OS image under `/etc/containers/systemd/users/1001/`. Arcane can stop a core container, but the next boot or `systemctl --user restart` brings it back from the image definition. User stacks that Arcane creates live under `/var/lib/sibyl/stacks`. Podman has no daemon, so a restart policy alone does nothing at boot. The image enables the `podman-restart.service` user unit for every user, and it starts the containers whose policy is `always` or `unless-stopped`. The Quadlet containers have no restart policy, because systemd starts them.
 
 Arcane uses the same user's Podman socket, so it sees and controls the core containers. It runs with `SecurityLabelDisable=true`, because the Arcane docs require it on SELinux hosts. The filtering socket proxy from the earlier design is not used. A proxy cannot filter the Quadlet and D-Bus calls that Arcane needs, and rootless Podman already removes root from the blast radius.
 

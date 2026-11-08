@@ -72,7 +72,7 @@ RUN echo "${SIBYL_VERSION}" > /usr/share/sibyl/version \
         sibyl-hostd.path sibyl-hostd-auth.path sibyl-hostd-state.timer sibyl-tls.timer sibyl-provision.service \
         sibyl-diag-boot.service sibyl-diag-watchdog.service sibyl-diag-metrics.service sibyl-diag-upload.timer \
         sibyl-auto-update.timer \
-    && systemctl --global enable podman.socket sibyl-docker-shim.socket sibyl-agent.path sibyl-status.timer \
+    && systemctl --global enable podman.socket podman-restart.service sibyl-docker-shim.socket sibyl-agent.path sibyl-status.timer \
     && systemctl disable bootc-fetch-apply-updates.timer \
     && mkdir -p /etc/containers/systemd/users/1001/llama-swap.container.d \
     && cp "/usr/share/sibyl/backend/${GPU_VARIANT}.conf" \
