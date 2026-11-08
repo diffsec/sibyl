@@ -553,6 +553,7 @@ A bundle is a directory:
 - A Tailscale auth key goes from the System API to `sibyl-hostd` through `/run/sibyl-secret`, in memory. The request in the disk queue names only the key file. `sibyl-hostd` reads it without following a symlink, removes it, and gives `tailscale` the key in a file in its private `/tmp`, not on the command line.
 - SSH accepts keys only. Root login is off.
 - `bootc` and Podman auto-update are off by default. Updates are explicit, from the TUI, the web console, the System API, or `bootc upgrade`.
+- `sibyl-image-prune.timer` removes each `ghcr.io/diffsec/sibyl-*` tag that no deployment lists in `/usr/share/sibyl/image-tag`, 15 minutes after boot and daily. The booted, rollback and staged deployments keep their images, so a rollback works offline. The script then runs `podman image prune`, which removes only untagged images that no container uses.
 - Every Quadlet container drops all capabilities, sets `NoNewPrivileges=true` and `ReadOnly=true`, and gets a tmpfs for `/tmp`. Writable state goes to named volumes only.
 - `sibyl-hostd` refuses to change or delete an account in `wheel`. Pool creation refuses a disk with active swap, as it refuses a mounted disk.
 

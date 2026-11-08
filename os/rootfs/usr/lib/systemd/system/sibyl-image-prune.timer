@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove old Sibyl images after boot, and daily
+
+[Timer]
+# An update changes the deployments only at a reboot. The daily run covers
+# a removal that failed because a container still used the image.
+OnBootSec=15min
+OnUnitActiveSec=1d
+
+[Install]
+WantedBy=timers.target
