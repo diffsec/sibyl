@@ -192,6 +192,8 @@ The optimizer measures llama.cpp settings for one model on your hardware, and re
 4. Read the result in the model's details: the speed now, the best speed, and each setting that changes.
 5. Press `a` to apply the settings. In the web console, use "Apply these settings". If a different backend was faster, Sibyl asks whether to switch the backend too. The backend applies to every model.
 
+If the router has a provider with a key, you can choose an advisor when you start. The advisor is a provider model that proposes more settings after the fixed stages, and the optimizer measures them like the others. It gets the GPUs, the system RAM, the model facts and the measurements. It gets no prompts, no user data and no file paths. Each run makes one call, and the router counts its cost under `@optimizer`.
+
 A setting wins only when it beats the settings now by more than 3 percent and by more than the noise of the runs. The optimizer applies nothing by itself. A result is for the hardware and the llama.cpp version of the run, so run it again after an update.
 
 ## Model pools

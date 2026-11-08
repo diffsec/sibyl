@@ -66,6 +66,7 @@ func TestOptimizeForms(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := newModelsView(c)
+	v.advisors = []string{"cloud/big"}
 	m := client.Model{}
 	m.ID = "big"
 
@@ -74,7 +75,7 @@ func TestOptimizeForms(t *testing.T) {
 	if v.action != "optimize" || v.saveable() {
 		t.Fatalf("action %q saveable %v", v.action, v.saveable())
 	}
-	v.optProfile, v.confirm, v.form = string(optimize.Throughput), true, nil
+	v.optProfile, v.optAdvisor, v.confirm, v.form = string(optimize.Throughput), "cloud/big", true, nil
 	drain(v.submit())
 	// A running run offers to cancel.
 	m.Optimize = &client.Optimize{Status: "running"}
@@ -105,7 +106,7 @@ func TestOptimizeForms(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	want := []string{`POST /models/big/optimize {"profile":"throughput"}`, `DELETE /models/big/optimize null`,
+	want := []string{`POST /models/big/optimize {"advisor":{"model":"big","provider":"cloud"},"profile":"throughput"}`, `DELETE /models/big/optimize null`,
 		`POST /models/big/optimize/apply {"backend":true}`}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("requests:\n%s", strings.Join(got, "\n"))

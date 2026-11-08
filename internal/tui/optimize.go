@@ -19,7 +19,11 @@ func optimizeText(o *client.Optimize) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("Optimizer (" + string(o.Profile) + ")\n")
+	b.WriteString("Optimizer (" + string(o.Profile))
+	if o.Advisor != "" {
+		b.WriteString(", advisor " + o.Advisor)
+	}
+	b.WriteString(")\n")
 	switch o.Status {
 	case "running":
 		fmt.Fprintf(&b, "  %s · stage %s · %d settings measured\n", goodSty.Render("running"), o.Stage, measured(o.Results))
@@ -83,17 +87,27 @@ func (v *modelsView) optimizeForm(m client.Model) tea.Cmd {
 		)).WithShowHelp(false)
 		return v.form.Init()
 	}
-	v.action, v.optProfile = "optimize", string(optimize.Single)
-	v.form = huh.NewForm(huh.NewGroup(
+	v.action, v.optProfile, v.optAdvisor = "optimize", string(optimize.Single), ""
+	fields := []huh.Field{
 		huh.NewSelect[string]().Title("Optimize "+m.ID+" for").Options(
 			huh.NewOption("One user: generation speed, then prompt speed", string(optimize.Single)),
 			huh.NewOption("Throughput: total speed over parallel requests", string(optimize.Throughput)),
 		).Value(&v.optProfile),
-		huh.NewConfirm().Title("Start the optimizer?").
-			Description("It measures settings with llama-bench and checks the best one with llama-server.\n"+
-				"The models are unloaded for 5 to 15 minutes. Nothing changes until you apply the result.").
-			Affirmative("Start").Negative("Back").Value(&v.confirm),
-	)).WithShowHelp(false)
+	}
+	if len(v.advisors) > 0 {
+		opts := []huh.Option[string]{huh.NewOption("None: the fixed search only", "")}
+		for _, a := range v.advisors {
+			opts = append(opts, huh.NewOption(a, a))
+		}
+		fields = append(fields, huh.NewSelect[string]().Title("Advisor").Options(opts...).Value(&v.optAdvisor).
+			Description("A router provider model proposes more settings to measure. It gets the hardware,\n"+
+				"the model facts and the measurements: no prompts and no user data. One call per run."))
+	}
+	fields = append(fields, huh.NewConfirm().Title("Start the optimizer?").
+		Description("It measures settings with llama-bench and checks the best one with llama-server.\n"+
+			"The models are unloaded for 5 to 15 minutes. Nothing changes until you apply the result.").
+		Affirmative("Start").Negative("Back").Value(&v.confirm))
+	v.form = huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
 	return v.form.Init()
 }
 
@@ -143,11 +157,11 @@ func (v *modelsView) submitOptimize() tea.Cmd {
 			return noteMsg{"the optimizer for " + id + " stops after its current tool", true}
 		}
 	case "optimize":
-		profile := optimize.Profile(v.optProfile)
+		profile, advisor := optimize.Profile(v.optProfile), v.optAdvisor
 		return tea.Batch(func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if err := v.c.StartOptimize(ctx, id, profile); err != nil {
+			if err := v.c.StartOptimize(ctx, id, profile, advisor); err != nil {
 				return noteMsg{"optimize " + id + ": " + err.Error(), false}
 			}
 			return noteMsg{"the optimizer for " + id + " started; it takes 5 to 15 minutes", true}

@@ -269,7 +269,7 @@ The `calibration` section sets up continuous calibration. The router keeps a sam
 | `no_seed` | boolean | `false` | Stops the first measurement of a new local model with the labelled request set. |
 | `auto_apply` | boolean | `false` | Lets the System API apply a rule proposal by itself, when the profile already names the proposal's route. |
 
-A provider route needs a price for calibration, because the calibration budget counts its cost. The router keeps the calibration spend in `usage.json` under the name `@calibration`.
+A provider route needs a price for calibration, because the calibration budget counts its cost. The router keeps the calibration spend in `usage.json` under the name `@calibration`, and the spend of the optimizer's advisor under `@optimizer`.
 
 ### Rule proposals
 

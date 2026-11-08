@@ -774,7 +774,8 @@ func TestOptimizerCard(t *testing.T) {
 	}
 	body := w.Body.String()
 	for _, want := range []string{"<h2>Optimizer</h2>", ">48.2<", ">1310<", "ubatch</span>: default to 1024",
-		`action="/console/models/optimize/apply"`, "Switch the backend to vulkan too", `action="/console/models/optimize"`} {
+		`action="/console/models/optimize/apply"`, "Switch the backend to vulkan too", `action="/console/models/optimize"`,
+		`<option>cloud/big</option>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("no %q in the model page", want)
 		}
@@ -791,6 +792,8 @@ func TestOptimizerCard(t *testing.T) {
 		want string
 	}{
 		{"/console/models/optimize", url.Values{"id": {"qwen"}, "profile": {"throughput"}}, "POST /models/qwen/optimize", `{"profile":"throughput"}`},
+		{"/console/models/optimize", url.Values{"id": {"qwen"}, "profile": {"single"}, "advisor": {"cloud/big"}}, "POST /models/qwen/optimize",
+			`{"advisor":{"model":"big","provider":"cloud"},"profile":"single"}`},
 		{"/console/models/optimize/apply", url.Values{"id": {"qwen"}, "backend": {"on"}}, "POST /models/qwen/optimize/apply", `{"backend":true}`},
 		{"/console/models/optimize/apply", url.Values{"id": {"qwen"}}, "POST /models/qwen/optimize/apply", `{"backend":false}`},
 	}

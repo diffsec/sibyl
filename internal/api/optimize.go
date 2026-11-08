@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,17 +20,28 @@ import (
 	"github.com/diffsec/sibyl/internal/hostctl"
 	"github.com/diffsec/sibyl/internal/models"
 	"github.com/diffsec/sibyl/internal/optimize"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 // OptimizeRequest starts an optimizer run.
 type OptimizeRequest struct {
 	Profile optimize.Profile `json:"profile"`
+	// Advisor is an optional router provider model that proposes more
+	// settings to measure.
+	Advisor *OptimizeAdvisor `json:"advisor,omitempty"`
+}
+
+// OptimizeAdvisor names a provider model of the router.
+type OptimizeAdvisor struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 // OptimizeState is the state of a model's last optimizer run.
 type OptimizeState struct {
 	Status         string                   `json:"status"` // running, done, failed or cancelled
 	Profile        optimize.Profile         `json:"profile"`
+	Advisor        string                   `json:"advisor,omitempty"` // provider/model
 	Stage          string                   `json:"stage,omitempty"`
 	Started        string                   `json:"started"`
 	Updated        string                   `json:"updated"`
@@ -98,7 +111,7 @@ func (s *Server) startOptimize(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("profile %q: use %s or %s", req.Profile, optimize.Single, optimize.Throughput))
 		return
 	}
-	in, runner, err := s.optimizeInput(id, req.Profile)
+	in, runner, err := s.optimizeInput(id, req.Profile, req.Advisor)
 	if err != nil {
 		code := http.StatusUnprocessableEntity
 		if errors.Is(err, os.ErrNotExist) {
@@ -120,6 +133,9 @@ func (s *Server) startOptimize(w http.ResponseWriter, r *http.Request) {
 
 	st := OptimizeState{Status: "running", Profile: req.Profile, Stage: "baseline",
 		Started: time.Now().UTC().Format(time.RFC3339), ImageTag: s.ImageTag}
+	if req.Advisor != nil {
+		st.Advisor = req.Advisor.Provider + "/" + req.Advisor.Model
+	}
 	if err := s.writeOptimize(id, st); err != nil {
 		s.endOptimize()
 		writeError(w, http.StatusInternalServerError, err)
@@ -164,7 +180,7 @@ func (s *Server) runOptimize(ctx context.Context, id string, st OptimizeState, i
 }
 
 // optimizeInput describes the model and the host for a run.
-func (s *Server) optimizeInput(id string, profile optimize.Profile) (optimize.Input, optimize.Runner, error) {
+func (s *Server) optimizeInput(id string, profile optimize.Profile, adv *OptimizeAdvisor) (optimize.Input, optimize.Runner, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, err := s.findModel(id)
@@ -216,8 +232,94 @@ func (s *Server) optimizeInput(id string, profile optimize.Profile) (optimize.In
 		}
 		in.MoE = moeCandidates(set.MoE.CPULayers, in.Layers, meta.ExpertCount)
 	}
+	if adv != nil {
+		rc, err := s.loadRouter()
+		if err != nil {
+			return optimize.Input{}, nil, err
+		}
+		if _, ok := rc.Providers.Providers[adv.Provider]; !ok || adv.Model == "" || strings.ContainsAny(adv.Model, " \t\r\n") {
+			return optimize.Input{}, nil, fmt.Errorf("advisor: the router has no provider %q with a model %q", adv.Provider, adv.Model)
+		}
+		in.Advisor = optimize.LLMAdvisor{Ask: s.askAdvisor(adv.Provider, adv.Model), Facts: s.optimizeFacts(m, meta, used)}
+	}
 	runner := &agentRunner{s: s, id: id, rel: filepath.ToSlash(m.Path), pool: m.Pool, gpus: strings.Join(list, ","), poll: s.tunePoll}
 	return in, runner, nil
+}
+
+// optimizeFacts describes the hardware and the model for the advisor. It
+// holds no prompts, no user data and no file paths.
+func (s *Server) optimizeFacts(m models.Model, meta *models.Meta, used []gpu.GPU) string {
+	var b strings.Builder
+	for i, g := range used {
+		parts := []string{g.Vendor}
+		if g.DeviceID != "" {
+			parts = append(parts, "device "+g.DeviceID)
+		}
+		if g.Driver != "" {
+			parts = append(parts, "driver "+g.Driver)
+		}
+		if g.VRAMTotal > 0 {
+			parts = append(parts, fmt.Sprintf("%.1f GiB VRAM", float64(g.VRAMTotal)/(1<<30)))
+		}
+		if g.Arch != "" {
+			parts = append(parts, "ROCm target "+g.Arch)
+		}
+		if g.LinkWidth != "" {
+			parts = append(parts, fmt.Sprintf("PCIe %s at %s", g.LinkWidth, g.LinkSpeed))
+		}
+		if g.VisibleVRAM > 0 && g.VisibleVRAM < g.VRAMTotal {
+			parts = append(parts, "Resizable BAR off")
+		}
+		fmt.Fprintf(&b, "GPU %d: %s\n", i, strings.Join(parts, ", "))
+	}
+	if _, ram, _ := s.memory(); ram > 0 {
+		fmt.Fprintf(&b, "System RAM: %.1f GiB\n", float64(ram)/(1<<30))
+	}
+	fmt.Fprintf(&b, "Model file: %s, %.1f GiB\n", filepath.Base(m.Path), float64(m.Size)/(1<<30))
+	if meta != nil {
+		fmt.Fprintf(&b, "Architecture: %s, native context %d tokens, %d attention layers", meta.Architecture, meta.ContextLength, meta.AttentionLayers)
+		if meta.ExpertCount > 0 {
+			fmt.Fprintf(&b, ", %d experts per MoE layer", meta.ExpertCount)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// askAdvisor asks the router's /sibyl/advise route. The provider keys stay
+// in the router.
+func (s *Server) askAdvisor(provider, model string) func(ctx context.Context, system, prompt string) (string, error) {
+	return func(ctx context.Context, system, prompt string) (string, error) {
+		body, err := json.Marshal(router.AdviseRequest{Provider: provider, Model: model, System: system, Prompt: prompt})
+		if err != nil {
+			return "", err
+		}
+		ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.RouterURL+"/sibyl/advise", bytes.NewReader(body))
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Authorization", "Bearer "+s.Token)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("reach the router: %w", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			return "", err
+		}
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("the router answered %d: %.300s", resp.StatusCode, raw)
+		}
+		var ar router.AdviseResponse
+		if err := json.Unmarshal(raw, &ar); err != nil {
+			return "", err
+		}
+		return ar.Answer, nil
+	}
 }
 
 // moeCandidates are the CPUMoE values to try: fewer layers with experts in

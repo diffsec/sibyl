@@ -20,10 +20,11 @@ import (
 )
 
 type modelsLoaded struct {
-	models []client.Model
-	hw     hardware.Config
-	gpus   []gpu.GPU
-	err    error
+	models   []client.Model
+	hw       hardware.Config
+	gpus     []gpu.GPU
+	advisors []string
+	err      error
 }
 
 type modelSaved struct {
@@ -55,7 +56,11 @@ type modelsView struct {
 	action     string
 	optProfile string
 	optBackend bool
-	fields     settingsForm
+	optAdvisor string
+	// advisors are the router provider models that can advise the
+	// optimizer.
+	advisors []string
+	fields   settingsForm
 	// orig is fields when the form opened, and secs the sections of the
 	// form, for the section bar.
 	orig settingsForm
@@ -96,7 +101,12 @@ func (v *modelsView) fetchModels() tea.Cmd {
 		}
 		// Without the GPU list the estimate leaves out the VRAM total.
 		gpus, _ := v.c.GPUs(ctx)
-		return modelsLoaded{models: m, hw: hw, gpus: gpus}
+		// Without the router, the optimizer offers no advisor.
+		var advisors []string
+		if r, err := v.c.Router(ctx); err == nil {
+			advisors = client.AdvisorChoices(r)
+		}
+		return modelsLoaded{models: m, hw: hw, gpus: gpus, advisors: advisors}
 	}
 }
 
@@ -345,7 +355,7 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 	case modelsLoaded:
 		v.err = msg.err
 		if msg.err == nil {
-			v.list, v.hw, v.gpus = client.OrderWithDrafters(msg.models), msg.hw, msg.gpus
+			v.list, v.hw, v.gpus, v.advisors = client.OrderWithDrafters(msg.models), msg.hw, msg.gpus, msg.advisors
 		}
 		if v.cursor >= len(v.list) {
 			v.cursor = max(0, len(v.list)-1)

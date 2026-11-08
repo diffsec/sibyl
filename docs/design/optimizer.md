@@ -74,7 +74,7 @@ The search itself runs in the System API (`internal/optimize`). It writes one re
 
 The advisor is off by default. When the owner turns it on, the optimizer asks one provider model that the router already has.
 
-- A new router route, `POST /sibyl/advise`, takes a provider and a model. Only the System API key can call it, as with `/sibyl/classify`. The provider keys stay in the router.
+- A new router route, `POST /sibyl/advise`, takes a provider and a model. Only the System API key can call it, as with `/sibyl/classify`. The provider keys stay in the router. The router counts the cost in `usage.json` under `@optimizer`, apart from the calibration budget.
 - The optimizer sends the GPU names and VRAM, the system RAM, the backend, the model architecture, the parameter count, the quantization, the layer and expert counts, the context size, and every measured result.
 - The advisor answers with JSON: up to six candidates, each one a set of the settings in the table above. The optimizer checks each candidate with the same allowlist as the agent, and drops what fails.
 - The advisor is most useful for `-ot` patterns on a new MoE architecture, and for the order of the stages on hardware that the fixed search does not know.

@@ -221,6 +221,7 @@ type Benchmark struct {
 type Optimize struct {
 	Status         string                   `json:"status"` // running, done, failed or cancelled
 	Profile        optimize.Profile         `json:"profile"`
+	Advisor        string                   `json:"advisor,omitempty"`
 	Stage          string                   `json:"stage,omitempty"`
 	Started        string                   `json:"started"`
 	Updated        string                   `json:"updated"`
@@ -293,9 +294,29 @@ func (c *Client) StartBenchmark(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/benchmark", nil, nil)
 }
 
-// StartOptimize starts the optimizer for a model.
-func (c *Client) StartOptimize(ctx context.Context, id string, p optimize.Profile) error {
-	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/optimize", map[string]any{"profile": p}, nil)
+// StartOptimize starts the optimizer for a model. advisor is a router
+// provider model as provider/model, or empty for none.
+func (c *Client) StartOptimize(ctx context.Context, id string, p optimize.Profile, advisor string) error {
+	body := map[string]any{"profile": p}
+	if prov, model, ok := strings.Cut(advisor, "/"); ok {
+		body["advisor"] = map[string]string{"provider": prov, "model": model}
+	}
+	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/optimize", body, nil)
+}
+
+// AdvisorChoices lists the router provider models that can advise the
+// optimizer, as provider/model. A provider needs its key.
+func AdvisorChoices(r Router) []string {
+	var out []string
+	for _, p := range r.Providers {
+		if !p.KeySet {
+			continue
+		}
+		for _, m := range p.Models {
+			out = append(out, p.Name+"/"+m)
+		}
+	}
+	return out
 }
 
 // CancelOptimize cancels a model's optimizer run.

@@ -106,7 +106,7 @@
       <p class="warn">Running ({{.Profile}}), stage {{.Stage}}. The models are unloaded until it ends. Reload the page to see the progress.</p>
       <form method="post" action="/console/models/optimize/cancel"><input type="hidden" name="id" value="{{$id}}"><button type="submit">Cancel the run</button></form>
     {{else if .Recommendation}}{{$r := .Recommendation}}
-      <p>Last run ({{.Profile}}), {{.Updated}}, llama.cpp image {{.ImageTag}}.</p>
+      <p>Last run ({{.Profile}}{{with .Advisor}}, advisor {{.}}{{end}}), {{.Updated}}, llama.cpp image {{.ImageTag}}.</p>
       <table>
         <thead><tr><th></th><th>Backend</th><th class="num">Generation tok/s</th><th class="num">Prompt tok/s</th>{{if $r.Best.TotalTPS}}<th class="num">Total tok/s</th><th class="num">Parallel</th>{{end}}</tr></thead>
         <tbody>
@@ -135,9 +135,10 @@
       <option value="single">One user: generation speed, then prompt speed</option>
       <option value="throughput">Throughput: total speed over parallel requests</option>
     </select></label>
+    {{if .Advisors}}<label>Advisor <select name="advisor"><option value="">None: the fixed search only</option>{{range .Advisors}}<option>{{.}}</option>{{end}}</select></label>{{end}}
     <button type="submit">Start the optimizer</button>
   </form>
-  <p class="muted">The optimizer measures settings with llama-bench on this hardware, and checks the best with llama-server at the model's context. The models are unloaded for 5 to 15 minutes. Nothing changes until you apply the result.</p>
+  <p class="muted">The optimizer measures settings with llama-bench on this hardware, and checks the best with llama-server at the model's context. The models are unloaded for 5 to 15 minutes. Nothing changes until you apply the result. An advisor gets the hardware, the model facts and the measurements, with no prompts and no user data, and proposes more settings to measure.</p>
   {{end}}
 </section>
 {{end}}

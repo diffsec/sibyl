@@ -103,8 +103,9 @@ type Input struct {
 	// Layers is the model's block count. A model with every expert in
 	// system RAM (models.AllLayers) runs with CPUMoE at Layers.
 	Layers int
-	// Proposals are extra candidates, from the advisor.
-	Proposals []Candidate
+	// Advisor proposes more candidates after the fixed stages. Nil skips
+	// the stage.
+	Advisor Advisor
 }
 
 // Change is one setting that the recommendation changes.
@@ -247,9 +248,25 @@ func (s *Search) Run(ctx context.Context, in Input) (*Recommendation, error) {
 	if err := pick("moe", cands); err != nil {
 		return nil, err
 	}
-	// The advisor's proposals.
-	if err := pick("advisor", in.Proposals); err != nil {
-		return nil, err
+	// The advisor's proposals. A failed advisor does not stop the run.
+	if in.Advisor != nil {
+		s.report("advisor")
+		props, err := in.Advisor.Propose(ctx, in, best, slices.Clone(s.results))
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err != nil {
+			s.results = append(s.results, Result{Candidate: best.Candidate, Stage: "advisor", Error: "advisor: " + err.Error()})
+		}
+		cands = nil
+		for _, p := range props {
+			if p != best.Candidate && in.valid(p) && !slices.Contains(cands, p) && len(cands) < maxProposals {
+				cands = append(cands, p)
+			}
+		}
+		if err := pick("advisor", cands); err != nil {
+			return nil, err
+		}
 	}
 	if in.Profile == Throughput {
 		if best, err = s.parallel(ctx, best); err != nil {
@@ -500,15 +517,19 @@ func (s *Search) load(ctx context.Context, c Candidate) (bool, error) {
 	return false, nil
 }
 
-// groupByBackend splits candidates by backend, in order.
+// groupByBackend splits candidates by backend and tensor split, in order.
+// One llama-bench run holds one of each: the backend is the image, and
+// llama-bench prints the tensor split rounded, so two splits in one run
+// cannot be told apart.
 func groupByBackend(cands []Candidate) [][]Candidate {
 	var out [][]Candidate
-	idx := map[string]int{}
+	idx := map[[2]string]int{}
 	for _, c := range cands {
-		i, ok := idx[c.Backend]
+		k := [2]string{c.Backend, c.TensorSplit}
+		i, ok := idx[k]
 		if !ok {
 			i = len(out)
-			idx[c.Backend] = i
+			idx[k] = i
 			out = append(out, nil)
 		}
 		out[i] = append(out[i], c)
