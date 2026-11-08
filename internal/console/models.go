@@ -181,11 +181,15 @@ func (c *Console) modelPage(w http.ResponseWriter, r *http.Request) {
 		moe = m.Meta.ExpertCount > 0
 	}
 	spec := slices.DeleteFunc(slices.Clone(models.SpecTypes), func(s string) bool { return s == "none" })
+	var advisors []string
+	if rc, err := c.client.Router(r.Context()); err == nil {
+		advisors = client.AdvisorChoices(rc)
+	}
 	data := pageData(r)
 	for k, v := range map[string]any{
 		"Model": m, "Head": head, "Fit": fitText(m.Fit), "Form": modelform.FromSettings(m.Settings),
 		"Layouts": layouts, "Drafts": drafts, "SimpleDrafts": simple, "CacheTypes": models.CacheTypes, "Presets": models.Presets,
-		"SpecTypes": spec, "MoE": moe, "Reasoning": reasoningControl(m),
+		"SpecTypes": spec, "MoE": moe, "Reasoning": reasoningControl(m), "Advisors": advisors,
 	} {
 		data[k] = v
 	}
@@ -251,7 +255,7 @@ func (c *Console) benchModel(w http.ResponseWriter, r *http.Request) {
 
 func (c *Console) optimizeModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PostFormValue("id")
-	err := c.client.StartOptimize(r.Context(), id, optimize.Profile(r.PostFormValue("profile")))
+	err := c.client.StartOptimize(r.Context(), id, optimize.Profile(r.PostFormValue("profile")), r.PostFormValue("advisor"))
 	c.back(w, r, "models/edit?id="+url.QueryEscape(id), "the optimizer for "+id+" started", err)
 }
 

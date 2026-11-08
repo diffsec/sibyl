@@ -606,7 +606,13 @@ func (s *Server) compare(ctx context.Context, cfg *Config, smp *Sample, ready fu
 }
 
 // complete sends one chat request without streaming and reads the answer.
+// The calibration budget counts its cost.
 func (s *Server) complete(ctx context.Context, cfg *Config, rt Route, body []byte) (*Side, error) {
+	return s.completeAs(ctx, cfg, rt, body, calibrationSpender)
+}
+
+// completeAs is complete, with the cost recorded for spender.
+func (s *Server) completeAs(ctx context.Context, cfg *Config, rt Route, body []byte, spender string) (*Side, error) {
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -638,8 +644,8 @@ func (s *Server) complete(ctx context.Context, cfg *Config, rt Route, body []byt
 	if !rt.Local() {
 		if p, ok := cfg.price(rt); ok {
 			side.CostUSD = p.Cost(side.Usage)
-			if err := s.Spend.Add(calibrationSpender, side.CostUSD, start); err != nil {
-				s.logger().Error("record the calibration spend", "err", err)
+			if err := s.Spend.Add(spender, side.CostUSD, start); err != nil {
+				s.logger().Error("record the spend", "spender", spender, "err", err)
 			}
 		}
 	}

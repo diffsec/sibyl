@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/diffsec/sibyl/internal/models"
 	"github.com/diffsec/sibyl/internal/optimize"
+	"github.com/diffsec/sibyl/internal/router"
 )
 
 // fakeAgent answers tune requests until the test ends: Vulkan generates
@@ -180,3 +184,46 @@ func TestOptimizeRefusals(t *testing.T) {
 }
 
 var optimizeRecommendationUnverified = optimize.Recommendation{}
+
+func TestOptimizeAdvisor(t *testing.T) {
+	f := newFixture(t)
+	f.server.tunePoll = 5 * time.Millisecond
+	f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[1,0],"layout":"span"}`, true)
+	write(t, f.paths.routerFile(router.ProvidersName), "providers:\n  cloud:\n    type: openai\n    base_url: https://x/v1\n")
+	var mu sync.Mutex
+	var got router.AdviseRequest
+	var auth string
+	rt := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		auth = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"route":"cloud/big","answer":"{\"candidates\":[{\"ubatch\":1024,\"split_mode\":\"row\"}]}"}`))
+	}))
+	defer rt.Close()
+	f.server.RouterURL = rt.URL
+	fakeAgent(t, f, false)
+	if code, b := f.do(t, "POST", "/models/big/optimize", `{"profile":"single","advisor":{"provider":"nope","model":"big"}}`, true); code != 422 {
+		t.Errorf("unknown provider = %d %v", code, b)
+	}
+	if code, b := f.do(t, "POST", "/models/big/optimize", `{"profile":"single","advisor":{"provider":"cloud","model":"big"}}`, true); code != 202 {
+		t.Fatalf("start = %d %v", code, b)
+	}
+	b := waitOptimize(t, f, "big", "done")
+	if b["advisor"] != "cloud/big" {
+		t.Errorf("advisor %v", b["advisor"])
+	}
+	var stages []string
+	for _, r := range b["results"].([]any) {
+		stages = append(stages, r.(map[string]any)["stage"].(string))
+	}
+	if !slices.Contains(stages, "advisor") {
+		t.Errorf("no advisor result in %v", stages)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if auth != "Bearer "+token || got.Provider != "cloud" || got.Model != "big" || !strings.Contains(got.Prompt, "GPU 0: amd\n") ||
+		!strings.Contains(got.Prompt, "big-00001-of-00002.gguf") || strings.Contains(got.Prompt, f.paths.Models) {
+		t.Errorf("advise request auth %q %+v", auth, got)
+	}
+}

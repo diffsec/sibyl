@@ -39,7 +39,7 @@ type Server struct {
 	// LocalURL is llama-swap, such as http://llama-swap:8080.
 	LocalURL string
 	// AdminKey is the System API key. It is not an inference key: it can
-	// only call /sibyl/explain.
+	// only call the /sibyl/ routes.
 	AdminKey string
 	// DefaultKey is the key of the client "default".
 	DefaultKey string
@@ -177,6 +177,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/", s.authed(s.passthrough))
 	mux.HandleFunc("POST /sibyl/explain", s.explain)
 	mux.HandleFunc("POST /sibyl/classify", s.classifyText)
+	mux.HandleFunc("POST /sibyl/advise", s.advise)
 	return mux
 }
 
