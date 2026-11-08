@@ -193,7 +193,11 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 		for i := range devs {
 			devs[i] = devPrefix + strconv.Itoa(i)
 		}
-		args = append(args, "--split-mode", "layer", "--device", strings.Join(devs, ","))
+		mode := s.SplitMode
+		if mode == "" {
+			mode = "layer"
+		}
+		args = append(args, "--split-mode", mode, "--device", strings.Join(devs, ","))
 		if len(s.TensorSplit) > 0 {
 			parts := make([]string, len(s.TensorSplit))
 			for i, v := range s.TensorSplit {
@@ -206,6 +210,12 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 	}
 	if s.Parallel > 0 {
 		args = append(args, "--parallel", strconv.Itoa(s.Parallel))
+	}
+	if s.Batch > 0 {
+		args = append(args, "--batch-size", strconv.Itoa(s.Batch))
+	}
+	if s.UBatch > 0 {
+		args = append(args, "--ubatch-size", strconv.Itoa(s.UBatch))
 	}
 	args = append(args, s.KVCache.Flags()...)
 	args = append(args, s.MoE.Flags()...)

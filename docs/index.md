@@ -39,6 +39,7 @@ These pages are for contributors. They explain how Sibyl works and why.
 | [Overview](design/overview.md) | The decisions, the host image, the services, storage, security and the phase plan |
 | [Router](design/router.md) | The model router, the classifier, calibration and their measurements |
 | [Web console](design/web-console.md) | The web console, its sign-in and its security |
+| [Inference optimizer](design/optimizer.md) | The measured search for faster llama.cpp settings, and the optional LLM advisor |
 | [Diagnostics](design/diagnostics.md) | The watchdog, metrics, incidents, opt-in upload and the fleet service plan |
 | [Development](development.md) | Building, testing, CI, releases and testing on hardware |
 

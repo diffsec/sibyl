@@ -20,6 +20,9 @@ type Form struct {
 	CtxSize         string
 	Parallel        string
 	TensorSplit     string // comma separated
+	Batch           string
+	UBatch          string
+	SplitMode       string // empty (layer), layer or row
 	Embedding       bool
 	Hidden          bool
 	Temperature     string
@@ -84,6 +87,7 @@ func FromSettings(s models.Settings) Form {
 		MoELayers:       FmtMoELayers(s.MoE.CPULayers),
 		Fit:             string(s.Fit),
 		Preset:          s.Preset,
+		SplitMode:       s.SplitMode,
 
 		Args: strings.Join(s.Args, " "),
 	}
@@ -98,6 +102,12 @@ func FromSettings(s models.Settings) Form {
 	}
 	if s.MoE.CacheMiB > 0 {
 		f.MoECacheMiB = strconv.Itoa(s.MoE.CacheMiB)
+	}
+	if s.Batch > 0 {
+		f.Batch = strconv.Itoa(s.Batch)
+	}
+	if s.UBatch > 0 {
+		f.UBatch = strconv.Itoa(s.UBatch)
 	}
 	split := make([]string, len(s.TensorSplit))
 	for i, v := range s.TensorSplit {
@@ -168,6 +178,7 @@ func (f Form) Settings() (models.Settings, error) {
 		KVCache:   models.KVCache{TypeK: f.KVTypeK, TypeV: f.KVTypeV},
 		Fit:       models.FitMode(f.Fit),
 		Preset:    f.Preset,
+		SplitMode: f.SplitMode,
 	}
 	if v := strings.TrimSpace(f.Reasoning); v != "" {
 		name, value, ok := strings.Cut(v, "=")
@@ -190,6 +201,16 @@ func (f Form) Settings() (models.Settings, error) {
 		return s, e
 	} else if n != nil {
 		s.Parallel = *n
+	}
+	if n, e := ParseInt("batch size", f.Batch); e != nil {
+		return s, e
+	} else if n != nil {
+		s.Batch = *n
+	}
+	if n, e := ParseInt("micro-batch size", f.UBatch); e != nil {
+		return s, e
+	} else if n != nil {
+		s.UBatch = *n
 	}
 	if s.MoE.CPULayers, err = ParseMoELayers(f.MoELayers); err != nil {
 		return s, err

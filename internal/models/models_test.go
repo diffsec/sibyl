@@ -91,7 +91,12 @@ func TestSettingsValidate(t *testing.T) {
 		{"pin in range", Settings{Layout: "gpu:1"}, false},
 		{"pin out of range", Settings{Layout: "gpu:2"}, true},
 		{"bad layout", Settings{Layout: "both"}, true},
-		{"safe args", Settings{Args: []string{"--batch-size=2048", "--ubatch-size=512"}}, false},
+		{"safe args", Settings{Args: []string{"--threads=8", "--mlock"}}, false},
+		{"batch in args", Settings{Args: []string{"--batch-size=2048"}}, true},
+		{"batch", Settings{Batch: 4096, UBatch: 1024, SplitMode: "row"}, false},
+		{"batch too small", Settings{Batch: 16}, true},
+		{"ubatch over batch", Settings{Batch: 512, UBatch: 1024}, true},
+		{"bad split mode", Settings{SplitMode: "tensor"}, true},
 		{"shell chars", Settings{Args: []string{"--temp;rm"}}, true},
 		{"reserved flag", Settings{Args: []string{"--port=1"}}, true},
 		{"reserved short flag", Settings{Args: []string{"-m"}}, true},
@@ -123,5 +128,23 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 	if out["a"].Layout != "gpu:0" || out["a"].CtxSize != 8192 || out["a"].Args[0] != "--temp=0.7" {
 		t.Errorf("round trip = %+v", out)
+	}
+}
+
+func TestLoadSettingsMovesBatchArgs(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "models.yaml")
+	body := "a:\n  args: [--batch-size=4096, -ub, \"1024\", --mlock]\nb:\n  batch: 2048\n  args: [-b, \"512\"]\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSettings(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := got["a"]; a.Batch != 4096 || a.UBatch != 1024 || len(a.Args) != 1 || a.Args[0] != "--mlock" {
+		t.Errorf("a %+v", a)
+	}
+	if b := got["b"]; b.Batch != 2048 || len(b.Args) != 0 {
+		t.Errorf("b keeps its typed batch: %+v", b)
 	}
 }

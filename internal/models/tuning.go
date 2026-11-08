@@ -124,6 +124,7 @@ var typedFlags = []string{
 	"-c", "--ctx-size", "--embedding", "--embeddings",
 	"-np", "--parallel", "-ts", "--tensor-split",
 	"-cmoe", "--cpu-moe", "-ncmoe", "--n-cpu-moe", "--moe-cache-mib",
+	"-b", "--batch-size", "-ub", "--ubatch-size",
 }
 
 func checkFloat(name string, v *float64, lo, hi float64) error {

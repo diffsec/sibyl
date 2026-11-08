@@ -235,6 +235,25 @@ func TestGenerateParallelAndSplit(t *testing.T) {
 	}
 }
 
+func TestGenerateBatchAndSplitMode(t *testing.T) {
+	ms := []models.Model{{ID: "big", Path: "big.gguf"}, {ID: "small", Path: "small.gguf"}}
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), ms, map[string]models.Settings{
+		"big":   {Batch: 4096, UBatch: 1024, SplitMode: "row"},
+		"small": {Layout: "gpu:0", SplitMode: "row"},
+	})
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	if cmd := cfg.Models["big"].Cmd; !strings.Contains(cmd, "--split-mode row") || !strings.Contains(cmd, "--batch-size 4096") ||
+		!strings.Contains(cmd, "--ubatch-size 1024") {
+		t.Errorf("big cmd %s", cmd)
+	}
+	// One GPU does not split, whatever the split mode says.
+	if cmd := cfg.Models["small"].Cmd; !strings.Contains(cmd, "--split-mode none") || strings.Contains(cmd, "batch-size") {
+		t.Errorf("small cmd %s", cmd)
+	}
+}
+
 func TestGenerateMoE(t *testing.T) {
 	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), installed[:2], map[string]models.Settings{
 		"big-70b":  {MoE: models.MoE{CPULayers: models.AllLayers, CacheMiB: 8192}},

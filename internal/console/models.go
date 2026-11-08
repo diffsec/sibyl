@@ -194,6 +194,7 @@ func formFromPost(r *http.Request) modelform.Form {
 	v := func(name string) string { return strings.TrimSpace(r.PostFormValue(name)) }
 	return modelform.Form{
 		Layout: v("layout"), CtxSize: v("ctxsize"), Parallel: v("parallel"), TensorSplit: v("tensorsplit"),
+		Batch: v("batch"), UBatch: v("ubatch"), SplitMode: v("splitmode"),
 		Embedding: r.PostFormValue("embedding") == "on", Hidden: r.PostFormValue("hidden") == "on",
 		Temperature: v("temperature"), TopK: v("topk"), TopP: v("topp"), MinP: v("minp"),
 		RepeatPenalty: v("repeatpenalty"), PresencePenalty: v("presencepenalty"),

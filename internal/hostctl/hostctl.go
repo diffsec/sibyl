@@ -36,6 +36,9 @@ const (
 	Reload Action = "reload"
 	// Bench runs llama-bench with both backend images on one model.
 	Bench Action = "bench"
+	// Tune runs one llama.cpp tool for the optimizer on one model, from the
+	// files in <run>/tune. The agent checks every argument.
+	Tune Action = "tune"
 )
 
 // benchTarget matches the model IDs that the host agent accepts.
@@ -74,9 +77,9 @@ func (c *Client) Request(a Action, unit string) error {
 		if !slices.Contains(Units, unit) {
 			return fmt.Errorf("unit %q is not one of %v", unit, Units)
 		}
-	case Bench:
+	case Bench, Tune:
 		if !benchTarget.MatchString(unit) {
-			return fmt.Errorf("model ID %q is not valid for a benchmark", unit)
+			return fmt.Errorf("model ID %q is not valid for a %s request", unit, a)
 		}
 	default:
 		return fmt.Errorf("unknown action %q", a)

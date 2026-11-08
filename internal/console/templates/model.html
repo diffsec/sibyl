@@ -22,6 +22,12 @@
   </div>
   <p class="muted">Parallel slots share the context. The tensor split is the share of the layers on each GPU, such as 3,2.</p>
   <div class="row">
+    <label>Batch size <input name="batch" inputmode="numeric" placeholder="llama.cpp default" value="{{$f.Batch}}"></label>
+    <label>Micro-batch size <input name="ubatch" inputmode="numeric" placeholder="llama.cpp default" value="{{$f.UBatch}}"></label>
+    <label>Split mode <select name="splitmode"><option value="">Layer (default)</option><option value="row"{{if eq $f.SplitMode "row"}} selected{{end}}>Row</option></select></label>
+  </div>
+  <p class="muted">A larger micro-batch makes the prompt faster and uses more GPU memory. The split mode applies only to a model that spans GPUs.</p>
+  <div class="row">
     <label>KV cache K type <select name="kvtypek"><option value="">Default (f16)</option>{{range .CacheTypes}}<option{{if eq . $f.KVTypeK}} selected{{end}}>{{.}}</option>{{end}}</select></label>
     <label>KV cache V type <select name="kvtypev"><option value="">Default (f16)</option>{{range .CacheTypes}}<option{{if eq . $f.KVTypeV}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   </div>

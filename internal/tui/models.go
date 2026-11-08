@@ -200,6 +200,12 @@ func (v *modelsView) editFormWith(m client.Model, fields settingsForm) tea.Cmd {
 				DescriptionFunc(func() string { return contextNote(m, f, hw, gpus) }, f),
 			huh.NewInput().Title("Tensor split").Placeholder(splitHint(m)).Value(&f.TensorSplit).
 				Description("The share of the layers on each GPU, such as 3,2. Empty splits by the memory that each GPU has left."),
+			optionalNumber("Batch size", "", true, &f.Batch).Placeholder("llama.cpp default"),
+			optionalNumber("Micro-batch size", "", true, &f.UBatch).Placeholder("llama.cpp default").
+				Description("A larger micro-batch makes the prompt faster and uses more GPU memory."),
+			huh.NewSelect[string]().Title("Split mode").Inline(true).Options(
+				huh.NewOption("Layer", ""), huh.NewOption("Row", "row"),
+			).Value(&f.SplitMode).Description("Only for a model that spans GPUs."),
 			huh.NewSelect[string]().Title("KV cache K type").Inline(true).Options(kv...).Value(&f.KVTypeK),
 			huh.NewSelect[string]().Title("KV cache V type").Inline(true).Options(kv...).Value(&f.KVTypeV),
 			huh.NewConfirm().Title("Embedding model").Value(&f.Embedding),

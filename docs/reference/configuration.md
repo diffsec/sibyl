@@ -61,6 +61,9 @@ qwen3-32b-q4_k_m:
 | `reasoning.value` | string | `on` or `off` for `enable_thinking` and `thinking`. For `reasoning_effort`, 1 to 32 letters, digits, `_` and `-`. | `--chat-template-kwargs` | The default reasoning. See [Reasoning settings](#reasoning-settings). |
 | `parallel` | integer | 0 to 64 | `--parallel` | The number of requests that the model answers at once. The requests share the context. 0 leaves llama-server's default. |
 | `tensor_split` | list of numbers | 0 or more each, at most one value per selected GPU | `--tensor-split` | The share of the layers on each GPU of a spanning model. Empty lets Sibyl split by the memory that each GPU has left. |
+| `batch` | integer | 0, or 32 to 65536 | `--batch-size` | The logical batch size. 0 leaves llama-server's default. |
+| `ubatch` | integer | 0, or 32 to 65536, and not larger than `batch` | `--ubatch-size` | The physical batch size. A larger value makes the prompt faster and needs a larger compute buffer on the GPU. 0 leaves llama-server's default. |
+| `split_mode` | string | `layer` or `row` | `--split-mode` | How a spanning model splits across the GPUs. Empty is `layer`. It has no effect on one GPU. |
 | `kv_cache.type_k` | string | `f32`, `f16`, `bf16`, `q8_0`, `q4_0`, `q4_1`, `iq4_nl`, `q5_0`, `q5_1` | `--cache-type-k` | The K cache type. |
 | `kv_cache.type_v` | string | same as `type_k` | `--cache-type-v` | The V cache type. |
 | `speculative.types` | list of strings | `none`, `draft-simple`, `draft-eagle3`, `draft-mtp`, `draft-dflash`, `draft-dspark`, `ngram-simple`, `ngram-map-k`, `ngram-map-k4v`, `ngram-mod`, `ngram-cache` | `--spec-type` | The speculative decoding types, tried in order. |

@@ -24,7 +24,7 @@ type settingsSection struct {
 }
 
 var settingsSections = []settingsSection{
-	{"Model", []string{"Layout", "Fit", "Parallel", "CtxSize", "TensorSplit", "KVTypeK", "KVTypeV", "Embedding", "Hidden"}},
+	{"Model", []string{"Layout", "Fit", "Parallel", "CtxSize", "TensorSplit", "Batch", "UBatch", "SplitMode", "KVTypeK", "KVTypeV", "Embedding", "Hidden"}},
 	{"Mixture of Experts", []string{"MoELayers", "MoECacheMiB"}},
 	{"Sampling defaults", []string{"Preset", "Temperature", "TopK", "TopP", "MinP", "RepeatPenalty", "PresencePenalty"}},
 	{"Reasoning", []string{"Reasoning"}},

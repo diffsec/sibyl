@@ -159,7 +159,7 @@ Each model in `GET /models` has these fields:
 | `drafter` | `true` for a DFlash or EAGLE-3 drafter. llama-swap, the router and the Ollama list do not serve it, and it has no `fit`. |
 | `drafters` | The number of drafters on Hugging Face, from the last search. Missing until a search finishes. `GET /models` starts the searches in the background. |
 
-The settings body of `PUT /models/{id}` has these fields: `layout`, `ctx_size`, `embedding`, `hidden`, `sampling`, `speculative`, `kv_cache`, `moe`, `fit`, `preset`, `reasoning`, `parallel`, `tensor_split` and `args`. [Configuration](configuration.md) describes each field and its range. The route returns `404` for a model that is not installed. It returns `422` in these cases:
+The settings body of `PUT /models/{id}` has these fields: `layout`, `ctx_size`, `embedding`, `hidden`, `sampling`, `speculative`, `kv_cache`, `moe`, `fit`, `preset`, `reasoning`, `parallel`, `tensor_split`, `batch`, `ubatch`, `split_mode` and `args`. [Configuration](configuration.md) describes each field and its range. The route returns `404` for a model that is not installed. It returns `422` in these cases:
 
 - A value is out of range.
 - `moe` is set, but the model file has no experts.
