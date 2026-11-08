@@ -109,6 +109,8 @@ Arcane is a web interface for containers. Use it to run other containers and Com
 
 Arcane uses the same Podman as the Sibyl services, so it can also stop them. A Sibyl service that you stop starts again at the next boot.
 
+At boot, the host starts every container that has the restart policy `always` or `unless-stopped`, such as `restart: unless-stopped` in a Compose file. A container that you stop with `unless-stopped` stays stopped. A container with no restart policy does not start at boot.
+
 Arcane can build images from a Compose `build:` section with the local build provider. Podman builds them with Buildah. Build secrets, SSH forwarding and BuildKit cache import or export do not work on this host. For those, use the Depot build provider.
 
 The host accepts images from these public registries:
