@@ -140,6 +140,10 @@ A value that does not fit the variant or the detected GPUs returns `422`.
 | `DELETE /models/{id}` | None | The apply result | Deletes the model file and all of its shards, removes its settings, and applies. |
 | `POST /models/{id}/benchmark` | None | `202`, `{"status": "queued"}` | Asks the host agent to run `llama-bench` on the model with each backend image. |
 | `GET /models/{id}/benchmark` | None | The benchmark state | The progress or the result of the last benchmark. `404` if no benchmark ran. |
+| `POST /models/{id}/optimize` | `{"profile": "single"}` or `"throughput"` | `202`, the optimizer state | Starts the optimizer for a chat model. It unloads the models while it runs. `409` while another run goes. |
+| `GET /models/{id}/optimize` | None | The optimizer state | The stage, every measured result, and the recommendation when the run is done. `404` if no run took place. |
+| `DELETE /models/{id}/optimize` | None | `202` | Cancels the run. The tool that runs on the host finishes first. |
+| `POST /models/{id}/optimize/apply` | `{"backend": true}` or `false` | The apply result | Writes the recommended settings. With `backend` true, it also switches the backend of every model when the run found a faster one. `409` if the settings did not load at the model's context. |
 | `GET /running` | None | The running models | The models that llama-swap runs, the loads that wait, and the last failed load of each model. `502` when llama-swap does not answer. |
 | `POST /models/{id}/load` | None | `202`, `{"status": "loading"}` | Starts the model in the background, through llama-swap. llama-swap first stops the models that cannot run with it. `409` while the model is loading, `422` for a drafter. |
 | `POST /models/{id}/unload` | None | `{"status": "unloaded"}` | Stops the model. `422` for a drafter, which stops with its model. |
