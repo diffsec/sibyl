@@ -79,7 +79,10 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "GET /models":
 		_, _ = io.WriteString(w, `[{"id":"qwen","size_bytes":32212254720,"shards":2,"settings":{"ctx_size":65536,"sampling":{"temperature":0.6}},
 			"meta":{"architecture":"qwen3moe","context_length":262144,"expert_count":128,"reasoning":{"var":"reasoning_effort","values":["low","high","xhigh"]}},
-			"fit":{"ctx":65536,"slots":2,"slot_ctx":32768,"fits":true},"benchmark":{"status":"done","results":{"hip":{"generation_tokens_per_second":40.5,"prompt_tokens_per_second":900}},"recommended":"hip"}},
+			"fit":{"ctx":65536,"slots":2,"slot_ctx":32768,"fits":true},"benchmark":{"status":"done","results":{"hip":{"generation_tokens_per_second":40.5,"prompt_tokens_per_second":900}},"recommended":"hip"},
+			"optimize":{"status":"done","profile":"single","updated":"2026-11-08T10:00:00Z","image_tag":"sha-test","recommendation":{
+			"baseline":{"backend":"hip","gen_tps":40.5,"prompt_tps":900},"best":{"backend":"vulkan","ubatch":1024,"gen_tps":48.25,"prompt_tps":1310},
+			"backend":"vulkan","verified":true,"changes":[{"setting":"ubatch","from":"default","to":"1024"},{"setting":"backend","from":"hip","to":"vulkan"}]}}},
 			{"id":"gemma","drafters":2},{"id":"embed","settings":{"embedding":true}},{"id":"gemma-dflash","drafter":true}]`)
 	case "GET /running":
 		_, _ = io.WriteString(w, `{"models":[{"id":"qwen","state":"ready"}],"loading":["gemma"],"errors":{"embed":"llama-swap /upstream/embed/health: 502 Bad Gateway"}}`)
@@ -759,5 +762,52 @@ func TestTailscalePage(t *testing.T) {
 	h.do("POST", "/console/host/tailscale/off", url.Values{}, true)
 	if !slices.Contains(h.api.calls, "DELETE /host/tailscale") {
 		t.Errorf("API calls %v", h.api.calls)
+	}
+}
+
+func TestOptimizerCard(t *testing.T) {
+	h := newHarness(t)
+	h.login()
+	w := h.do("GET", "/console/models/edit?id=qwen", nil, false)
+	if w.Code != 200 {
+		t.Fatalf("model page = %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"<h2>Optimizer</h2>", ">48.2<", ">1310<", "ubatch</span>: default to 1024",
+		`action="/console/models/optimize/apply"`, "Switch the backend to vulkan too", `action="/console/models/optimize"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("no %q in the model page", want)
+		}
+	}
+	// The optimizer forms are outside the settings form: a form in a form
+	// is not valid HTML.
+	if i, j := strings.Index(body, `action="/console/models/optimize"`), strings.Index(body, `action="/console/models/edit"`); i < 0 || j < 0 || i > j {
+		t.Errorf("the optimizer card is not before the settings form")
+	}
+	cases := []struct {
+		path string
+		form url.Values
+		key  string
+		want string
+	}{
+		{"/console/models/optimize", url.Values{"id": {"qwen"}, "profile": {"throughput"}}, "POST /models/qwen/optimize", `{"profile":"throughput"}`},
+		{"/console/models/optimize/apply", url.Values{"id": {"qwen"}, "backend": {"on"}}, "POST /models/qwen/optimize/apply", `{"backend":true}`},
+		{"/console/models/optimize/apply", url.Values{"id": {"qwen"}}, "POST /models/qwen/optimize/apply", `{"backend":false}`},
+	}
+	for _, c := range cases {
+		w := h.do("POST", c.path, c.form, true)
+		if w.Code != http.StatusSeeOther || !strings.Contains(w.Header().Get("Location"), "/console/models/edit?id=qwen") {
+			t.Errorf("%s = %d %s", c.path, w.Code, w.Header().Get("Location"))
+		}
+		if got, _ := json.Marshal(h.api.body(c.key)); string(got) != c.want {
+			t.Errorf("%s body %s", c.key, got)
+		}
+	}
+	if w := h.do("POST", "/console/models/optimize/cancel", url.Values{"id": {"qwen"}}, true); w.Code != http.StatusSeeOther {
+		t.Errorf("cancel = %d", w.Code)
+	}
+	// Without the Origin header, the console refuses the change.
+	if w := h.do("POST", "/console/models/optimize", url.Values{"id": {"qwen"}}, false); w.Code == http.StatusSeeOther {
+		t.Error("a cross-site start passed")
 	}
 }

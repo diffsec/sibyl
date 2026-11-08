@@ -2,6 +2,7 @@
 {{define "content"}}
 <p><a href="/console/models">Back to the models</a></p>
 {{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{template "optimizer" .}}
 {{$f := .Form}}
 <form method="post" action="/console/models/edit" class="stack">
 <input type="hidden" name="id" value="{{.Model.ID}}">
@@ -94,4 +95,49 @@
 </section>
 <button type="submit">Save and apply</button>
 </form>
+{{end}}
+
+{{define "optimizer"}}
+<section class="card stack">
+  <h2>Optimizer</h2>
+  {{$id := .Model.ID}}
+  {{with .Model.Optimize}}
+    {{if eq .Status "running"}}
+      <p class="warn">Running ({{.Profile}}), stage {{.Stage}}. The models are unloaded until it ends. Reload the page to see the progress.</p>
+      <form method="post" action="/console/models/optimize/cancel"><input type="hidden" name="id" value="{{$id}}"><button type="submit">Cancel the run</button></form>
+    {{else if .Recommendation}}{{$r := .Recommendation}}
+      <p>Last run ({{.Profile}}), {{.Updated}}, llama.cpp image {{.ImageTag}}.</p>
+      <table>
+        <thead><tr><th></th><th>Backend</th><th class="num">Generation tok/s</th><th class="num">Prompt tok/s</th>{{if $r.Best.TotalTPS}}<th class="num">Total tok/s</th><th class="num">Parallel</th>{{end}}</tr></thead>
+        <tbody>
+          <tr><td>Now</td><td>{{$r.Baseline.Backend}}</td><td class="num">{{printf "%.1f" $r.Baseline.GenTPS}}</td><td class="num">{{printf "%.0f" $r.Baseline.PromptTPS}}</td>{{if $r.Best.TotalTPS}}<td></td><td></td>{{end}}</tr>
+          <tr><td>Best</td><td>{{$r.Best.Backend}}</td><td class="num">{{printf "%.1f" $r.Best.GenTPS}}</td><td class="num">{{printf "%.0f" $r.Best.PromptTPS}}</td>{{if $r.Best.TotalTPS}}<td class="num">{{printf "%.1f" $r.Best.TotalTPS}}</td><td class="num">{{$r.Best.Parallel}}</td>{{end}}</tr>
+        </tbody>
+      </table>
+      {{if $r.Changes}}
+        <ul>{{range $r.Changes}}<li><span class="mono">{{.Setting}}</span>: {{.From}} to {{.To}}</li>{{end}}</ul>
+        {{if not $r.Verified}}<p class="error">The best settings did not load at the model's context, so they cannot be applied.</p>
+        {{else if .Applied}}<p class="muted">Applied {{.Applied}}.</p>
+        {{else}}
+          <form method="post" action="/console/models/optimize/apply" class="stack">
+            <input type="hidden" name="id" value="{{$id}}">
+            {{if $r.Backend}}<label class="check"><input type="checkbox" name="backend"> Switch the backend to {{$r.Backend}} too. It applies to every model, and llama-swap restarts.</label>{{end}}
+            <button type="submit">Apply these settings</button>
+          </form>
+        {{end}}
+      {{else}}<p class="muted">The settings now are the fastest that were measured.</p>{{end}}
+    {{else if .Error}}<p class="error">The last run {{.Status}}: {{.Error}}</p>{{end}}
+  {{end}}
+  {{if not (and .Model.Optimize (eq .Model.Optimize.Status "running"))}}
+  <form method="post" action="/console/models/optimize" class="row">
+    <input type="hidden" name="id" value="{{$id}}">
+    <label>Optimize for <select name="profile">
+      <option value="single">One user: generation speed, then prompt speed</option>
+      <option value="throughput">Throughput: total speed over parallel requests</option>
+    </select></label>
+    <button type="submit">Start the optimizer</button>
+  </form>
+  <p class="muted">The optimizer measures settings with llama-bench on this hardware, and checks the best with llama-server at the model's context. The models are unloaded for 5 to 15 minutes. Nothing changes until you apply the result.</p>
+  {{end}}
+</section>
 {{end}}

@@ -180,6 +180,20 @@ A backend is the GPU library that llama.cpp uses: `hip` (ROCm), `cuda` or `vulka
 
 The backend applies to every model, because llama-swap runs one image.
 
+## Optimize a model
+
+The optimizer measures llama.cpp settings for one model on your hardware, and recommends the fastest that loads. It covers the backend, the split mode across GPUs, the KV cache type, the batch sizes, the MoE layers in system RAM and, for throughput, the number of parallel requests. [The optimizer design](../design/optimizer.md) describes each stage.
+
+1. On the Models screen, select a model and press `o`. In the web console, open the model's page and use the Optimizer section.
+2. Choose what to optimize for:
+   - One user: generation speed, then prompt speed. Use this for one person or one agent.
+   - Throughput: the total speed over parallel requests, where each request keeps at least half the speed of one alone.
+3. Wait 5 to 15 minutes. Sibyl unloads the running models while the optimizer runs. Press `o` again to cancel.
+4. Read the result in the model's details: the speed now, the best speed, and each setting that changes.
+5. Press `a` to apply the settings. In the web console, use "Apply these settings". If a different backend was faster, Sibyl asks whether to switch the backend too. The backend applies to every model.
+
+A setting wins only when it beats the settings now by more than 3 percent and by more than the noise of the runs. The optimizer applies nothing by itself. A result is for the hardware and the llama.cpp version of the run, so run it again after an update.
+
 ## Model pools
 
 A model pool is an extra disk for models. Sibyl encrypts it and mounts it under `/var/lib/sibyl-pools`. The disk must be at least 16 GiB. It cannot be the system disk, or a disk that is mounted or in use.

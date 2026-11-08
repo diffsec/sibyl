@@ -13,6 +13,7 @@ import (
 	"github.com/diffsec/sibyl/internal/hf"
 	"github.com/diffsec/sibyl/internal/modelform"
 	"github.com/diffsec/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/optimize"
 )
 
 func (c *Console) modelRoutes(mux *http.ServeMux) {
@@ -21,6 +22,9 @@ func (c *Console) modelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+Prefix+"models/edit", c.signedIn(c.saveModel))
 	mux.HandleFunc("POST "+Prefix+"models/delete", c.signedIn(c.deleteModel))
 	mux.HandleFunc("POST "+Prefix+"models/bench", c.signedIn(c.benchModel))
+	mux.HandleFunc("POST "+Prefix+"models/optimize", c.signedIn(c.optimizeModel))
+	mux.HandleFunc("POST "+Prefix+"models/optimize/cancel", c.signedIn(c.cancelOptimize))
+	mux.HandleFunc("POST "+Prefix+"models/optimize/apply", c.signedIn(c.applyOptimize))
 	mux.HandleFunc("GET "+Prefix+"downloads", c.signedIn(c.downloadsPage))
 	mux.HandleFunc("GET "+Prefix+"downloads/live", c.signedIn(c.downloadsLive))
 	mux.HandleFunc("GET "+Prefix+"downloads/repo", c.signedIn(c.repoPage))
@@ -241,6 +245,26 @@ func (c *Console) benchModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PostFormValue("id")
 	err := c.client.StartBenchmark(r.Context(), id)
 	c.back(w, r, "models", "benchmark of "+id+" queued; it unloads the running models and takes a few minutes", err)
+}
+
+// The optimizer. Each action goes back to the model's page.
+
+func (c *Console) optimizeModel(w http.ResponseWriter, r *http.Request) {
+	id := r.PostFormValue("id")
+	err := c.client.StartOptimize(r.Context(), id, optimize.Profile(r.PostFormValue("profile")))
+	c.back(w, r, "models/edit?id="+url.QueryEscape(id), "the optimizer for "+id+" started", err)
+}
+
+func (c *Console) cancelOptimize(w http.ResponseWriter, r *http.Request) {
+	id := r.PostFormValue("id")
+	err := c.client.CancelOptimize(r.Context(), id)
+	c.back(w, r, "models/edit?id="+url.QueryEscape(id), "the optimizer for "+id+" stops after its current tool", err)
+}
+
+func (c *Console) applyOptimize(w http.ResponseWriter, r *http.Request) {
+	id := r.PostFormValue("id")
+	_, err := c.client.ApplyOptimize(r.Context(), id, r.PostFormValue("backend") == "on")
+	c.back(w, r, "models/edit?id="+url.QueryEscape(id), "applied the optimizer's settings to "+id, err)
 }
 
 // Downloads.
