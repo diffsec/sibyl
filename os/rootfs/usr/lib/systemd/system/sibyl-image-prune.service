@@ -1,0 +1,11 @@
+[Unit]
+Description=Remove Sibyl images that no deployment uses
+Documentation=file:///usr/libexec/sibyl/image-prune
+After=user@1001.service
+Wants=user@1001.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sibyl/image-prune
+Nice=19
+IOSchedulingClass=idle

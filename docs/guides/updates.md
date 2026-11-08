@@ -84,6 +84,12 @@ sudo bootc rollback
 sudo systemctl reboot
 ```
 
+## Old images
+
+Each update downloads a new tag of every Sibyl service image. 15 minutes after each boot, and then daily, `sibyl-image-prune.timer` removes the Sibyl images that no deployment uses. It keeps the images of the running version, the rollback version and a staged version, so a rollback needs no download. It also removes untagged images that no container uses. It does not remove other images, such as those of the stacks that Arcane runs.
+
+To see what it removed: `journalctl -u sibyl-image-prune`.
+
 ## Update offline
 
 A host with no internet updates from a bundle on a USB drive. A bundle is a signed directory that holds the host image and every service image for one version and one variant.
