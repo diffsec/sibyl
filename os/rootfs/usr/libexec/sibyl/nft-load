@@ -1,0 +1,14 @@
+#!/bin/bash
+# Load the host firewall at boot. If the rules fail to load, a file in
+# /etc/nftables/sibyl.d is the likely cause, so load the base rules without
+# those files. Without this, one bad file leaves the host with no firewall.
+set -uo pipefail
+
+CONF=${SIBYL_NFT_CONF:-/etc/sysconfig/nftables.conf}
+BASE=${SIBYL_NFT_BASE:-/etc/nftables/sibyl.nft}
+
+if nft -f "$CONF"; then
+    exit 0
+fi
+echo "<3>sibyl: the firewall rules failed to load; loading $BASE without the files in /etc/nftables/sibyl.d" >&2
+sed '\|^[[:space:]]*include "/etc/nftables/sibyl\.d/|d' "$BASE" | nft -f -

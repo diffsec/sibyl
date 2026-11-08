@@ -5,6 +5,7 @@
 # The high ports accept only connections that arrived through a redirect.
 # The tailnet reaches every port through tailscale0: the tailnet's access
 # rules decide who gets in.
+# Extra LAN ports go in /etc/nftables/sibyl.d/*.nft, not in this file.
 
 destroy table inet sibyl
 
@@ -45,6 +46,12 @@ table inet sibyl {
 
         # mDNS, so sibyl.local resolves on the LAN
         udp dport mdns accept
+
+        # Ports that the administrator opens to the LAN. Each file in
+        # sibyl.d holds rules for this chain, such as
+        # "tcp dport 8000 accept". The image ships no rule files, so a
+        # local file there does not stop updates to this file.
+        include "/etc/nftables/sibyl.d/*.nft"
 
         # Tailscale: direct connections from other tailnet devices, and
         # every port from the tailnet, such as the containers that Arcane

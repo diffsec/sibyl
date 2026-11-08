@@ -55,7 +55,7 @@ The web console shows "Wrong user or password. The user must be in the wheel gro
 
 1. Make sure that you use `https://`.
 2. Make sure that you use the right port. The table below lists the ports.
-3. The host firewall allows only these ports and SSH. Make sure that no firewall between your computer and the host blocks them.
+3. The host firewall allows only these ports, SSH, and the ports in `/etc/nftables/sibyl.d/`. Make sure that no firewall between your computer and the host blocks them. [Host](host.md#open-a-containers-port-to-the-lan) shows how to open a container's port.
 
 | Service | Port |
 |---|---|

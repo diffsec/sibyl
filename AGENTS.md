@@ -27,6 +27,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 - Fix linter findings. Do not add exclusions. Ask the maintainer if a finding cannot be fixed.
 - `bootc container lint` must pass with no warnings.
 - Every container drops all capabilities and sets `NoNewPrivileges=true`. Only Arcane runs with `SecurityLabelDisable=true`, because its Podman socket and D-Bus mounts need it.
+- The image ships no rule files in `os/rootfs/etc/nftables/sibyl.d/`. That directory is for the administrator's LAN ports, and a file that the image also ships stops bootc from updating it.
 - State under `/var` needs a `tmpfiles.d` entry, because bootc does not update `/var` after install.
 - Users and groups come from `sysusers.d`. The `render` and `video` groups are copied into `/etc/group` at build time, so that sysusers can add members.
 
