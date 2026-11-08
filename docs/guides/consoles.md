@@ -33,7 +33,7 @@ The bottom of each screen shows its actions as buttons, such as `[n] new client`
 |---|---|---|
 | `1` | Status | `r` restarts the selected service. `o` connects Open WebUI with an admin key. `u` checks for an update. `U` applies it. `B` reboots into a staged update. |
 | `2` | Hardware | `e` changes the GPUs, the backend and the default layout. |
-| `3` | Models | The list shows each model with its size and whether it is loaded, each drafter under the model that uses it, and the unused drafters last. The details show the context, the settings, the drafter and the benchmark. `enter` edits the settings. `l` loads the model, or unloads it when it is loaded. `f` finds a drafter. `b` benchmarks the backends. `d` deletes the model. |
+| `3` | Models | The list shows each model with its size and whether it is loaded, each drafter under the model that uses it, and the unused drafters last. The details show the context, the settings, the drafter and the benchmark. `enter` edits the settings. `l` loads the model, or unloads it when it is loaded. `f` finds a drafter. `b` benchmarks the backends. `o` starts the optimizer, or cancels it. `a` applies the optimizer's settings. `d` deletes the model. |
 | `4` | Download | `/` searches Hugging Face. `t` sets a Hugging Face token. `x` cancels a download. `R` retries one. |
 | `5` | Host | `h` hostname. `n` network. `t` joins or leaves a tailnet. `a` adds an operator. `p` makes a model pool. `x` detaches a pool. For a selected operator, `s` changes the SSH keys and `d` deletes the operator. After a network change, `c` keeps the change. |
 | `6` | Router | Five sections: Clients, Providers, Profiles, Calibration and Activity. `←` and `→` change the section. Clients: `n` new client, `e` edit, `K` new key, `d` delete. Providers: `n` add, `e` change, `d` delete. Profiles: `n` new profile, `e` edit the selected profile or rule, `a` add a rule, `<` and `>` move a rule, `d` delete, `s` sensitive words and classifier. Calibration: `e` settings, `l` loads the model that the samples wait for, `a` applies a proposal, `C` deletes the samples. |
@@ -85,7 +85,7 @@ If a network change gives the host a new address, open the console at the new ad
 | Page | What you can do |
 |---|---|
 | Router | Clients and keys, providers, profiles and rules, calibration settings, sensitive words and the classifier, calibration results and proposals, and the last decisions. See [Use the router](router.md). |
-| Models | See the installed models. Edit a model's settings, run the benchmark, or delete a model. See [Models](models.md). |
+| Models | See the installed models. Edit a model's settings, run the benchmark or the optimizer, or delete a model. See [Models](models.md). |
 | Downloads | Search Hugging Face, start a download, cancel or retry one, and set or remove the Hugging Face token. See [Models](models.md). |
 | Hardware | Select the GPUs, the backend and the default layout. |
 | Host | Change the hostname and the network, join or leave a tailnet, add or delete operators and their SSH keys, and make or detach model pools. See [Host](host.md). |

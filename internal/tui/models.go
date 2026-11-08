@@ -50,7 +50,12 @@ type modelsView struct {
 	editing  string // model ID being edited or deleted
 	deleting bool
 	confirm  bool
-	fields   settingsForm
+	// action is an optimizer form: optimize, cancel-optimize or
+	// apply-optimize. optProfile and optBackend are its answers.
+	action     string
+	optProfile string
+	optBackend bool
+	fields     settingsForm
 	// orig is fields when the form opened, and secs the sections of the
 	// form, for the section bar.
 	orig settingsForm
@@ -104,11 +109,13 @@ func (v *modelsView) help() string {
 		}
 		return formHelp(false)
 	}
-	return "↑/↓ select · enter edit · l load or unload · f find a drafter · b benchmark the backends · d delete"
+	return "↑/↓ select · enter edit · l load or unload · f find a drafter · b benchmark · o optimize · a apply · d delete"
 }
 
 // saveable is true for the settings form, which saveKey saves.
-func (v *modelsView) saveable() bool { return v.form != nil && v.flow == nil && !v.deleting }
+func (v *modelsView) saveable() bool {
+	return v.form != nil && v.flow == nil && !v.deleting && v.action == ""
+}
 
 func (v *modelsView) selected() (client.Model, bool) {
 	if v.cursor < 0 || v.cursor >= len(v.list) {
@@ -131,7 +138,7 @@ func (v *modelsView) editForm(m client.Model) tea.Cmd {
 // the edits of a save that failed its checks.
 func (v *modelsView) editFormWith(m client.Model, fields settingsForm) tea.Cmd {
 	v.editing = m.ID
-	v.deleting = false
+	v.deleting, v.action = false, ""
 	v.fields = copySettings(fields)
 	v.orig, v.secs = formFromSettings(m.Settings), visibleSections(m)
 	f := &v.fields
@@ -281,7 +288,7 @@ func reasoningGroup(m client.Model, f *settingsForm) *huh.Group {
 
 func (v *modelsView) deleteForm(m client.Model) tea.Cmd {
 	v.editing = m.ID
-	v.deleting = true
+	v.deleting, v.action = true, ""
 	v.confirm = false
 	v.form = huh.NewForm(huh.NewGroup(
 		huh.NewConfirm().Title("Delete " + m.ID + "?").
@@ -294,6 +301,9 @@ func (v *modelsView) deleteForm(m client.Model) tea.Cmd {
 func (v *modelsView) submit() tea.Cmd {
 	if v.flow != nil {
 		return v.submitFlow()
+	}
+	if v.action != "" {
+		return v.submitOptimize()
 	}
 	id := v.editing
 	if v.deleting {
@@ -326,7 +336,12 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case runningTick:
-		return tea.Batch(v.fetchRunning(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return runningTick{} }))
+		cmds := []tea.Cmd{v.fetchRunning(), tea.Tick(5*time.Second, func(time.Time) tea.Msg { return runningTick{} })}
+		// A running optimizer changes its stage and results: show them.
+		if v.optimizing() && v.form == nil {
+			cmds = append(cmds, v.fetchModels())
+		}
+		return tea.Batch(cmds...)
 	case modelsLoaded:
 		v.err = msg.err
 		if msg.err == nil {
@@ -379,6 +394,14 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 				if m, ok := v.selected(); ok {
 					return tea.Batch(v.loadAction(m, v.running.State(m.ID) == ""), v.fetchRunning())
 				}
+			case "o":
+				if m, ok := v.selected(); ok {
+					return v.optimizeForm(m)
+				}
+			case "a":
+				if m, ok := v.selected(); ok {
+					return v.applyForm(m)
+				}
 			case "b":
 				if m, ok := v.selected(); ok {
 					id := m.ID
@@ -395,7 +418,7 @@ func (v *modelsView) update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		if msg.String() == "esc" {
-			v.form, v.flow = nil, nil
+			v.form, v.flow, v.action = nil, nil, ""
 			return note(false, "changes discarded")
 		}
 		if k := msg.String(); (k == "pgup" || k == "pgdown") && v.saveable() {
@@ -594,6 +617,9 @@ func (v *modelsView) details(m client.Model) string {
 	}
 	if bench := benchLine(m.Benchmark); bench != "" {
 		b.WriteString("\n" + bench + "\n")
+	}
+	if opt := optimizeText(m.Optimize); opt != "" {
+		b.WriteString("\n" + opt)
 	}
 	return b.String()
 }

@@ -312,6 +312,8 @@ type modelView struct {
 	// with, which Sibyl chooses where the settings leave them open.
 	Fit       *models.Fit `json:"fit,omitempty"`
 	Benchmark *Benchmark  `json:"benchmark,omitempty"`
+	// Optimize is the model's last optimizer run.
+	Optimize *OptimizeState `json:"optimize,omitempty"`
 	// Drafters is the number of drafters on Hugging Face for the model,
 	// from the last search. It is missing until a search finishes.
 	Drafters *int `json:"drafters,omitempty"`
@@ -339,6 +341,9 @@ func (s *Server) getModels(w http.ResponseWriter, _ *http.Request) {
 		out[i] = modelView{Model: m, Settings: settings[m.ID], Meta: s.modelMeta(m), Fit: fits[m.ID]}
 		if b, ok := s.readBenchmark(m.ID); ok {
 			out[i].Benchmark = &b
+		}
+		if o, ok := s.readOptimize(m.ID); ok {
+			out[i].Optimize = &o
 		}
 		if v, ok := s.drafters.get(m.ID); ok {
 			n := len(v.Drafters)

@@ -25,6 +25,7 @@ import (
 	"github.com/diffsec/sibyl/internal/hostd"
 	"github.com/diffsec/sibyl/internal/llamaswap"
 	"github.com/diffsec/sibyl/internal/models"
+	"github.com/diffsec/sibyl/internal/optimize"
 	"github.com/diffsec/sibyl/internal/router"
 )
 
@@ -126,6 +127,7 @@ type Model struct {
 	models.Model
 	Settings  models.Settings `json:"settings"`
 	Benchmark *Benchmark      `json:"benchmark,omitempty"`
+	Optimize  *Optimize       `json:"optimize,omitempty"`
 	Meta      *models.Meta    `json:"meta,omitempty"`
 	// Fit is what the System API chose for the context and the split.
 	Fit *models.Fit `json:"fit,omitempty"`
@@ -215,6 +217,20 @@ type Benchmark struct {
 	Recommended string                   `json:"recommended,omitempty"`
 }
 
+// Optimize is the state of a model's last optimizer run.
+type Optimize struct {
+	Status         string                   `json:"status"` // running, done, failed or cancelled
+	Profile        optimize.Profile         `json:"profile"`
+	Stage          string                   `json:"stage,omitempty"`
+	Started        string                   `json:"started"`
+	Updated        string                   `json:"updated"`
+	Results        []optimize.Result        `json:"results,omitempty"`
+	Recommendation *optimize.Recommendation `json:"recommendation,omitempty"`
+	Error          string                   `json:"error,omitempty"`
+	ImageTag       string                   `json:"image_tag,omitempty"`
+	Applied        string                   `json:"applied,omitempty"`
+}
+
 // ApplyResult is the response of every call that regenerates the config.
 type ApplyResult struct {
 	Models         int               `json:"models"`
@@ -275,6 +291,23 @@ func (c *Client) DeleteModel(ctx context.Context, id string) (ApplyResult, error
 
 func (c *Client) StartBenchmark(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/benchmark", nil, nil)
+}
+
+// StartOptimize starts the optimizer for a model.
+func (c *Client) StartOptimize(ctx context.Context, id string, p optimize.Profile) error {
+	return c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/optimize", map[string]any{"profile": p}, nil)
+}
+
+// CancelOptimize cancels a model's optimizer run.
+func (c *Client) CancelOptimize(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/models/"+url.PathEscape(id)+"/optimize", nil, nil)
+}
+
+// ApplyOptimize writes a model's recommended settings. backend also
+// switches the backend of every model, when the run found a faster one.
+func (c *Client) ApplyOptimize(ctx context.Context, id string, backend bool) (ApplyResult, error) {
+	var r ApplyResult
+	return r, c.do(ctx, http.MethodPost, "/models/"+url.PathEscape(id)+"/optimize/apply", map[string]any{"backend": backend}, &r)
 }
 
 // RunningModel is one model that llama-swap has started. State is
