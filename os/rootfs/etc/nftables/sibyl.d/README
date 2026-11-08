@@ -1,0 +1,19 @@
+Ports that the administrator opens to the LAN.
+
+nftables reads every *.nft file in this directory into the input chain of
+the sibyl table (/etc/nftables/sibyl.nft). A file holds rules only, with no
+table or chain around them. For example, /etc/nftables/sibyl.d/whisper.nft:
+
+    # Whisper, published by Arcane on host port 9000
+    tcp dport 9000 accept
+
+To limit a port to the LAN subnet:
+
+    ip saddr 192.168.1.0/24 tcp dport 9000 accept
+
+Check the rules, then load them:
+
+    sudo nft -c -f /etc/sysconfig/nftables.conf
+    sudo systemctl reload nftables
+
+Rootless Podman publishes host ports of 1024 and higher only.

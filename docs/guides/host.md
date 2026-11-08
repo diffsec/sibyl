@@ -127,6 +127,26 @@ The host accepts images from these public registries:
 
 An administrator can allow another registry in `/etc/containers/policy.json`.
 
+### Open a container's port to the LAN
+
+The host firewall drops every port on the LAN that it does not list. A port that a container publishes is open on the tailnet, but not on the LAN, until you open it. Each port that you open needs a file in `/etc/nftables/sibyl.d/`.
+
+1. In the container's Compose file, publish the port on a host port of 1024 or higher, such as `"9000:9000"`. Rootless Podman cannot publish a lower port.
+2. Connect to the host over SSH.
+3. Create a file for the port, such as `/etc/nftables/sibyl.d/whisper.nft`, with one rule:
+
+   ```
+   tcp dport 9000 accept
+   ```
+
+   To open the port to one subnet only, write `ip saddr 192.168.1.0/24 tcp dport 9000 accept`.
+4. Make sure that the rules are correct: `sudo nft -c -f /etc/sysconfig/nftables.conf`.
+5. Load the rules: `sudo systemctl reload nftables`.
+
+To close the port, delete its file and reload the rules again.
+
+If a file has an error, the reload fails and the old rules stay. If a file has an error at boot, the host loads its own rules without the files in `sibyl.d`, and the journal of `nftables.service` names the file. Host updates do not change the files in `sibyl.d`.
+
 ## Related
 
 - [System API](../reference/system-api.md): the `/host` and `/pools` routes.

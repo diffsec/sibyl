@@ -548,7 +548,7 @@ A bundle is a directory:
 
 - SELinux stays enforcing. Only Arcane runs with `SecurityLabelDisable=true`.
 - Secure Boot uses the Fedora shim and kernel. The NVIDIA variant adds the project MOK key.
-- nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open on the LAN. When the owner joins a tailnet, every port is open on `tailscale0`, and the tailnet's access rules decide who gets in. UDP 41641 is open for direct Tailscale connections.
+- nftables default-deny. Only 443, 8443, 9443 and rate-limited 22 are open on the LAN. When the owner joins a tailnet, every port is open on `tailscale0`, and the tailnet's access rules decide who gets in. UDP 41641 is open for direct Tailscale connections. An administrator opens more LAN ports with rule files in `/etc/nftables/sibyl.d/`, which `sibyl.nft` includes in its input chain. The image ships no files there, so a local file does not block updates to `sibyl.nft`. At boot, `/usr/libexec/sibyl/nft-load` loads the base rules alone if a rule file fails. The reload loads only the `sibyl` table, not a flush of the whole ruleset, so the rules of other programs such as tailscaled stay.
 - Tailscale comes from its own Fedora repository, `os/repos/tailscale.repo`, because Fedora's package lags the security releases. The repository key is in `os/repos/tailscale.gpg`, so the build does not trust a downloaded key.
 - A Tailscale auth key goes from the System API to `sibyl-hostd` through `/run/sibyl-secret`, in memory. The request in the disk queue names only the key file. `sibyl-hostd` reads it without following a symlink, removes it, and gives `tailscale` the key in a file in its private `/tmp`, not on the command line.
 - SSH accepts keys only. Root login is off.
