@@ -79,6 +79,10 @@ type Server struct {
 	drafters     drafterCache
 	drafterTests drafterTests
 	loads        loads
+	optimize     optimizeRuns
+	// tunePoll is how often the optimizer reads the host agent's status.
+	// Tests shorten it.
+	tunePoll time.Duration
 	// reloadWait is how long a drafter test waits for llama-swap to read
 	// a new configuration. Tests shorten it.
 	reloadWait time.Duration
@@ -150,6 +154,10 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("DELETE /models/{id}", s.deleteModel)
 	auth.HandleFunc("POST /models/{id}/benchmark", s.startBenchmark)
 	auth.HandleFunc("GET /models/{id}/benchmark", s.getBenchmark)
+	auth.HandleFunc("POST /models/{id}/optimize", s.startOptimize)
+	auth.HandleFunc("GET /models/{id}/optimize", s.getOptimize)
+	auth.HandleFunc("DELETE /models/{id}/optimize", s.cancelOptimize)
+	auth.HandleFunc("POST /models/{id}/optimize/apply", s.applyOptimize)
 	auth.HandleFunc("GET /models/{id}/drafters", s.getDrafters)
 	auth.HandleFunc("POST /models/{id}/load", s.loadModel)
 	auth.HandleFunc("POST /models/{id}/unload", s.unloadModel)
@@ -351,56 +359,57 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if code, err := s.setModel(id, set); err != nil {
+		writeError(w, code, err)
+		return
+	}
+	s.respondApply(w)
+}
+
+// setModel checks a model's settings and saves them. The caller holds s.mu.
+// It returns the HTTP status for an error.
+func (s *Server) setModel(id string, set models.Settings) (int, error) {
 	m, err := s.findModel(id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err)
-		return
+		return http.StatusNotFound, err
 	}
 	// llama.cpp refuses a MoE cache on a dense model, and the model would
 	// not load.
 	meta := s.modelMeta(m)
 	if set.MoE.Enabled() && meta != nil && meta.ExpertCount == 0 {
-		writeError(w, http.StatusUnprocessableEntity, errors.New("moe: the model file has no experts"))
-		return
+		return http.StatusUnprocessableEntity, errors.New("moe: the model file has no experts")
 	}
 	// The variable and the values differ by model family, so the setting
 	// must match what this model's chat template reads.
 	if set.Reasoning != nil && meta != nil {
 		if err := set.Reasoning.CheckAgainst(meta.Reasoning); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, err)
-			return
+			return http.StatusUnprocessableEntity, err
 		}
 	}
 	if d := set.Speculative.DraftModel; d != "" {
 		if d == id {
-			writeError(w, http.StatusUnprocessableEntity, errors.New("speculative.draft_model: a model cannot be its own draft model"))
-			return
+			return http.StatusUnprocessableEntity, errors.New("speculative.draft_model: a model cannot be its own draft model")
 		}
 		if _, err := s.findModel(d); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, fmt.Errorf("speculative.draft_model: %w", err))
-			return
+			return http.StatusUnprocessableEntity, fmt.Errorf("speculative.draft_model: %w", err)
 		}
 	}
 	hw, err := s.hardware()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+		return http.StatusInternalServerError, err
 	}
 	if err := set.Validate(len(hw.GPUs)); err != nil {
-		writeError(w, http.StatusUnprocessableEntity, err)
-		return
+		return http.StatusUnprocessableEntity, err
 	}
 	settings, err := models.LoadSettings(s.Paths.settingsFile())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+		return http.StatusInternalServerError, err
 	}
 	settings[id] = set
 	if err := models.SaveSettings(s.Paths.settingsFile(), settings); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+		return http.StatusInternalServerError, err
 	}
-	s.respondApply(w)
+	return http.StatusOK, nil
 }
 
 func (s *Server) deleteModel(w http.ResponseWriter, r *http.Request) {
