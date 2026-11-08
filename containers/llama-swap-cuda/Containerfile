@@ -22,7 +22,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # The upstream image keeps llama.cpp in /app, where llama-swap lives in the
 # other Sibyl images. Move it to /opt/llama, so every image has one layout.
 RUN mkdir -p /opt/llama/bin /opt/llama/lib \
-    && mv /app/llama-server /app/llama-bench /opt/llama/bin/ \
+    && mv /app/llama-server /app/llama-bench /app/llama-batched-bench /opt/llama/bin/ \
     && mv /app/*.so* /opt/llama/lib/ \
     && rm -rf /app \
     && mkdir -p /app/config \

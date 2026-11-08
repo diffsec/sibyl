@@ -200,12 +200,30 @@ type Settings struct {
 	// model (--tensor-split). Empty lets Sibyl split by the memory that
 	// each GPU has left.
 	TensorSplit []float64 `yaml:"tensor_split,omitempty" json:"tensor_split,omitempty"`
+	// Batch is the logical batch size (--batch-size), and UBatch the
+	// physical batch size (--ubatch-size). A larger UBatch speeds up the
+	// prompt and needs a larger compute buffer. 0 leaves llama-server's
+	// default.
+	Batch  int `yaml:"batch,omitempty" json:"batch,omitempty"`
+	UBatch int `yaml:"ubatch,omitempty" json:"ubatch,omitempty"`
+	// SplitMode is how a spanning model splits across the GPUs: layer (the
+	// default) or row. It has no effect on one GPU.
+	SplitMode string `yaml:"split_mode,omitempty" json:"split_mode,omitempty"`
 	// Args are extra llama-server flags for anything the typed fields do not cover.
 	Args []string `yaml:"args,omitempty" json:"args,omitempty"`
 }
 
 // MaxParallel is the most parallel slots that a model can have.
 const MaxParallel = 64
+
+// Limits of the batch sizes.
+const (
+	MinBatch = 32
+	MaxBatch = 65536
+)
+
+// SplitModes are the split modes that a spanning model can use.
+var SplitModes = []string{"layer", "row"}
 
 var (
 	safeArg     = regexp.MustCompile(`^[A-Za-z0-9_.,:=/+-]+$`)
@@ -248,6 +266,20 @@ func (s Settings) Validate(selected int) error {
 		if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 			return errors.New("tensor_split: values must be 0 or more")
 		}
+	}
+	for _, b := range []struct {
+		name string
+		v    int
+	}{{"batch", s.Batch}, {"ubatch", s.UBatch}} {
+		if b.v != 0 && (b.v < MinBatch || b.v > MaxBatch) {
+			return fmt.Errorf("%s: must be %d to %d", b.name, MinBatch, MaxBatch)
+		}
+	}
+	if s.Batch > 0 && s.UBatch > s.Batch {
+		return fmt.Errorf("ubatch %d: must not be larger than batch %d", s.UBatch, s.Batch)
+	}
+	if s.SplitMode != "" && !slices.Contains(SplitModes, s.SplitMode) {
+		return fmt.Errorf("split_mode %q: use one of %s", s.SplitMode, strings.Join(SplitModes, ", "))
 	}
 	if err := s.Sampling.Validate(); err != nil {
 		return err
@@ -295,7 +327,39 @@ func LoadSettings(path string) (map[string]Settings, error) {
 	if err := yaml.Unmarshal(data, &out); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	for id, s := range out {
+		out[id] = s.moveBatchArgs()
+	}
 	return out, nil
+}
+
+// batchArgs are the raw args that became the typed Batch and UBatch.
+var batchArgs = map[string]func(*Settings) *int{
+	"-b": func(s *Settings) *int { return &s.Batch }, "--batch-size": func(s *Settings) *int { return &s.Batch },
+	"-ub": func(s *Settings) *int { return &s.UBatch }, "--ubatch-size": func(s *Settings) *int { return &s.UBatch },
+}
+
+// moveBatchArgs moves batch flags from Args to the typed fields. Before the
+// typed fields, the batch sizes could only be set as raw args.
+func (s Settings) moveBatchArgs() Settings {
+	var args []string
+	for i := 0; i < len(s.Args); i++ {
+		flag, val, eq := strings.Cut(s.Args[i], "=")
+		field, ok := batchArgs[flag]
+		if !ok {
+			args = append(args, s.Args[i])
+			continue
+		}
+		if !eq && i+1 < len(s.Args) {
+			i++
+			val = s.Args[i]
+		}
+		if n, err := strconv.Atoi(val); err == nil && *field(&s) == 0 {
+			*field(&s) = n
+		}
+	}
+	s.Args = args
+	return s
 }
 
 // SaveSettings writes models.yaml atomically.

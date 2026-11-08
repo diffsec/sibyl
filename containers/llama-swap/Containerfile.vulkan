@@ -21,9 +21,9 @@ RUN cmake -S . -B build \
         -DLLAMA_BUILD_EXAMPLES=OFF \
         -DLLAMA_BUILD_UI=OFF \
         -DLLAMA_USE_PREBUILT_UI=OFF \
-    && cmake --build build --config Release -j"$(nproc)" --target llama-server llama-bench \
+    && cmake --build build --config Release -j"$(nproc)" --target llama-server llama-bench llama-batched-bench \
     && mkdir -p /out/opt/llama/bin /out/opt/llama/lib \
-    && cp build/bin/llama-server build/bin/llama-bench /out/opt/llama/bin/ \
+    && cp build/bin/llama-server build/bin/llama-bench build/bin/llama-batched-bench /out/opt/llama/bin/ \
     && find build -name '*.so*' -exec cp -P {} /out/opt/llama/lib/ \;
 
 FROM docker.io/ubuntu:26.04 AS llama-swap-dl

@@ -29,12 +29,12 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
         -DLLAMA_BUILD_EXAMPLES=OFF \
         -DLLAMA_BUILD_UI=OFF \
         -DLLAMA_USE_PREBUILT_UI=OFF \
-    && cmake --build build --config Release -j"$(nproc)" --target llama-server llama-bench
+    && cmake --build build --config Release -j"$(nproc)" --target llama-server llama-bench llama-batched-bench
 
 # Collect the binaries, their shared libraries, and only the rocBLAS and
 # hipBLASLt kernel files for GPU_TARGETS. The full ROCm tree is ~20 GB.
 COPY collect-rocm-libs.sh /usr/local/bin/collect-rocm-libs.sh
-RUN /usr/local/bin/collect-rocm-libs.sh /out "${GPU_TARGETS}" build/bin/llama-server build/bin/llama-bench
+RUN /usr/local/bin/collect-rocm-libs.sh /out "${GPU_TARGETS}" build/bin/llama-server build/bin/llama-bench build/bin/llama-batched-bench
 
 FROM docker.io/ubuntu:24.04 AS llama-swap-dl
 

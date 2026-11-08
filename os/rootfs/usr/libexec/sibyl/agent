@@ -10,14 +10,19 @@
 #   restart.<unit>   restart one Sibyl unit
 #   reload.all       systemctl --user daemon-reload
 #   bench.<model>    run llama-bench with each backend image of this variant
+#   tune.<model>     run one llama.cpp tool for the optimizer (see tune)
 set -euo pipefail
 
-RUN=/var/lib/sibyl/run
+# The tests set these. On the host, the systemd unit runs the agent with no
+# such variables, and no container can set them.
+RUN="${SIBYL_AGENT_RUN:-/var/lib/sibyl/run}"
+SHARE="${SIBYL_AGENT_SHARE:-/usr/share/sibyl}"
 UNITS=(llama-swap router open-webui caddy arcane system-api)
 REQUEST_RE='^[0-9]{1,20}\.(restart|reload)\.(all|llama-swap|router|open-webui|caddy|arcane|system-api)$'
 BENCH_RE='^[0-9]{1,20}\.bench\.([a-z0-9][a-z0-9._-]{0,127})$'
-MODELS=/var/lib/sibyl/models
-POOLS=/var/lib/sibyl-pools
+TUNE_RE='^[0-9]{1,20}\.tune\.([a-z0-9][a-z0-9._-]{0,127})$'
+MODELS="${SIBYL_AGENT_MODELS:-/var/lib/sibyl/models}"
+POOLS="${SIBYL_AGENT_POOLS:-/var/lib/sibyl-pools}"
 
 write_status() {
     local tmp sep="" unit active sub since
@@ -65,7 +70,7 @@ bench() {
     rel="${model#"$(realpath "$root")"/}"
     split=none
     [[ "$gpus" == *,* ]] && split=layer
-    tag="$(cat /usr/share/sibyl/image-tag)"
+    tag="$(cat "$SHARE/image-tag")"
     echo "running $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/$id.status"
 
     # Free the GPUs: llama-swap starts the model again on the next request.
@@ -74,7 +79,7 @@ bench() {
     # The backends and GPU devices depend on the image's GPU variant, as in
     # the System API's drop-in (internal/llamaswap DropIn).
     local variant backends
-    variant="$(cat /usr/share/sibyl/gpu-variant)"
+    variant="$(cat "$SHARE/gpu-variant")"
     case "$variant" in
         nvidia) backends="cuda vulkan" ;;
         intel) backends="vulkan" ;;
@@ -101,7 +106,7 @@ bench() {
         echo "sibyl-agent: benchmarking $id with $backend"
         if ! podman run --rm --network none \
             "${devices[@]}" --group-add keep-groups \
-            --userns keep-id:uid=10001,gid=10001 --cap-drop all --security-opt no-new-privileges \
+            --userns "keep-id:uid=10001,gid=10001" --cap-drop all --security-opt no-new-privileges \
             -v "$root:/models:$mount" -v llama-swap-cache:/app/.cache:U \
             -e "$visible=$gpus" --entrypoint /opt/llama/bin/llama-bench "$image" \
             -m "/models/$rel" -ngl 999 -fa on -sm "$split" -p 512 -n 128 -r 2 -o json \
@@ -112,15 +117,169 @@ bench() {
     echo "done $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/$id.status"
 }
 
+# The optimizer's arguments. Every flag that a tool takes is here, with a
+# pattern for its value. llama-bench takes a comma list for each flag and
+# tests every combination. The other tools take one value.
+NUM='[0-9]{1,6}'
+NUMS="$NUM(,$NUM){0,15}"
+KV='(f16|bf16|q8_0|q4_0|q4_1|q5_0|q5_1|iq4_nl)'
+SM='(none|layer|row)'
+TS='[0-9]{1,3}(\.[0-9]{1,3})?(/[0-9]{1,3}(\.[0-9]{1,3})?){0,15}'
+# An override keeps tensors that match a pattern in system RAM. The pattern
+# must not start with a dash, so it cannot pass for a flag.
+OT='[][A-Za-z0-9_.*+?|()^$\][][A-Za-z0-9_.*+?|()^$\-]{0,199}=CPU'
+
+# tune_value_re prints the pattern for a flag of a tool, or nothing.
+tune_value_re() {
+    local tool="$1" flag="$2"
+    case "$tool:$flag" in
+        bench:-p|bench:-n|bench:-d|bench:-b|bench:-ub|bench:-ncmoe|bench:-r) echo "^$NUMS\$" ;;
+        bench:-ctk|bench:-ctv) echo "^$KV(,$KV){0,7}\$" ;;
+        bench:-sm) echo "^$SM(,$SM){0,2}\$" ;;
+        bench:-ts) echo "^$TS(,$TS){0,7}\$" ;;
+        bench:-ot) echo "^$OT(;$OT){0,7}(,$OT(;$OT){0,7}){0,7}\$" ;;
+        batched:-npp|batched:-ntg|batched:-npl) echo "^$NUMS\$" ;;
+        batched:-c|batched:-b|batched:-ub|batched:-ncmoe|server:-c|server:-b|server:-ub|server:-ncmoe|server:-np)
+            echo "^$NUM\$" ;;
+        batched:-ctk|batched:-ctv|server:-ctk|server:-ctv) echo "^$KV\$" ;;
+        batched:-sm|server:-sm) echo "^$SM\$" ;;
+        batched:-ts|server:-ts) echo "^$TS\$" ;;
+        batched:-ot|server:-ot) echo "^$OT(;$OT){0,7}\$" ;;
+    esac
+}
+
+# tune_check_args checks an argument file: one argument per line, a flag
+# then its value. It prints the arguments, one per line, or fails.
+tune_check_args() {
+    local tool="$1" file="$2" flag value re n=0
+    local -a lines
+    mapfile -t lines < "$file"
+    if (( ${#lines[@]} % 2 != 0 || ${#lines[@]} > 64 )); then
+        echo "sibyl-agent: tune arguments must be flag and value pairs" >&2
+        return 1
+    fi
+    while (( n < ${#lines[@]} )); do
+        flag="${lines[n]}" value="${lines[n+1]}"
+        re="$(tune_value_re "$tool" "$flag")"
+        if [[ -z "$re" || ! "$value" =~ $re ]]; then
+            echo "sibyl-agent: tune argument '$flag' is not allowed for $tool" >&2
+            return 1
+        fi
+        printf '%s\n%s\n' "$flag" "$value"
+        n=$((n + 2))
+    done
+}
+
+tune_fail() { echo "failed: $2" > "$RUN/tune/$1.status"; }
+
+# tune runs one tool for the optimizer. The API wrote these files in
+# $RUN/tune: <model>.path, .pool and .gpus as for bench, .backend, .tool
+# (bench, batched or server) and .args. The output goes to <model>.out and
+# the tool's log to <model>.log.
+tune() {
+    local id="$1" dir="$RUN/tune" rel gpus pool root mount model backend tool tag image visible variant ctr checked ok=0 i
+    local -a devices args=()
+    rel="$(cat "$dir/$id.path" 2>/dev/null || true)"
+    gpus="$(cat "$dir/$id.gpus" 2>/dev/null || true)"
+    pool="$(cat "$dir/$id.pool" 2>/dev/null || true)"
+    backend="$(cat "$dir/$id.backend" 2>/dev/null || true)"
+    tool="$(cat "$dir/$id.tool" 2>/dev/null || true)"
+    root="$MODELS" mount=ro,z
+    if [[ -n "$pool" ]]; then
+        [[ "$pool" =~ ^pool-[0-9]{1,2}$ ]] || { tune_fail "$id" "invalid tune request"; return; }
+        root="$POOLS/$pool" mount=ro
+    fi
+    model="$(realpath -e -- "$root/$rel" 2>/dev/null || true)"
+    if [[ -z "$rel" || "$rel" != *.gguf || "$model" != "$(realpath "$root")"/* || ! "$gpus" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+        tune_fail "$id" "invalid tune request"
+        return
+    fi
+    rel="${model#"$(realpath "$root")"/}"
+    variant="$(cat "$SHARE/gpu-variant")"
+    case "$variant:$backend" in
+        nvidia:cuda|nvidia:vulkan|intel:vulkan|amd:hip|amd:vulkan) ;;
+        *) tune_fail "$id" "backend $backend is not in this image"; return ;;
+    esac
+    case "$tool" in
+        bench|batched|server) ;;
+        *) tune_fail "$id" "unknown tool"; return ;;
+    esac
+    if ! checked="$(tune_check_args "$tool" "$dir/$id.args")"; then
+        tune_fail "$id" "the arguments are not allowed"
+        return
+    fi
+    [[ -n "$checked" ]] && mapfile -t args <<< "$checked"
+    tag="$(cat "$SHARE/image-tag")"
+    image="ghcr.io/diffsec/sibyl-llama-swap:${tag}-${backend}"
+    case "$backend" in
+        hip) visible=HIP_VISIBLE_DEVICES ;;
+        cuda) visible=CUDA_VISIBLE_DEVICES ;;
+        *) visible=GGML_VK_VISIBLE_DEVICES ;;
+    esac
+    if [[ "$variant" == nvidia ]]; then
+        devices=(--device nvidia.com/gpu=all)
+    elif [[ "$backend" == hip ]]; then
+        devices=(--device /dev/kfd --device /dev/dri)
+    else
+        devices=(--device /dev/dri)
+    fi
+    local -a run=(--network none "${devices[@]}" --group-add keep-groups
+        --userns "keep-id:uid=10001,gid=10001" --cap-drop all --security-opt no-new-privileges
+        -v "$root:/models:$mount" -v llama-swap-cache:/app/.cache:U -e "$visible=$gpus")
+    echo "running $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/$id.status"
+    rm -f "$dir/$id.out" "$dir/$id.log"
+    podman exec llama-swap curl -fsS http://127.0.0.1:8080/unload >/dev/null 2>&1 || true
+    echo "sibyl-agent: tune $id: $tool with $backend"
+    case "$tool" in
+        bench)
+            podman run --rm "${run[@]}" --entrypoint /opt/llama/bin/llama-bench "$image" \
+                -m "/models/$rel" -ngl 999 -fa on -o jsonl "${args[@]}" > "$dir/$id.out" 2> "$dir/$id.log" && ok=1
+            ;;
+        batched)
+            podman run --rm "${run[@]}" --entrypoint /opt/llama/bin/llama-batched-bench "$image" \
+                -m "/models/$rel" -ngl 999 -fa on --output-format jsonl "${args[@]}" > "$dir/$id.out" 2> "$dir/$id.log" && ok=1
+            ;;
+        server)
+            # Start llama-server with the settings, and wait until it has
+            # loaded the model and allocated the whole context.
+            ctr="sibyl-tune-$id"
+            podman rm -f "$ctr" >/dev/null 2>&1 || true
+            if podman run -d --name "$ctr" "${run[@]}" --entrypoint /opt/llama/bin/llama-server "$image" \
+                -m "/models/$rel" -ngl 999 -fa on --host 127.0.0.1 --port 8080 "${args[@]}" >/dev/null 2> "$dir/$id.log"; then
+                for ((i = 0; i < 600; i++)); do
+                    if podman exec "$ctr" curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+                        ok=1
+                        break
+                    fi
+                    [[ "$(podman inspect -f '{{.State.Running}}' "$ctr" 2>/dev/null)" == true ]] || break
+                    sleep 1
+                done
+                printf '{"loaded":%s,"seconds":%d}\n' "$( ((ok)) && echo true || echo false)" "$i" > "$dir/$id.out"
+                podman logs "$ctr" >> "$dir/$id.log" 2>&1 || true
+                podman rm -f "$ctr" >/dev/null 2>&1 || true
+            fi
+            ;;
+    esac
+    if (( ok )); then
+        echo "done $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/$id.status"
+    else
+        tune_fail "$id" "$(tail -n 1 "$dir/$id.log" 2>/dev/null | tr -cd '[:print:]' | cut -c1-300)"
+    fi
+}
+
 handle_requests() {
     local f name action unit reload=0
-    local -a restarts=() benches=()
+    local -a restarts=() benches=() tunes=()
     shopt -s nullglob
     for f in "$RUN"/requests/*; do
         name="$(basename "$f")"
         rm -f -- "$f"
         if [[ "$name" =~ $BENCH_RE ]]; then
             benches+=("${BASH_REMATCH[1]}")
+            continue
+        fi
+        if [[ "$name" =~ $TUNE_RE ]]; then
+            tunes+=("${BASH_REMATCH[1]}")
             continue
         fi
         if [[ ! "$name" =~ $REQUEST_RE ]]; then
@@ -150,9 +309,15 @@ handle_requests() {
     for unit in "${benches[@]}"; do
         bench "$unit"
     done
+    for unit in "${tunes[@]}"; do
+        tune "$unit"
+    done
 }
 
-if [[ "${1:-}" != "--status" ]]; then
-    handle_requests
-fi
+case "${1:-}" in
+    --status) ;;
+    # --check-tune-args TOOL FILE checks optimizer arguments, for the tests.
+    --check-tune-args) tune_check_args "$2" "$3"; exit ;;
+    *) handle_requests ;;
+esac
 write_status
