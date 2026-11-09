@@ -1,0 +1,6 @@
+# IOMMU passthrough for the devices that the host owns. DMA from the GPUs
+# then skips address translation, which AMD's ROCm docs recommend for
+# multi-GPU hosts. The IOMMU stays on for devices given to a VM. The cost:
+# a rogue PCIe or Thunderbolt device can read all memory.
+kargs = ["iommu=pt"]
+match-architectures = ["x86_64"]

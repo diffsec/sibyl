@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-hostd ./cmd/
 FROM scratch AS variants
 COPY os/variants/ /
 
-FROM quay.io/fedora/fedora-bootc:44@sha256:6bda175e89575aa3dfb6b0b4b8342978cb7de8d6109042f0338560eb3fe82c15
+FROM quay.io/fedora/fedora-bootc:44@sha256:06f956b9fe717679760a9fbcd669fc0f9b3f7731244a5734db7970fafa3f681d
 
 ARG GPU_VARIANT=amd
 ARG SIBYL_VERSION=dev
@@ -44,13 +44,15 @@ RUN grep -hEv '^\s*(#|$)' /tmp/packages/common.txt "/tmp/packages/${GPU_VARIANT}
     && dnf clean all \
     && rm -rf /tmp/packages /run/dnf /var/cache/* /var/lib/dnf /var/log/dnf*
 
-# Variant-specific build steps. Only nvidia has any today: it builds and
-# signs the NVIDIA kernel modules (os/variants/nvidia.sh).
+# Variant-specific build steps. nvidia builds and signs the NVIDIA kernel
+# modules (os/variants/nvidia.sh). amd sets iommu=pt.
 RUN --mount=type=bind,from=variants,target=/variants \
     --mount=type=secret,id=mok_key \
     if [ "${GPU_VARIANT}" = nvidia ]; then \
         bash /variants/nvidia.sh \
         && install -D -m 0644 /variants/sibyl-nvidia-kargs.toml /usr/lib/bootc/kargs.d/50-sibyl-nvidia.toml; \
+    elif [ "${GPU_VARIANT}" = amd ]; then \
+        install -D -m 0644 /variants/sibyl-amd-kargs.toml /usr/lib/bootc/kargs.d/50-sibyl-amd.toml; \
     fi
 
 COPY os/rootfs/ /
