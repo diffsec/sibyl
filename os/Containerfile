@@ -44,13 +44,15 @@ RUN grep -hEv '^\s*(#|$)' /tmp/packages/common.txt "/tmp/packages/${GPU_VARIANT}
     && dnf clean all \
     && rm -rf /tmp/packages /run/dnf /var/cache/* /var/lib/dnf /var/log/dnf*
 
-# Variant-specific build steps. Only nvidia has any today: it builds and
-# signs the NVIDIA kernel modules (os/variants/nvidia.sh).
+# Variant-specific build steps. nvidia builds and signs the NVIDIA kernel
+# modules (os/variants/nvidia.sh). amd sets iommu=pt.
 RUN --mount=type=bind,from=variants,target=/variants \
     --mount=type=secret,id=mok_key \
     if [ "${GPU_VARIANT}" = nvidia ]; then \
         bash /variants/nvidia.sh \
         && install -D -m 0644 /variants/sibyl-nvidia-kargs.toml /usr/lib/bootc/kargs.d/50-sibyl-nvidia.toml; \
+    elif [ "${GPU_VARIANT}" = amd ]; then \
+        install -D -m 0644 /variants/sibyl-amd-kargs.toml /usr/lib/bootc/kargs.d/50-sibyl-amd.toml; \
     fi
 
 COPY os/rootfs/ /

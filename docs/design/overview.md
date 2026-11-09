@@ -100,7 +100,7 @@ Caddy sends `/v1/*` to the model router. The router checks each client's key and
 - The container signature policy in `/etc/containers/policy.json`.
 - Host-only tools that cannot run in a container: GPU detection, the installer and disk management.
 
-The AMD variant needs no extra kernel modules. `amdgpu` is in the Fedora kernel and is signed for Secure Boot. The host needs only the firmware (`amd-gpu-firmware`) and device access. The ROCm userspace is in the HIP image only.
+The AMD variant needs no extra kernel modules. `amdgpu` is in the Fedora kernel and is signed for Secure Boot. The host needs only the firmware (`amd-gpu-firmware`) and device access. The ROCm userspace is in the HIP image only. The image sets the kernel argument `iommu=pt` in `/usr/lib/bootc/kargs.d/50-sibyl-amd.toml`. DMA from the GPUs then skips IOMMU address translation, which AMD's ROCm docs recommend for multi-GPU hosts. The cost is that a rogue PCIe or Thunderbolt device can read all memory.
 
 The Intel variant also uses in-kernel drivers (`i915` and `xe`) and only adds the firmware (`intel-gpu-firmware`). It adds `intel-compute-runtime` to the host for device nodes. Its inference image is the Vulkan one, with Mesa ANV. SYCL was named as a second choice and is not built.
 
