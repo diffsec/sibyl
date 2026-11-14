@@ -83,7 +83,7 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
 | `tools/pxe/` | Network boot and unattended install, for lab hosts. |
 | `tools/vmtest/` | The VM install test that CI runs on the ISO. |
 | `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `cleanup.yml` deletes old images. |
-| `.github/renovate.json5` | Keeps the image pins in the Containerfiles and the Quadlet units, and the Go modules, current. |
+| `.github/renovate.json5` | Keeps the image pins in the Containerfiles and the Quadlet units, the Go modules and the actions current. |
 
 The Go packages, from the outside in:
 
@@ -317,7 +317,7 @@ Renovate (`.github/renovate.json5`) opens a pull request for each new version of
 | Base images | `FROM` lines of every `Containerfile`, `Containerfile.hip` and `Containerfile.vulkan` | Any time |
 | Open WebUI and Arcane | The `# vX.Y.Z` comment and the `Image=...@sha256:` line under it, in the Quadlet units | Any time |
 | Go modules | `go.mod`, in one grouped pull request | Mondays before 06:00 UTC |
-| GitHub Actions | `.github/workflows/` and `actions.lock`, in one grouped pull request from Dependabot, which a maintainer merges | Mondays at 06:00 UTC |
+| GitHub Actions | `.github/workflows/`, in one grouped pull request. A maintainer runs `gh actions-lock` on the branch, pushes the lockfile and merges. | Mondays before 06:00 UTC |
 
 - Patch, minor and digest updates merge themselves when every check passes. A major update waits for a maintainer.
 - The Quadlet `Image=` lines stay digest-only, because the offline bundle reads them as one reference (`scripts/bundle/make.sh`, `internal/bundle`). Renovate updates the version comment and the digest together.

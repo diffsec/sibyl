@@ -1,8 +1,7 @@
-// Renovate keeps these pins current: the base images in the Containerfiles,
-// the third-party images in the Quadlet units and the Go modules. Each pull
-// request runs the bootc images workflow, which builds every image without
-// pushing. Dependabot updates the GitHub Actions (.github/dependabot.yml),
-// because it also regenerates .github/workflows/actions.lock.
+// Renovate keeps every pin current: the base images in the Containerfiles,
+// the third-party images in the Quadlet units, the Go modules and the
+// GitHub Actions. Each pull request runs the bootc images workflow, which
+// builds every image without pushing.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:recommended"],
@@ -10,7 +9,7 @@
   // newest image of any version, and it reads the @IMAGE_TAG@ placeholders
   // of Sibyl's own images as digests. The regex manager below reads the
   // Quadlet units instead.
-  enabledManagers: ["dockerfile", "custom.regex", "gomod"],
+  enabledManagers: ["dockerfile", "custom.regex", "gomod", "github-actions"],
   timezone: "Etc/UTC",
   commitMessagePrefix: "Bump",
   // Patch, minor and digest updates merge themselves once every check
@@ -77,6 +76,19 @@
       matchDatasources: ["docker"],
       matchPackageNames: ["quay.io/fedora/fedora-bootc"],
       schedule: ["at any time"],
+    },
+    {
+      // A workflow names an action by its release tag, and
+      // .github/workflows/actions.lock holds the commit that runs. Renovate
+      // updates the tag but not the lockfile, and the repository's
+      // "Require lockfile" policy blocks a workflow whose lockfile is out of
+      // date. A maintainer runs gh actions-lock on the branch, pushes the
+      // lockfile, and merges.
+      matchManagers: ["github-actions"],
+      groupName: "github actions",
+      schedule: ["before 6am on monday"],
+      automerge: false,
+      prBodyNotes: ["Run `gh actions-lock` on this branch and push `.github/workflows/actions.lock` before you merge. The workflows do not run until the lockfile matches."],
     },
     {
       matchManagers: ["gomod"],
