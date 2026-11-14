@@ -20,6 +20,7 @@ DROP = {"--pool-workers": 1, "--max-context": 1, "--vram-reserve-later-mib": 1}
 # for. On the test host a later card with 240 MiB free stalled the first
 # request, and 1400 MiB of reserve did not.
 RESERVE_LATER_MIB = "1400"
+DENSE_Q8 = "latent_dense_q8.bin"
 
 
 def absolute(value, model_dir):
@@ -33,8 +34,8 @@ def absolute(value, model_dir):
 
 # On one GPU the engine keeps the expert file in system RAM, plus about
 # RAM_OVERHEAD. On a layer split it keeps only the experts that no GPU holds
-# (--resident-experts). On two 24 GB cards that was 21.4 GiB of a 37.3 GiB
-# file, which is 57%, so SPAN_SHARE leaves a margin. The same figures are in
+# (--resident-experts). On two 24 GB cards that was 19.6 GiB of a 37.3 GiB
+# file, which is 52%, so SPAN_SHARE leaves a margin. The same figures are in
 # internal/models (Edge0RAM).
 RAM_OVERHEAD = 6 << 30
 SPAN_SHARE = 0.65
@@ -64,11 +65,6 @@ def configure(manifest, model_dir, alias, gpus, context, work):
         if arg in DROP:
             i += 1 + DROP[arg]
             continue
-        # --pcie-mode dma is not tested on a layer split with the engine's
-        # split fix. Before the fix it stopped the first request.
-        if arg == "--pcie-mode" and len(gpus) > 1:
-            i += 2
-            continue
         args.append(absolute(arg, model_dir))
         i += 1
     args += ["--max-context", str(context)]
@@ -80,6 +76,21 @@ def configure(manifest, model_dir, alias, gpus, context, work):
             args.append("--resident-experts")
 
     env = {k: absolute(v, model_dir) for k, v in manifest.get("env", {}).items()}
+    # The engine's fast Radeon kernels for the dense latent weights read the
+    # 8-bit file only. A folder whose model.json names the 4-bit file ships
+    # the 8-bit file too. On the test host Edge0 120B read a 5.3K-token prompt
+    # at 503 to 528 tokens per second from the 4-bit file, and at 1194 to
+    # 1370 from the 8-bit file, for 1.2 GiB more VRAM.
+    # When every expert fits in VRAM, the engine runs each decode window
+    # without a call to the CPU. On the test host that path stopped the first
+    # request of Edge0 120B across two cards: the first card finished layer
+    # 0's router and never started the experts. The engine's source records
+    # the same stop with this model on another platform.
+    env.setdefault("STRATA_VERIFY_ALL_RESIDENT", "0")
+    dense8 = os.path.join(model_dir, DENSE_Q8)
+    if env.get("STRATA_LATENT_DENSE_FMT") == "4" and os.path.isfile(dense8):
+        env["STRATA_LATENT_DENSE"] = dense8
+        env["STRATA_LATENT_DENSE_FMT"] = "8"
     return {
         "model_name": alias,
         "backend": "hip",

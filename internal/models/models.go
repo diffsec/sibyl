@@ -64,7 +64,7 @@ func Edge0RAM(experts int64) int64 { return experts + Edge0RAMOverhead }
 // Edge0SpanShare is the part of the expert file that stays in RAM when the
 // model spans GPUs. The launcher then starts the engine in its low-RAM
 // mode, which keeps in RAM only the experts that no GPU holds. On two 24 GB
-// cards that was 21.4 GiB of a 37.3 GiB file, which is 57%, so 65% leaves a
+// cards that was 19.6 GiB of a 37.3 GiB file, which is 52%, so 65% leaves a
 // margin. More cards or larger cards keep less.
 const Edge0SpanShare = 0.65
 
