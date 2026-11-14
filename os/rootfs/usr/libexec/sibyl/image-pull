@@ -1,0 +1,143 @@
+#!/bin/bash
+# Pull the service images of a staged Sibyl update before the reboot.
+#
+# A new host image names a new tag of every Sibyl service image. Without
+# this script, Quadlet pulls each one when its unit starts after the reboot,
+# and the services wait for the download: the llama-swap image is about
+# 4 GB. Quadlet also stops a pull after 5 minutes, so a slow link can leave
+# llama-swap down.
+#
+# The script reads the staged deployment's Quadlet units and pulls each
+# image that the sibyl user does not have. The llama-swap image is the one
+# for the backend that this host runs now, such as -hip or -vulkan, because
+# the System API writes that choice to /etc. The staged deployment's /etc is
+# merged only at shutdown, so the script reads the units from its /usr/etc.
+#
+# The update units and auto-update run it after bootc stages an image.
+# sibyl-image-prune keeps the tags of a staged deployment, so it does not
+# remove these images.
+#
+# With --reboot, it reboots after the pull when an update is staged, even
+# when a pull failed. Quadlet then pulls the missing images at boot.
+set -euo pipefail
+
+REBOOT=
+if [[ "${1:-}" == --reboot ]]; then
+    REBOOT=1
+fi
+
+# The paths can be moved for the tests.
+DEPLOY=${SIBYL_PULL_DEPLOY:-/ostree/deploy}
+CURRENT=${SIBYL_PULL_CURRENT:-/}
+UNITS=etc/containers/systemd/users/1001
+REPO=ghcr.io/diffsec/sibyl-
+TAG_RE='^[A-Za-z0-9_.-]+$'
+# The sibyl user cannot enter every directory, such as a caller's home.
+cd /
+
+log() { echo "sibyl-image-pull: $*"; }
+
+# as_sibyl runs Podman as the sibyl user, as image-prune does.
+as_sibyl() {
+    if [[ -n "${SIBYL_PULL_AS_SELF:-}" ]]; then
+        "$@"
+        return
+    fi
+    setpriv --reuid=1001 --regid=1001 --init-groups -- env HOME="$(getent passwd sibyl | cut -d: -f6)" \
+        XDG_RUNTIME_DIR=/run/user/1001 "$@"
+}
+
+staged_root() {
+    local status checksum serial
+    if [[ -n "${SIBYL_PULL_STATUS:-}" ]]; then
+        status=$(<"$SIBYL_PULL_STATUS")
+    else
+        status=$(bootc status --format=json)
+    fi
+    checksum=$(jq -r '.status.staged.ostree.checksum // empty' <<<"$status")
+    serial=$(jq -r '.status.staged.ostree.deploySerial // empty' <<<"$status")
+    [[ "$checksum" =~ ^[0-9a-f]{64}$ && "$serial" =~ ^[0-9]+$ ]] || return 0
+    local d
+    for d in "$DEPLOY"/*/deploy/"$checksum.$serial"; do
+        if [[ -d "$d" ]]; then
+            echo "$d"
+            return 0
+        fi
+    done
+}
+
+finish() {
+    if [[ -n "$REBOOT" && -n "${root:-}" ]]; then
+        log "rebooting into the staged update"
+        systemctl reboot
+    fi
+    exit "$1"
+}
+
+root=$(staged_root)
+if [[ -z "$root" ]]; then
+    log "no update is staged"
+    exit 0
+fi
+new=$(cat "$root/usr/share/sibyl/image-tag" 2>/dev/null || true)
+old=$(cat "$CURRENT/usr/share/sibyl/image-tag" 2>/dev/null || true)
+if ! [[ "$new" =~ $TAG_RE ]]; then
+    log "the staged deployment has no valid image tag"
+    finish 1
+fi
+
+images=()
+add() {
+    local ref=$1 i
+    for i in "${images[@]}"; do
+        [[ "$i" != "$ref" ]] || return 0
+    done
+    images+=("$ref")
+}
+
+shopt -s nullglob
+for f in "$root/usr/$UNITS"/*.container; do
+    while IFS= read -r line; do
+        add "${line#Image=}"
+    done < <(grep -E '^Image=[^[:space:]]+$' "$f" || true)
+done
+
+# The llama-swap image: the staged tag, with this host's backend suffix.
+# A host on the image's default backend has the same suffix in both files.
+backend=$(grep -hE '^Image=' "$CURRENT/$UNITS"/llama-swap.container.d/*.conf 2>/dev/null | tail -n 1 || true)
+backend=${backend#Image=}
+if [[ "$old" =~ $TAG_RE && "$backend" == "${REPO}llama-swap:$old"-* ]]; then
+    suffix=${backend#"${REPO}llama-swap:$old"}
+    if [[ "$suffix" =~ ^-[a-z0-9]+$ ]]; then
+        add "${REPO}llama-swap:$new$suffix"
+    fi
+else
+    for f in "$root/usr/$UNITS"/llama-swap.container.d/*.conf; do
+        while IFS= read -r line; do
+            add "${line#Image=}"
+        done < <(grep -E '^Image=[^[:space:]]+$' "$f" || true)
+    done
+fi
+
+if ((${#images[@]} == 0)); then
+    log "the staged deployment names no images"
+    finish 1
+fi
+
+failed=0
+for ref in "${images[@]}"; do
+    if as_sibyl podman image exists "$ref"; then
+        continue
+    fi
+    log "pulling $ref"
+    if ! as_sibyl podman pull --quiet --retry 3 "$ref" >/dev/null; then
+        log "could not pull $ref"
+        failed=$((failed + 1))
+    fi
+done
+if ((failed > 0)); then
+    log "$failed of ${#images[@]} image(s) are missing; they download at boot"
+    finish 1
+fi
+log "the ${#images[@]} image(s) of $new are ready"
+finish 0

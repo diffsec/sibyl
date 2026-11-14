@@ -9,8 +9,9 @@ The operating system and the services update together, as one image. Open WebUI 
 Sibyl updates itself at night. `sibyl-auto-update.timer` runs every 30 minutes from 03:00 to 05:30, host time.
 
 1. It downloads and stages a new image if there is one. `bootc upgrade` checks the image's signature first.
-2. It reboots into the staged image, but only when the models are idle: no request finished in the last 30 minutes, no model is loading, and no llama-server has a request running or waiting.
-3. If the models are busy, the image stays staged, and the next run tries again. A staged image that does not start in the window starts at the next window or the next reboot.
+2. It pulls the service images of the staged version (`/usr/libexec/sibyl/image-pull`). The llama-swap image is about 4 GB. If a pull fails, the reboot waits for the next run.
+3. It reboots into the staged image, but only when the models are idle: no request finished in the last 30 minutes, no model is loading, and no llama-server has a request running or waiting.
+4. If the models are busy, the image stays staged, and the next run tries again. A staged image that does not start in the window starts at the next window or the next reboot.
 
 The reboot stops the models and the APIs for a few minutes. If the new version does not boot, the host starts the old one, which bootc keeps.
 
@@ -86,7 +87,7 @@ sudo systemctl reboot
 
 ## Old images
 
-Each update downloads a new tag of every Sibyl service image. 15 minutes after each boot, and then daily, `sibyl-image-prune.timer` removes the Sibyl images that no deployment uses. It keeps the images of the running version, the rollback version and a staged version, so a rollback needs no download. It also removes untagged images that no container uses. It does not remove other images, such as those of the stacks that Arcane runs.
+Each update downloads a new tag of every Sibyl service image. The download happens when the update is staged, before the reboot: the nightly update, "download" and "download and reboot" all run `image-pull` after `bootc upgrade`. The services then start from local images after the reboot. An image that did not download before the reboot downloads when its service starts, and that service waits for it. 15 minutes after each boot, and then daily, `sibyl-image-prune.timer` removes the Sibyl images that no deployment uses. It keeps the images of the running version, the rollback version and a staged version, so a rollback needs no download. It also removes untagged images that no container uses. It does not remove other images, such as those of the stacks that Arcane runs.
 
 To see what it removed: `journalctl -u sibyl-image-prune`.
 

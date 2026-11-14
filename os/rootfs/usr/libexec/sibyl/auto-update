@@ -7,7 +7,9 @@
 # one (bootc upgrade checks the signature). It reboots into a staged image
 # only if llama-swap answered no request in the last 30 minutes and no
 # llama-server is busy now. Otherwise it waits for the next run, or the next
-# night. bootc keeps the old image, so `bootc rollback` goes back.
+# night. Before the reboot it pulls the staged version's service images
+# (image-pull), so the services do not wait for a download at boot. bootc
+# keeps the old image, so `bootc rollback` goes back.
 #
 # To turn it off: sudo systemctl disable --now sibyl-auto-update.timer
 set -euo pipefail
@@ -75,6 +77,11 @@ fi
 next=$(staged)
 if [[ -z "$next" ]]; then
     log "no update"
+    exit 0
+fi
+# The services start at once after the reboot when their images are here.
+if ! /usr/libexec/sibyl/image-pull; then
+    log "$next is staged; the reboot waits until its images are pulled"
     exit 0
 fi
 if busy; then

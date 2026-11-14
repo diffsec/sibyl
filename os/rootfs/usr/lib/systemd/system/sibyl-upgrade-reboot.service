@@ -1,11 +1,15 @@
 [Unit]
 Description=Download the Sibyl host update and reboot into it
-After=network-online.target
-Wants=network-online.target
+After=network-online.target user@1001.service
+Wants=network-online.target user@1001.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bootc upgrade --apply
+ExecStart=/usr/bin/bootc upgrade
+# Pull the staged version's service images, then reboot when an update is
+# staged, as bootc upgrade --apply does. A failed pull does not stop the
+# reboot: the missing images download at boot.
+ExecStart=-/usr/libexec/sibyl/image-pull --reboot
 # The System API reads the result from the host state.
 ExecStopPost=/usr/libexec/sibyl/hostd -state
 TimeoutStartSec=1h
