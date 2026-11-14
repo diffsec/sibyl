@@ -1,11 +1,14 @@
 [Unit]
 Description=Download and stage the Sibyl host update
-After=network-online.target
-Wants=network-online.target
+After=network-online.target user@1001.service
+Wants=network-online.target user@1001.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/bootc upgrade
+# The staged version's service images, so they are here at the reboot. A
+# failed pull leaves them to download at boot.
+ExecStart=-/usr/libexec/sibyl/image-pull
 # The System API reads the result from the host state.
 ExecStopPost=/usr/libexec/sibyl/hostd -state
 TimeoutStartSec=1h
