@@ -509,3 +509,30 @@ jobs:
           oras push --artifact-type application/vnd.sibyl.bundle \
             "ghcr.io/diffsec/sibyl-bundle:${TAG}-${VARIANT},latest-${VARIANT}" \
             manifest.json manifest.json.sig ./*.oci.tar
+
+  # A Dependabot pull request merges when every build above passed, unless
+  # it is a major update. The merge uses the workflow's token, and a push
+  # from that token starts no workflow, so the job starts this workflow on
+  # main by hand: workflow_dispatch is the exception to that rule.
+  dependabot-merge:
+    needs: [go, service-images, os-image]
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v3.1.0
+      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # The head check refuses a merge when Dependabot pushed again
+          # after these builds started.
+          gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD"
+          gh workflow run bootc.yml --repo "$REPO" --ref main

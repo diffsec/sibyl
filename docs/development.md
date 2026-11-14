@@ -83,7 +83,7 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
 | `tools/pxe/` | Network boot and unattended install, for lab hosts. |
 | `tools/vmtest/` | The VM install test that CI runs on the ISO. |
 | `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `cleanup.yml` deletes old images. |
-| `.github/renovate.json5` | Keeps the image pins in the Containerfiles and the Quadlet units, the Go modules and the actions current. |
+| `.github/dependabot.yml` | Keeps the base images in the Containerfiles, the Go modules and the actions current. `.github/renovate.json5` turns the Renovate app off. |
 
 The Go packages, from the outside in:
 
@@ -305,25 +305,25 @@ gh workflow run cleanup.yml -f dry_run=true
 
 Quay deletes old `fedora-bootc` manifests after the tag moves, so the digest in `os/Containerfile` goes stale within days. On 2026-10-30 the pinned digest was gone and the OS build failed.
 
-- Renovate checks the `fedora-bootc` digest at every run and opens a pull request when it changes. The pull request builds every image, and it merges itself when every check passes.
+- Dependabot checks the `fedora-bootc` digest daily and opens a pull request when it changes. The pull request builds every image, and it merges when every build passes.
 - If the host build fails with `not found` on the base image, run `scripts/bump-base-image.sh`.
 
 ### Pin updates
 
-Renovate (`.github/renovate.json5`) opens a pull request for each new version of a pinned dependency. Each pull request runs `bootc.yml`, which builds every image without pushing it.
+Dependabot (`.github/dependabot.yml`) opens a pull request for each new version of a pinned dependency. Each pull request runs `bootc.yml`, which builds every image without pushing it.
 
 | Dependency | Where | Schedule |
 |---|---|---|
-| Base images | `FROM` lines of every `Containerfile`, `Containerfile.hip` and `Containerfile.vulkan` | Any time |
-| Open WebUI and Arcane | The `# vX.Y.Z` comment and the `Image=...@sha256:` line under it, in the Quadlet units | Any time |
-| Go modules | `go.mod`, in one grouped pull request | Mondays before 06:00 UTC |
-| GitHub Actions | `.github/workflows/`, in one grouped pull request. A maintainer runs `gh actions-lock` on the branch, pushes the lockfile and merges. | Mondays before 06:00 UTC |
+| Base images | `FROM` lines of each `Containerfile`, in the directories that `dependabot.yml` lists | Daily |
+| Go modules | `go.mod`, minor and patch updates in one grouped pull request | Mondays |
+| GitHub Actions | `.github/workflows/` and `actions.lock`, minor and patch updates in one grouped pull request | Mondays |
 
-- Patch, minor and digest updates merge themselves when every check passes. A major update waits for a maintainer.
-- The Quadlet `Image=` lines stay digest-only, because the offline bundle reads them as one reference (`scripts/bundle/make.sh`, `internal/bundle`). Renovate updates the version comment and the digest together.
-- Renovate leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
+- When every build of `bootc.yml` passes, its `dependabot-merge` job squash-merges the pull request, then starts `bootc.yml` on `main`. A push from the workflow's token starts no workflow, so the job starts it with `workflow_dispatch`.
+- A major update waits for a maintainer.
+- A pull request that changes no path in the `bootc.yml` filters, such as one for `tools/pxe`, runs no build, so it waits for a maintainer.
+- Dependabot leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
+- Open WebUI and Arcane move by hand. Dependabot does not read Quadlet units. Update the `# vX.Y.Z` comment and the `Image=...@sha256:` line under it together. The `Image=` line stays digest-only, because the offline bundle reads it as one reference (`scripts/bundle/make.sh`, `internal/bundle`).
 - llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes.
-- Renovate's built-in `quadlet` manager is off. It would move the digest-only pins to the newest image of any version, and it reads the `@IMAGE_TAG@` placeholders as digests.
 
 ## Release
 

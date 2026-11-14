@@ -34,7 +34,7 @@ The owner opens `https://<address>:8443/console/`. The browser trusts the page i
 
 The console uses Go `html/template` pages on the server with htmx for partial updates. The design chose this over a single-page app in React or Svelte, for these reasons:
 
-- The repository has no Node toolchain. A single-page app adds `package.json`, a lock file, a build step in CI and a stream of Renovate updates for front-end packages.
+- The repository has no Node toolchain. A single-page app adds `package.json`, a lock file, a build step in CI and a stream of Dependabot updates for front-end packages.
 - `html/template` escapes every value by context. A model name or a rule name from the owner cannot inject markup.
 - htmx is one file of about 50 KB. It is vendored into the repository at a pinned version (`internal/console/static/htmx-2.0.4.min.js`), so the console loads no script from the internet.
 - The page handlers call the API handlers in the same process, through the TUI's own `internal/client`, so the console and the TUI cannot drift apart. The client's transport goes to the API handler in memory, not over the network.

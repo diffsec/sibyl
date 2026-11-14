@@ -1,0 +1,64 @@
+# Dependabot keeps the pins current. Each pull request runs the bootc
+# images workflow, which builds every image without pushing. When every
+# build passes, the workflow's dependabot-merge job merges a pull request
+# that is not a major update.
+#
+# Quay deletes old fedora-bootc manifests within days of the tag moving, so
+# the container images are checked daily.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directories:
+      - /os
+      - /containers/caddy
+      - /containers/live
+      - /containers/llama-swap
+      - /containers/llama-swap-cuda
+      - /containers/router
+      - /containers/system-api
+      - /containers/tui
+      - /tools/pxe
+    schedule:
+      interval: daily
+      time: "03:17"
+      timezone: Etc/UTC
+    groups:
+      # One pull request for the Chainguard images that several files share.
+      chainguard:
+        patterns: ["chainguard/*", "cgr.dev/chainguard/*"]
+    ignore:
+      # ROCm and the Ubuntu releases change the llama.cpp build. Move them
+      # by hand after a benchmark (docs/design/overview.md).
+      # Dependabot names a Docker Hub image with or without its registry.
+      - dependency-name: "*rocm/dev-ubuntu-24.04"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "*ubuntu"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    commit-message:
+      prefix: Bump
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      go-modules:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: Bump
+
+  # Dependabot rewrites the release tag in the workflow and the commit in
+  # .github/workflows/actions.lock in the same pull request.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: Bump

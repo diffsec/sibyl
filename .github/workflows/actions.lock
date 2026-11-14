@@ -7,6 +7,7 @@ workflows:
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-go@v7.0.0'
         - 'actions/upload-artifact@v7.0.2'
+        - 'dependabot/fetch-metadata@v3.1.0'
         - 'docker/build-push-action@v7.4.0'
         - 'docker/login-action@v4.8.0'
         - 'docker/metadata-action@v6.2.0'
@@ -37,6 +38,11 @@ dependencies:
         commit: 'sha1-d52806a0dc70b430571a37da1fde39733ffd640f'
         owner_id: 131044173
         repo_id: 799711900
+    'dependabot/fetch-metadata@v3.1.0':
+        ref: 'v3.1.0'
+        commit: 'sha1-25dd0e34f4fe68f24cc83900b1fe3fe149efef98'
+        owner_id: 27347476
+        repo_id: 371068214
     'docker/build-push-action@v7.4.0':
         ref: 'v7.4.0'
         commit: 'sha1-c3c9e263c25d99ce0380d002d59b67737d91b0dc'
