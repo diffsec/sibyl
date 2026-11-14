@@ -1,6 +1,14 @@
 package hf
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/diffsec/sibyl/internal/models"
+)
 
 func TestVariants(t *testing.T) {
 	files := []File{
@@ -46,5 +54,64 @@ func TestFileURLEscapes(t *testing.T) {
 	got := c.FileURL("o/r", "abc", "dir/a b.gguf")
 	if got != "https://hf.example/o/r/resolve/abc/dir/a%20b.gguf" {
 		t.Errorf("FileURL = %s", got)
+	}
+}
+
+const testRev = "4c577be098c274a1f579e072178db01dd3a8e449"
+
+func treeServer(t *testing.T, tree string) *Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/models/o/Edge0-145B-q3k/tree/"+testRev) {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(tree))
+	}))
+	t.Cleanup(srv.Close)
+	return New(srv.URL, "")
+}
+
+// An Edge0 repository is offered as one folder. Its GGUF files are parts
+// of the folder, so they are not offered alone.
+func TestRepoVariantsEdge0(t *testing.T) {
+	sha, blob := strings.Repeat("a", 64), strings.Repeat("b", 40)
+	c := treeServer(t, `[
+		{"type":"directory","path":"mtp","size":0,"oid":"`+blob+`"},
+		{"type":"file","path":".gitattributes","size":10,"oid":"`+blob+`"},
+		{"type":"file","path":"assets/hero.png","size":99,"oid":"`+blob+`","lfs":{"oid":"`+sha+`"}},
+		{"type":"file","path":"model.json","size":20,"oid":"`+blob+`"},
+		{"type":"file","path":"experts.bin","size":4000,"oid":"`+blob+`","lfs":{"oid":"`+sha+`"}},
+		{"type":"file","path":"model-skeleton.gguf","size":600,"oid":"`+blob+`","lfs":{"oid":"`+sha+`"}},
+		{"type":"file","path":"mtp/experts.bin","size":70,"oid":"`+blob+`","lfs":{"oid":"`+sha+`"}},
+		{"type":"file","path":"start.sh","size":5,"oid":"not-a-digest"}
+	]`)
+	vs, err := c.RepoVariants(context.Background(), "o/Edge0-145B-q3k", testRev)
+	if err != nil || len(vs) != 1 {
+		t.Fatalf("variants = %+v, err = %v", vs, err)
+	}
+	v := vs[0]
+	if v.Name != "Edge0-145B-q3k" || v.Engine != models.EngineEdge0 || v.Size != 4690 || v.Shards != 4 ||
+		v.RAM != 4000+models.Edge0RAMOverhead {
+		t.Errorf("variant = %+v", v)
+	}
+	for _, f := range v.Files {
+		lfs := f.Path != "model.json"
+		if f.Dest != f.Path || (f.SHA256 != "") != lfs || (f.GitOID != "") == lfs {
+			t.Errorf("file = %+v", f)
+		}
+	}
+}
+
+// A repository with no strata pack at its root keeps its GGUF variants.
+func TestRepoVariantsGGUF(t *testing.T) {
+	sha := strings.Repeat("a", 64)
+	c := treeServer(t, `[
+		{"type":"file","path":"model.json","size":20,"oid":"`+strings.Repeat("b", 40)+`"},
+		{"type":"file","path":"Model-Q4_K_M.gguf","size":600,"lfs":{"oid":"`+sha+`"}}
+	]`)
+	vs, err := c.RepoVariants(context.Background(), "o/Edge0-145B-q3k", testRev)
+	if err != nil || len(vs) != 1 || vs[0].Name != "Model-Q4_K_M" || vs[0].Engine != "" {
+		t.Fatalf("variants = %+v, err = %v", vs, err)
 	}
 }

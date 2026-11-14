@@ -3,6 +3,7 @@ package download
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,6 +28,7 @@ const rev = "4c577be098c274a1f579e072178db01dd3a8e449"
 type fakeHub struct {
 	files   map[string][]byte
 	shaFor  map[string]string // override the advertised digest
+	plain   map[string]bool   // path -> true: not in LFS, so the tree has its Git blob ID only
 	cutOnce sync.Map          // path -> true: first GET stops halfway
 	gets    atomic.Int32
 }
@@ -34,6 +36,14 @@ type fakeHub struct {
 func digest(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
+}
+
+// gitBlob is the Git blob ID of b.
+func gitBlob(b []byte) string {
+	h := sha1.New()
+	_, _ = fmt.Fprintf(h, "blob %d\x00", len(b))
+	_, _ = h.Write(b)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (h *fakeHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +56,14 @@ func (h *fakeHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sha := digest(b)
 			if o, ok := h.shaFor[p]; ok {
 				sha = o
+			}
+			if h.plain[p] {
+				oid := gitBlob(b)
+				if o, ok := h.shaFor[p]; ok {
+					oid = o
+				}
+				tree = append(tree, map[string]any{"type": "file", "path": p, "size": len(b), "oid": oid})
+				continue
 			}
 			tree = append(tree, map[string]any{"type": "file", "path": p, "size": len(b), "lfs": map[string]any{"oid": sha}})
 		}
@@ -229,5 +247,70 @@ func TestDirName(t *testing.T) {
 		if got := DirName(in); got != want {
 			t.Errorf("DirName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// An Edge0 repository downloads as one folder: the files keep their
+// subfolders, a file outside LFS is checked against its Git blob ID, and the
+// model card's assets stay out.
+func TestDownloadEdge0Folder(t *testing.T) {
+	hub := &fakeHub{
+		files: map[string][]byte{
+			"model.json":           []byte(`{"family":"Edge0","context":262144}`),
+			"experts.bin":          bytes.Repeat([]byte("e"), 4096),
+			"model-skeleton.gguf":  bytes.Repeat([]byte("g"), 2048),
+			"mtp/experts.bin":      bytes.Repeat([]byte("m"), 1024),
+			"tokenizer/vocab.json": []byte(`{"a":1}`),
+			"assets/hero.png":      []byte("png"),
+			".gitattributes":       []byte("x"),
+		},
+		plain: map[string]bool{"model.json": true, "tokenizer/vocab.json": true, ".gitattributes": true},
+	}
+	m, done := newManager(t, hub)
+	// The GGUF file is a part of the folder, not a variant of its own.
+	if _, err := m.Add(context.Background(), "o/r", "", "model-skeleton", ""); err == nil {
+		t.Error("the folder's GGUF file was offered as a variant")
+	}
+	j, err := m.Add(context.Background(), "o/r", "", "r", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Dir != "r" || len(j.Files) != 5 {
+		t.Fatalf("job = %+v", j)
+	}
+	waitFor(t, m, j.ID, Done)
+	<-done
+	for p, want := range hub.files {
+		got, err := os.ReadFile(filepath.Join(m.ModelsDir, "r", filepath.FromSlash(p)))
+		skipped := strings.HasPrefix(p, "assets/") || strings.HasPrefix(p, ".")
+		switch {
+		case skipped && err == nil:
+			t.Errorf("%s was downloaded", p)
+		case !skipped && (err != nil || !bytes.Equal(got, want)):
+			t.Errorf("%s: err = %v, %d bytes, want %d", p, err, len(got), len(want))
+		}
+	}
+}
+
+func TestDownloadEdge0GitBlobMismatch(t *testing.T) {
+	hub := &fakeHub{
+		files: map[string][]byte{
+			"model.json":  []byte(`{"family":"Edge0"}`),
+			"experts.bin": bytes.Repeat([]byte("e"), 512),
+		},
+		plain:  map[string]bool{"model.json": true},
+		shaFor: map[string]string{"model.json": strings.Repeat("ab", 20)},
+	}
+	m, _ := newManager(t, hub)
+	j, err := m.Add(context.Background(), "o/r", "", "r", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := waitFor(t, m, j.ID, Failed)
+	if !strings.Contains(got.Error, "Git blob ID mismatch") {
+		t.Errorf("error = %q", got.Error)
+	}
+	if _, err := os.Stat(filepath.Join(m.ModelsDir, "r")); err == nil {
+		t.Error("a folder with a bad file was installed")
 	}
 }

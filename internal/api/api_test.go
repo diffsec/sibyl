@@ -480,3 +480,53 @@ func (f *fixture) doRaw(t *testing.T, method, path string) (int, []byte) {
 	}
 	return resp.StatusCode, raw
 }
+
+// An Edge0 model folder is one model. It gets the launcher command, the
+// llama.cpp tools refuse it, and a delete removes the whole folder.
+func TestEdge0Model(t *testing.T) {
+	f := newFixture(t)
+	folder := filepath.Join(f.paths.Models, "Edge0-145B-q3k")
+	write(t, filepath.Join(folder, "model.json"), `{"family":"Edge0","context":262144}`)
+	write(t, filepath.Join(folder, "experts.bin"), "x")
+	write(t, filepath.Join(folder, "model-skeleton.gguf"), "x")
+	write(t, filepath.Join(folder, "mtp", "experts.bin"), "x")
+	const id = "edge0-145b-q3k"
+
+	f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[1,0],"layout":"span"}`, true)
+	if code, b := f.do(t, "PUT", "/models/"+id, `{"layout":"gpu:1","ctx_size":65536}`, true); code != http.StatusOK {
+		t.Fatalf("PUT settings = %d %v", code, b)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(f.paths.Config, "llama-swap", "config.yaml"))
+	want := "/opt/edge0/launch.py --model-dir /models/Edge0-145B-q3k --alias " + id + " --gpus 1 --context 65536 --port ${PORT}"
+	if !strings.Contains(string(cfg), want) {
+		t.Errorf("config lacks %q:\n%s", want, cfg)
+	}
+	// The folder's GGUF file is a part of the model, not a model.
+	if strings.Contains(string(cfg), "model-skeleton") {
+		t.Errorf("the folder's GGUF file is listed as a model:\n%s", cfg)
+	}
+
+	code, raw := f.doRaw(t, "GET", "/models")
+	if code != http.StatusOK || !strings.Contains(string(raw), `"engine":"edge0"`) || !strings.Contains(string(raw), `"context":262144`) {
+		t.Errorf("GET /models = %d %s", code, raw)
+	}
+	for _, c := range []struct{ method, path, body string }{
+		{"PUT", "/models/" + id, `{"embedding":true}`},
+		{"POST", "/models/" + id + "/benchmark", ""},
+		{"POST", "/models/" + id + "/optimize", `{"profile":"single"}`},
+	} {
+		if code, b := f.do(t, c.method, c.path, c.body, true); code != http.StatusUnprocessableEntity {
+			t.Errorf("%s %s = %d %v, want 422", c.method, c.path, code, b)
+		}
+	}
+
+	if code, b := f.do(t, "DELETE", "/models/"+id, "", true); code != http.StatusOK {
+		t.Fatalf("DELETE = %d %v", code, b)
+	}
+	if _, err := os.Stat(folder); !os.IsNotExist(err) {
+		t.Errorf("the folder is still there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.paths.Models, "chat-14b.gguf")); err != nil {
+		t.Errorf("another model went with it: %v", err)
+	}
+}

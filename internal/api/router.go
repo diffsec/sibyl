@@ -47,6 +47,9 @@ func (s *Server) writeRouterModels(installed []models.Model, settings map[string
 		st := settings[m.ID]
 		meta := s.modelMeta(m)
 		lm := router.LocalModel{ID: m.ID, Context: st.CtxSize, Embedding: st.Embedding}
+		if m.Engine == models.EngineEdge0 {
+			lm.Context = m.Edge0Context(st.CtxSize)
+		}
 		// With several slots, each request is sure of its share only.
 		if st.Parallel > 1 {
 			lm.Context = st.CtxSize / st.Parallel

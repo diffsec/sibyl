@@ -9,7 +9,7 @@ Sibyl is an all-in-one inference server. It is a hardened, immutable Linux host 
 - Each GPU vendor has its own host image variant: `-amd`, `-nvidia` and `-intel`.
 - The AMD variant is tested on a host with two Radeon RX 7900 XTX cards (the "test host" in this document).
 - The NVIDIA and Intel variants build and pass the same checks, but no one has run them on hardware yet.
-- Models are GGUF files only, quantized to fit consumer GPUs. Sibyl does not use vLLM.
+- Models are GGUF files, quantized to fit consumer GPUs. The one exception is an Edge0 model folder on the AMD variant. Sibyl does not use vLLM.
 
 ## Decisions
 
@@ -19,8 +19,9 @@ Sibyl is an all-in-one inference server. It is a hardened, immutable Linux host 
 | Container runtime | Podman with Quadlet, rootless | Fedora default. Quadlet units start at boot without a daemon. |
 | Container UI | Arcane (BSD-3-Clause) | Compose editor, Git Sync, native Podman and Quadlet pages. Dockhand is source-available (BSL 1.1), so it is out. |
 | Inference engine | llama.cpp `llama-server` behind llama-swap | One engine for every GPU vendor, with fast single-stream GGUF inference. llama-swap swaps models and places them on GPUs. |
+| Second engine | edge0-strata for Edge0 model folders, HIP image only, as a llama-swap model | llama.cpp cannot run the Edge0 latent MoE models. llama-swap starts the engine like any other model, so the swap rules, the router and the load routes do not change. |
 | GPU backends | HIP (ROCm) and Vulkan for AMD, CUDA and Vulkan for NVIDIA, Vulkan for Intel | The fastest backend differs by GPU, quant and context size. The benchmark compares the variant's backends. |
-| Model format | GGUF only | Quantized models fit consumer GPUs. No vLLM. |
+| Model format | GGUF, and Edge0 model folders | Quantized models fit consumer GPUs. No vLLM. |
 | Multi-GPU | Per-model layout through the llama-swap matrix router | One model can span both cards, or two models can run on one card each. |
 | GPU vendors | Separate image variants: `-amd`, `-nvidia`, `-intel` | Only the NVIDIA variant carries out-of-tree kernel modules, signed with the project MOK key. NVIDIA and Intel are untested on hardware. |
 | Base for service images | Wolfi where possible | Smaller images with fewer CVEs. The inference images use the vendors' bases, because Wolfi does not package ROCm or CUDA. |
@@ -153,6 +154,35 @@ The HIP image sets `GPU_MAX_HW_QUEUES=1`. With the default of 4 hardware queues 
 | `LLAMA_SWAP_VERSION` | pinned release | llama-swap release |
 | `GPU_TARGETS` | `gfx1030;gfx1100;gfx1101;gfx1102;gfx1150;gfx1151;gfx1200;gfx1201` | RDNA2 (RX 6800 and 6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5 (Ryzen AI 300, Strix Halo), RDNA4 (RX 9000, AI PRO R9700) |
 | `GGML_HIP_RCCL` | `OFF` | RCCL helps only `--split-mode tensor`. Upstream disables it by default. |
+| `EDGE0_REF` | pinned commit of `diffsec/Edge0` | The Edge0 engine, HIP image only |
+
+### Edge0 models
+
+An Edge0 model is a folder, not a GGUF file. The folder holds a `model.json` with `"family": "Edge0"`, an expert file, and the rest of the pack. The scanner lists the folder as one model with `engine` set to `edge0` (`models.Scan`). llama.cpp cannot run it. The engine is edge0-strata, from the fork `github.com/diffsec/Edge0`, which carries the kernels for the Radeon RX 7900 matrix cores.
+
+The HIP image builds the engine in a stage of its own, for `gfx1100` only, and adds its Python server. `EDGE0_REF` pins the fork's commit. The model's llama-swap command is `containers/llama-swap/edge0-launch.py`. It reads the folder's `model.json`, which is a server configuration for a start from inside the folder, and changes these parts:
+
+- The paths become absolute, and the work directory and the engine log go to `/tmp/edge0/<model>`. The container's root is read-only.
+- `--max-context` comes from the model's `ctx_size`. With no setting it is 131072, the value in `model.json` and the value that the engine was measured with.
+- `--pool-workers` is removed. The engine then takes the count from the CPU.
+- It removes `GPU_MAX_HW_QUEUES` from the engine's environment. The engine waits on the GPU in one stream for a copy in another stream. On one hardware queue the copy never starts, and the first request stops with `verify: timed out at layer 1`.
+- On more than one GPU it adds `--resident-experts`, the engine's low-RAM mode: RAM keeps only the experts that no GPU holds. It also adds `--vram-reserve-later-mib 1400`.
+- When `model.json` names the 4-bit dense latent file and the folder holds `latent_dense_q8.bin`, it selects the 8-bit file. The engine's fast Radeon kernels for those weights read the 8-bit file only. Edge0 120B names the 4-bit file.
+- It sets `STRATA_VERIFY_ALL_RESIDENT=0`. When every expert fits in VRAM, the engine runs a decode window with no call to the CPU. Across two cards that path stopped the first request of Edge0 120B: the first card finished layer 0's router and never started the experts.
+
+The model's layout works as for a GGUF model. A model that spans the selected GPUs runs as a layer split, in a matrix set of its own. A model pinned to one GPU shares the `pinned` set, so a GGUF model on another GPU runs beside it. The other llama-server settings do not apply, and the TUI and the console show only the layout, the context size and the hidden flag. The benchmark and the optimizer refuse an Edge0 model, because both measure llama.cpp.
+
+On one GPU the engine keeps the whole expert file in system RAM and copies experts from there to the GPU. Sibyl counts the size of `experts.bin` plus 6 GiB as the model's RAM (`models.Edge0RAM`), which is 43.3 GiB for Edge0 145B. On the test host that model took 41 GiB of RAM, beside 22.6 GB of VRAM on one card. A model that spans GPUs keeps less, because the cards hold more of the experts: on two 24 GB cards, 28.8 GiB of the 37.3 GiB of experts were in VRAM, 19.6 GiB stayed in RAM, and the process took 30.6 GB. For a span Sibyl counts 65% of the expert file plus 6 GiB (`Model.Edge0RAMOn`), which is 30.3 GiB for Edge0 145B. `POST /models/{id}/load` refuses the load with `422` when `MemAvailable` in `/proc/meminfo` is lower, unless the model already runs. The launcher makes the same check, because a chat request also starts a load, and llama-swap then answers the request with the launcher's message.
+
+On the test host, Edge0 145B (Q3_K) on one RX 7900 XTX in this image, with the Quadlet's restrictions, decoded chat answers at 44.1 to 56.1 tokens per second. It read a 5.3K-token prompt at 1029 to 1201 tokens per second and a 21K-token prompt at 1291. The idle card drew 17 W with the model loaded. A layer split across both cards decoded at 38.1 to 54.6 tokens per second, and it read a 5.3K-token prompt at 317 to 329 tokens per second and a 21K-token prompt at 487. One of the test host's cards is on a PCIe 3.0 x1 link, and the prompt path streams experts to it.
+
+Edge0 120B (Q3_K) has a 26.7 GiB expert file, and two 24 GB cards hold all of it. On one card it decoded at 70.5 to 78.7 tokens per second and read a 6K-token prompt at 1284, with 34 GB of host RAM in use. Across both cards it decoded at 65.4 to 67.1 tokens per second and read a 6K-token prompt at 403, with 19 GB of host RAM in use. The 120B and 145B repositories share five large files with the same SHA-256, 59.6 GB in total. The download does not link them, so each folder holds its own copy.
+
+The span needs the fork at `49d5def` or later. Before that commit, the second card of a split was given pointers to the first card's latent weights and token embedding table. A card cannot read another card's VRAM, so the first request never finished.
+
+The download picker offers an Edge0 repository as one variant, the whole folder (`hf.Client.Edge0Variant`). A repository counts as Edge0 when `model.json` and `experts.bin` are at its root. The variant leaves out the `assets` folder and hidden files, and its fit is `split` when the host's total RAM holds the model, or `no`. The download keeps the subfolders. Hugging Face gives a SHA-256 for LFS files only, so the download checks each small file against its Git blob ID, which is the SHA-1 of `blob <size>`, a zero byte, and the content. The commit pins both kinds of file.
+
+Only the Q3_K folders run. The NVFP4 folders need kernels that the fork has for CUDA only, and Sibyl does not stop a download of one.
 
 The base images are plain `FROM` lines, so Renovate can update them. The HIP build uses `docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete`. Upstream llama.cpp tests ROCm 7.2.x, and ROCm 7.14 is a benchmark candidate. Renovate leaves the ROCm and Ubuntu releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
 

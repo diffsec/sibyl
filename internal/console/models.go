@@ -175,6 +175,9 @@ func (c *Console) modelPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	head := fmt.Sprintf("%s · %d file(s)", gib(m.Size), m.Shards)
+	if m.Engine == models.EngineEdge0 {
+		head = fmt.Sprintf("%s · Edge0 model folder · native context %d tokens", gib(m.Size), m.Context)
+	}
 	moe := false
 	if m.Meta != nil {
 		head += fmt.Sprintf(" · %s · native context %d tokens", m.Meta.Architecture, m.Meta.ContextLength)
@@ -190,6 +193,7 @@ func (c *Console) modelPage(w http.ResponseWriter, r *http.Request) {
 		"Model": m, "Head": head, "Fit": fitText(m.Fit), "Form": modelform.FromSettings(m.Settings),
 		"Layouts": layouts, "Drafts": drafts, "SimpleDrafts": simple, "CacheTypes": models.CacheTypes, "Presets": models.Presets,
 		"SpecTypes": spec, "MoE": moe, "Reasoning": reasoningControl(m), "Advisors": advisors,
+		"Edge0Context": m.Edge0Context(0),
 	} {
 		data[k] = v
 	}
@@ -332,10 +336,16 @@ func (c *Console) repoPage(w http.ResponseWriter, r *http.Request) {
 	type row struct {
 		Name, Size, Fit string
 		Shards          int
+		// RAM is set for an Edge0 model folder: the system RAM it keeps.
+		RAM string
 	}
 	var rows []row
 	for _, v := range repo.Variants {
-		rows = append(rows, row{v.Name, gib(v.Size), v.Fit, v.Shards})
+		rw := row{Name: v.Name, Size: gib(v.Size), Fit: v.Fit, Shards: v.Shards}
+		if v.Engine == models.EngineEdge0 {
+			rw.RAM = gib(v.RAM)
+		}
+		rows = append(rows, rw)
 	}
 	data["ID"], data["Repo"], data["Variants"], data["Pools"] = id, repo, rows, pools.Pools
 	data["VRAM"], data["RAM"] = gib(repo.VRAM), gib(repo.RAM)

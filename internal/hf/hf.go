@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // DefaultBase is the Hub address.
@@ -26,6 +28,7 @@ var (
 	repoRe     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$`)
 	revisionRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	sha256Re   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	gitOIDRe   = regexp.MustCompile(`^[0-9a-f]{40}$`) // a Git blob ID: SHA-1
 	splitRe    = regexp.MustCompile(`^(.*)-([0-9]{5})-of-([0-9]{5})\.gguf$`)
 )
 
@@ -122,14 +125,26 @@ type File struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+	// GitOID is the Git blob ID of a file that is not in LFS. Hugging Face
+	// gives a SHA-256 for LFS files only, so a small file is checked
+	// against this SHA-1 of its Git blob.
+	GitOID string `json:"git_oid,omitempty"`
+	// Dest is the file's path inside the model folder. An empty Dest means
+	// the base name of Path, which is where a GGUF file goes.
+	Dest string `json:"dest,omitempty"`
 }
 
-// Variant is one downloadable GGUF model: a single file or a full split set.
+// Variant is one downloadable model: a single GGUF file, a full split set,
+// or a whole Edge0 model folder.
 type Variant struct {
 	Name   string `json:"name"`
 	Size   int64  `json:"size_bytes"`
 	Shards int    `json:"shards"`
 	Files  []File `json:"files"`
+	// Engine is "edge0" for an Edge0 model folder, and empty for GGUF.
+	Engine string `json:"engine,omitempty"`
+	// RAM is the system memory that an Edge0 model keeps while it runs.
+	RAM int64 `json:"ram_bytes,omitempty"`
 }
 
 func (c *Client) get(ctx context.Context, rawURL string, v any) error {
@@ -208,6 +223,80 @@ func (c *Client) Files(ctx context.Context, repo, rev string) ([]File, error) {
 		out = append(out, File{Path: e.Path, Size: e.Size, SHA256: e.LFS.OID})
 	}
 	return out, nil
+}
+
+// Edge0Variant returns the whole-folder variant of an Edge0 repository, or
+// false for any other repository. An Edge0 repository holds a strata pack at
+// its root: model.json and the expert file. The variant leaves out the
+// repository's assets folder, which holds pictures for the model card.
+func (c *Client) Edge0Variant(ctx context.Context, repo, rev string) (Variant, bool, error) {
+	if !ValidRepo(repo) || !ValidRevision(rev) {
+		return Variant{}, false, fmt.Errorf("invalid repository %q or revision %q", repo, rev)
+	}
+	var tree []struct {
+		Type string `json:"type"`
+		Path string `json:"path"`
+		Size int64  `json:"size"`
+		OID  string `json:"oid"`
+		LFS  *struct {
+			OID string `json:"oid"`
+		} `json:"lfs"`
+	}
+	if err := c.get(ctx, c.Base+"/api/models/"+repo+"/tree/"+rev+"?recursive=true", &tree); err != nil {
+		return Variant{}, false, err
+	}
+	v := Variant{Name: path.Base(repo), Engine: models.EngineEdge0}
+	var manifest, experts bool
+	for _, e := range tree {
+		if e.Type != "file" || strings.HasPrefix(e.Path, "assets/") {
+			continue
+		}
+		f := File{Path: e.Path, Size: e.Size, Dest: e.Path}
+		switch {
+		case !SafePath(e.Path):
+			continue // a hidden file such as .gitattributes, or an unsafe name
+		case e.LFS != nil && sha256Re.MatchString(e.LFS.OID):
+			f.SHA256 = e.LFS.OID
+		case e.LFS == nil && gitOIDRe.MatchString(e.OID):
+			f.GitOID = e.OID
+		default:
+			continue // no digest to verify against
+		}
+		switch e.Path {
+		case "model.json":
+			manifest = true
+		case "experts.bin":
+			experts = true
+			v.RAM = models.Edge0RAM(e.Size)
+		}
+		v.Files = append(v.Files, f)
+		v.Size += e.Size
+		v.Shards++
+	}
+	if !manifest || !experts {
+		return Variant{}, false, nil
+	}
+	sort.Slice(v.Files, func(i, j int) bool { return v.Files[i].Path < v.Files[j].Path })
+	return v, true, nil
+}
+
+// RepoVariants lists what a repository offers for download: its GGUF
+// variants, and the whole folder when the repository is an Edge0 model. The
+// GGUF files of an Edge0 repository are parts of the folder, so they are not
+// offered alone.
+func (c *Client) RepoVariants(ctx context.Context, repo, rev string) ([]Variant, error) {
+	folder, ok, err := c.Edge0Variant(ctx, repo, rev)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return []Variant{folder}, nil
+	}
+	files, err := c.Files(ctx, repo, rev)
+	if err != nil {
+		return nil, err
+	}
+	return Variants(files), nil
 }
 
 // SafePath reports whether a repository path is a plain relative path.

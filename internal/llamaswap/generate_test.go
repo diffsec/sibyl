@@ -289,3 +289,52 @@ func TestGenerateReasoningEffort(t *testing.T) {
 		t.Errorf("an embedding model got the reasoning effort: %s", cfg.Models["embed"].Cmd)
 	}
 }
+
+func TestGenerateEdge0(t *testing.T) {
+	edge0 := models.Model{ID: "edge0-145b-q3k", Path: "Edge0-145B-q3k", Engine: models.EngineEdge0, Context: 262144}
+	chat := models.Model{ID: "chat-14b", Path: "chat-14b-Q8_0.gguf"}
+	both := []models.Model{chat, edge0}
+
+	// Spanning: a layer split across every selected GPU, in a set of its own.
+	cfg, issues := Generate(twoGPUs(hardware.LayoutSpan), both, nil)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	want := Edge0Launcher + " --model-dir /models/Edge0-145B-q3k --alias edge0-145b-q3k --gpus 0,1 --context 131072 --port ${PORT}"
+	if cmd := cfg.Models["edge0-145b-q3k"].Cmd; cmd != want {
+		t.Errorf("span cmd = %q, want %q", cmd, want)
+	}
+	mx := cfg.Routing.Router.Settings.Matrix
+	if len(mx.Sets) != 2 || mx.Sets["pinned"] != "" {
+		t.Errorf("two spanning models must each run alone: sets = %+v", mx.Sets)
+	}
+
+	// Pinned to GPU 1: the chat model on GPU 0 can run beside it.
+	settings := map[string]models.Settings{
+		"edge0-145b-q3k": {Layout: "gpu:1", CtxSize: 65536},
+		"chat-14b":       {Layout: "gpu:0"},
+	}
+	cfg, issues = Generate(twoGPUs(hardware.LayoutSpan), both, settings)
+	if len(issues) != 0 {
+		t.Fatalf("issues = %+v", issues)
+	}
+	want = Edge0Launcher + " --model-dir /models/Edge0-145B-q3k --alias edge0-145b-q3k --gpus 1 --context 65536 --port ${PORT}"
+	if cmd := cfg.Models["edge0-145b-q3k"].Cmd; cmd != want {
+		t.Errorf("pinned cmd = %q, want %q", cmd, want)
+	}
+	mx = cfg.Routing.Router.Settings.Matrix
+	if len(mx.Sets) != 1 || strings.Count(mx.Sets["pinned"], "&") != 1 {
+		t.Errorf("models on different GPUs must share one set: sets = %+v", mx.Sets)
+	}
+
+	// The engine is built for HIP only.
+	hw := twoGPUs(hardware.LayoutSpan)
+	hw.Backend = hardware.BackendVulkan
+	cfg, issues = Generate(hw, both, nil)
+	if _, ok := cfg.Models["edge0-145b-q3k"]; ok || len(issues) != 1 || !issues[0].Skipped {
+		t.Errorf("want the Edge0 model skipped on vulkan: models = %+v, issues = %+v", cfg.Models, issues)
+	}
+	if _, ok := cfg.Models["chat-14b"]; !ok {
+		t.Error("the GGUF model must stay")
+	}
+}

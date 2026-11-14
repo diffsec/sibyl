@@ -8,6 +8,7 @@ package download
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -181,11 +182,11 @@ func (m *Manager) Add(ctx context.Context, repo, revision, variant, pool string)
 	if !hf.ValidRevision(revision) {
 		return Job{}, fmt.Errorf("revision must be a 40-character commit SHA, got %q", revision)
 	}
-	files, err := m.HF.Files(ctx, repo, revision)
+	variants, err := m.HF.RepoVariants(ctx, repo, revision)
 	if err != nil {
 		return Job{}, err
 	}
-	v, err := hf.FindVariant(hf.Variants(files), variant)
+	v, err := hf.FindVariant(variants, variant)
 	if err != nil {
 		return Job{}, err
 	}
@@ -367,7 +368,7 @@ func (m *Manager) fetchAll(ctx context.Context, j *Job) error {
 	}
 	m.setStatus(j, Verifying, "")
 	for _, f := range j.Files {
-		if err := verify(filepath.Join(partial, filepath.Base(f.Path)), f.SHA256); err != nil {
+		if err := verify(filepath.Join(partial, destOf(f)), f); err != nil {
 			return fmt.Errorf("%s: %w", f.Path, err)
 		}
 	}
@@ -391,7 +392,7 @@ func (m *Manager) fetchAll(ctx context.Context, j *Job) error {
 func (m *Manager) checkSpace(j *Job, partial string) error {
 	var have int64
 	for _, f := range j.Files {
-		if st, err := os.Stat(filepath.Join(partial, filepath.Base(f.Path))); err == nil {
+		if st, err := os.Stat(filepath.Join(partial, destOf(f))); err == nil {
 			have += st.Size()
 		}
 	}
@@ -410,7 +411,11 @@ func (m *Manager) checkSpace(j *Job, partial string) error {
 // fetchFile downloads one file, resuming from a partial file and retrying
 // with backoff. Each attempt fails if no data arrives for StallTimeout.
 func (m *Manager) fetchFile(ctx context.Context, j *Job, dir string, f hf.File) error {
-	dest := filepath.Join(dir, filepath.Base(f.Path))
+	dest := filepath.Join(dir, destOf(f))
+	// A file of a model folder can be in a subfolder.
+	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
+		return err
+	}
 	var lastErr error
 	for attempt := 0; attempt < 10; attempt++ {
 		if attempt > 0 {
@@ -522,7 +527,7 @@ func (m *Manager) attempt(parent context.Context, j *Job, dest string, f hf.File
 func (m *Manager) progress(j *Job) {
 	var done int64
 	for _, f := range j.Files {
-		if st, err := os.Stat(filepath.Join(m.partialDir(j), filepath.Base(f.Path))); err == nil {
+		if st, err := os.Stat(filepath.Join(m.partialDir(j), destOf(f))); err == nil {
 			done += st.Size()
 		}
 	}
@@ -531,19 +536,47 @@ func (m *Manager) progress(j *Job) {
 	m.mu.Unlock()
 }
 
-func verify(path, want string) error {
-	f, err := os.Open(path)
+// destOf returns where a file goes inside the model folder: its Dest, or
+// its base name. A Dest that is not a plain relative path falls back to the
+// base name, so a file never lands outside the folder.
+func destOf(f hf.File) string {
+	if f.Dest != "" && hf.SafePath(f.Dest) {
+		return filepath.FromSlash(f.Dest)
+	}
+	return filepath.Base(f.Path)
+}
+
+// verify checks a downloaded file against its SHA-256, or against its Git
+// blob ID when Hugging Face gives no SHA-256 for it. A Git blob ID is the
+// SHA-1 of "blob <size>\x00" and the content.
+func verify(path string, f hf.File) error {
+	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	defer func() { _ = file.Close() }()
+	want, name, h := f.SHA256, "SHA-256", sha256.New()
+	if want == "" {
+		fi, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		// SHA-1 is what Git names a blob with. The commit that pins the
+		// download is itself a SHA-1.
+		want, name, h = f.GitOID, "Git blob ID", sha1.New()
+		if _, err := fmt.Fprintf(h, "blob %d\x00", fi.Size()); err != nil {
+			return err
+		}
+	}
+	if want == "" {
+		return errors.New("no digest to verify against")
+	}
+	if _, err := io.Copy(h, file); err != nil {
 		return err
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {
 		_ = os.Remove(path) // a corrupt file must be downloaded again
-		return fmt.Errorf("SHA-256 mismatch: got %s, want %s", got, want)
+		return fmt.Errorf("%s mismatch: got %s, want %s", name, got, want)
 	}
 	return nil
 }

@@ -99,6 +99,9 @@ type cachedMeta struct {
 // modelMeta reads the GGUF metadata of a model's first file, or returns nil
 // when the header cannot be read.
 func (s *Server) modelMeta(m models.Model) *models.Meta {
+	if m.Engine != "" {
+		return nil // not a GGUF model: its path is a folder
+	}
 	path := filepath.Join(m.Root(s.Paths.Models, s.Paths.Pools), m.Path)
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -377,6 +380,11 @@ func (s *Server) setModel(id string, set models.Settings) (int, error) {
 	m, err := s.findModel(id)
 	if err != nil {
 		return http.StatusNotFound, err
+	}
+	// The Edge0 engine has no embedding mode, and the generator would
+	// leave the model out.
+	if m.Engine == models.EngineEdge0 && set.Embedding {
+		return http.StatusUnprocessableEntity, errors.New("embedding: an Edge0 model cannot be an embedding model")
 	}
 	// llama.cpp refuses a MoE cache on a dense model, and the model would
 	// not load.
@@ -688,6 +696,9 @@ func (s *Server) findModel(id string) (models.Model, error) {
 // checked to be inside the models directory first.
 func removeModelFiles(dir string, m models.Model) error {
 	first := filepath.Join(dir, m.Path)
+	if m.Engine == models.EngineEdge0 {
+		return removeModelFolder(dir, first)
+	}
 	paths := []string{first}
 	if m.Shards > 1 {
 		// <base>-00001-of-0000N.gguf -> <base>-*-of-0000N.gguf
@@ -720,6 +731,23 @@ func removeModelFiles(dir string, m models.Model) error {
 		}
 	}
 	return nil
+}
+
+// removeModelFolder deletes a model that is a whole folder. The folder must
+// be inside the models directory, and it must not be that directory.
+func removeModelFolder(dir, folder string) error {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(folder)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(abs, root+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to delete %s: outside %s", abs, root)
+	}
+	return os.RemoveAll(abs)
 }
 
 const maxBody = 1 << 20

@@ -15,6 +15,7 @@ import (
 	"github.com/diffsec/sibyl/internal/download"
 	"github.com/diffsec/sibyl/internal/hf"
 	"github.com/diffsec/sibyl/internal/hostd"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 type searchResult struct {
@@ -388,6 +389,10 @@ func (v *downloadView) confirmForm(variant client.Variant) tea.Cmd {
 	v.confirm = true
 	desc := fmt.Sprintf("%s in %d file(s). Fit: %s. Usable VRAM %s, RAM %s.\nCommit %s.",
 		gib(variant.Size), variant.Shards, fitText(variant.Fit), gib(v.repo.VRAM), gib(v.repo.RAM), v.repo.Revision[:12])
+	if variant.Engine == models.EngineEdge0 {
+		desc = fmt.Sprintf("Edge0 model folder: %s in %d file(s). It keeps %s of system RAM while it runs, and this host has %s.\nCommit %s.",
+			gib(variant.Size), variant.Shards, gib(variant.RAM), gib(v.repo.RAM), v.repo.Revision[:12])
+	}
 	fields := []huh.Field{}
 	v.pool = ""
 	where := []huh.Option[string]{huh.NewOption("Models folder", "")}

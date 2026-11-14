@@ -137,15 +137,15 @@ A value that does not fit the variant or the detected GPUs returns `422`.
 |---|---|---|---|
 | `GET /models` | None | A list of installed models | Every model in the models directory and in the model pools, with its settings. |
 | `PUT /models/{id}` | The model settings | The apply result | Replaces the settings of one model and applies them. |
-| `DELETE /models/{id}` | None | The apply result | Deletes the model file and all of its shards, removes its settings, and applies. |
-| `POST /models/{id}/benchmark` | None | `202`, `{"status": "queued"}` | Asks the host agent to run `llama-bench` on the model with each backend image. |
+| `DELETE /models/{id}` | None | The apply result | Deletes the model file and all of its shards, or the folder of an Edge0 model, removes its settings, and applies. |
+| `POST /models/{id}/benchmark` | None | `202`, `{"status": "queued"}` | Asks the host agent to run `llama-bench` on the model with each backend image. `422` for an Edge0 model, which llama.cpp cannot run. |
 | `GET /models/{id}/benchmark` | None | The benchmark state | The progress or the result of the last benchmark. `404` if no benchmark ran. |
 | `POST /models/{id}/optimize` | `{"profile": "single"}` or `"throughput"`, and an optional `"advisor": {"provider": "...", "model": "..."}` | `202`, the optimizer state | Starts the optimizer for a chat model. It unloads the models while it runs. The advisor must be a provider of the router. `409` while another run goes. |
 | `GET /models/{id}/optimize` | None | The optimizer state | The stage, every measured result, and the recommendation when the run is done. `404` if no run took place. |
 | `DELETE /models/{id}/optimize` | None | `202` | Cancels the run. The tool that runs on the host finishes first. |
 | `POST /models/{id}/optimize/apply` | `{"backend": true}` or `false` | The apply result | Writes the recommended settings. With `backend` true, it also switches the backend of every model when the run found a faster one. `409` if the settings did not load at the model's context. |
 | `GET /running` | None | The running models | The models that llama-swap runs, the loads that wait, and the last failed load of each model. `502` when llama-swap does not answer. |
-| `POST /models/{id}/load` | None | `202`, `{"status": "loading"}` | Starts the model in the background, through llama-swap. llama-swap first stops the models that cannot run with it. `409` while the model is loading, `422` for a drafter. |
+| `POST /models/{id}/load` | None | `202`, `{"status": "loading"}` | Starts the model in the background, through llama-swap. llama-swap first stops the models that cannot run with it. `409` while the model is loading, `422` for a drafter, and `422` for an Edge0 model when the host has less free system RAM than the model keeps. |
 | `POST /models/{id}/unload` | None | `{"status": "unloaded"}` | Stops the model. `422` for a drafter, which stops with its model. |
 | `GET /models/{id}/drafters?refresh=1` | None | The drafter search | Searches Hugging Face for DFlash and EAGLE-3 drafters of the model. A search is cached for 6 hours. `refresh=1` skips the cache. `422` for a drafter, `502` when Hugging Face fails. |
 | `POST /models/{id}/drafter-test` | The `speculative` settings to try | `202`, `{"status": "running"}` | Measures the model without and with the drafter, then restores the model's `speculative` settings. It unloads the running models. `409` while another test runs. |
@@ -156,6 +156,7 @@ Each model in `GET /models` has these fields:
 | Field | Content |
 |---|---|
 | `id`, `path`, `pool`, `size_bytes`, `shards` | The model, its file, its pool (empty for the models directory), its size and its number of shard files |
+| `engine`, `context`, `ram_bytes` | `engine` is `edge0` for an Edge0 model folder, and missing for a GGUF model. `path` is then the folder, `size_bytes` is the size of all its files, `context` is the context length that the folder declares, and `ram_bytes` is the system RAM that the model keeps while it runs on one GPU. A model that spans GPUs keeps less. An Edge0 model has no `meta` and no `fit`. |
 | `settings` | The settings that the owner chose |
 | `fit` | The context size and KV cache types that the model runs with, where Sibyl chooses them |
 | `meta` | What the model file says about its context, and `base_repos`, the Hugging Face repositories in its `general.base_model.*` keys. Missing if the file header cannot be read. |
@@ -203,7 +204,7 @@ The benchmark leaves out HIP when a selected GPU has a ROCm target that the HIP 
 | Method and path | Body | Response | What it does |
 |---|---|---|---|
 | `GET /hf/search?q=<term>&limit=<n>` | None | A list of repositories | Searches Hugging Face for GGUF repositories, most downloaded first. `q` must be 1 to 200 characters. `limit` is 1 to 100, and the default is 30. |
-| `GET /hf/repos/{owner}/{name}?revision=<sha>` | None | `repo`, `revision`, `vram_bytes`, `ram_bytes`, `variants` | The complete GGUF variants of a repository at one commit, each with its size and `fit`. Without `revision`, the System API uses the current commit. A given `revision` must be a 40-character commit SHA. |
+| `GET /hf/repos/{owner}/{name}?revision=<sha>` | None | `repo`, `revision`, `vram_bytes`, `ram_bytes`, `variants` | The complete GGUF variants of a repository at one commit, each with its size and `fit`. An Edge0 repository has one variant, the whole folder, with `engine` set to `edge0` and `ram_bytes`. Its `fit` is `split` when the host's RAM holds the model, and `no` when it does not. Without `revision`, the System API uses the current commit. A given `revision` must be a 40-character commit SHA. |
 | `GET /downloads` | None | A list of download jobs | Every download job. |
 | `POST /downloads` | `{"repo", "variant", "revision", "pool"}` | `202` and the new job | Queues a download. `revision` and `pool` are optional. Without `pool`, the model goes to the models directory. |
 | `GET /downloads/{id}` | None | One job | The progress of one job. `404` if it does not exist. |

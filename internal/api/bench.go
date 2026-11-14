@@ -59,6 +59,10 @@ func (s *Server) runnableBackends(hw hardware.Config) []string {
 	return out
 }
 
+// errLlamaOnly is the answer to a benchmark or an optimizer run for a model
+// that llama.cpp does not run. Both tools measure llama.cpp.
+var errLlamaOnly = errString("the benchmark and the optimizer run llama.cpp, and another engine runs this model")
+
 func (s *Server) benchDir() string { return filepath.Join(s.Host.Dir, "bench") }
 
 func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +70,10 @@ func (s *Server) startBenchmark(w http.ResponseWriter, r *http.Request) {
 	m, err := s.findModel(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	if m.Engine != "" {
+		writeError(w, http.StatusUnprocessableEntity, errLlamaOnly)
 		return
 	}
 	hw, err := s.hardware()
