@@ -184,7 +184,7 @@ The download picker offers an Edge0 repository as one variant, the whole folder 
 
 Only the Q3_K folders run. The NVFP4 folders need kernels that the fork has for CUDA only, and Sibyl does not stop a download of one.
 
-The base images are plain `FROM` lines, so Renovate can update them. The HIP build uses `docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete`. Upstream llama.cpp tests ROCm 7.2.x, and ROCm 7.14 is a benchmark candidate. Renovate leaves the ROCm and Ubuntu releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
+The base images are plain `FROM` lines, so Dependabot can update them. The HIP build uses `docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete`. Upstream llama.cpp tests ROCm 7.2.x, and ROCm 7.14 is a benchmark candidate. Dependabot leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
 
 ### Multi-GPU
 
