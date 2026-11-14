@@ -160,7 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
-      - uses: docker/login-action@v4.7.0
+      - uses: docker/login-action@v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -245,7 +245,7 @@ jobs:
           cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref={0},mode=max,image-manifest=true,oci-mediatypes=true', env.CACHE) || '' }}
 
       - if: needs.tag.outputs.push == 'true'
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.3
 
       # The host's signature policy requires the key signature. See
       # scripts/ci/sign.sh.
@@ -274,7 +274,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4.4.1
 
-      - uses: docker/login-action@v4.7.0
+      - uses: docker/login-action@v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -311,7 +311,7 @@ jobs:
           cache-to: ${{ needs.tag.outputs.push == 'true' && format('type=registry,ref=ghcr.io/diffsec/sibyl-buildcache:os-{0},mode=max,image-manifest=true,oci-mediatypes=true', matrix.variant) || '' }}
 
       - if: needs.tag.outputs.push == 'true'
-        uses: sigstore/cosign-installer@v4.1.2
+        uses: sigstore/cosign-installer@v4.1.3
 
       - name: Sign image
         if: needs.tag.outputs.push == 'true'
@@ -362,7 +362,7 @@ jobs:
 
       # The new packages are private until someone makes them public, so the
       # pull of the host image logs in.
-      - uses: docker/login-action@v4.7.0
+      - uses: docker/login-action@v4.8.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -438,7 +438,7 @@ jobs:
             "${iso}:application/x-iso9660-image" SHA256SUMS:text/plain > digest
           echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
 
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
 
       # Keyless and with the project key, as the images are, so the ISO can
       # be checked against the same public key: cosign verify --key
@@ -486,7 +486,7 @@ jobs:
           sudo apt-get install -yq --no-install-recommends skopeo
           scripts/bundle/make.sh "$TAG" "$VARIANT" bundle
 
-      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: sigstore/cosign-installer@v4.1.3
 
       - name: Sign the manifest
         env:
