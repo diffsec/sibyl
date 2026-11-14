@@ -14,6 +14,9 @@ import (
 // contextNote describes the context size and its memory cost for the
 // values in the form. It is the description of the context size field.
 func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu.GPU) string {
+	if m.Engine == models.EngineEdge0 {
+		return edge0ContextNote(m)
+	}
 	if m.Meta == nil || m.Meta.ContextLength == 0 {
 		return "Tokens. The model file gives no native context, so the memory cost is unknown."
 	}
@@ -171,4 +174,14 @@ func thousands(n int) string {
 		s = s[:i] + "," + s[i:]
 	}
 	return s
+}
+
+// edge0ContextNote describes the context size of an Edge0 model. The
+// engine sizes its own cache, so Sibyl gives no memory cost for it.
+func edge0ContextNote(m client.Model) string {
+	note := "Tokens. Empty runs " + thousands(models.Edge0DefaultContext) + "."
+	if m.Context > 0 {
+		note += " The model allows up to " + thousands(m.Context) + ", and a larger value runs at that limit."
+	}
+	return note + "\nThe Edge0 engine sizes its own cache, so Sibyl does not show its memory cost."
 }
