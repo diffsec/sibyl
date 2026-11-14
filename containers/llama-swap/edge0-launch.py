@@ -9,6 +9,7 @@ work directory, and replaces itself with the server.
 import argparse
 import json
 import os
+import resource
 import sys
 
 ENGINE = "/opt/llama/bin/strata"
@@ -54,6 +55,11 @@ def ram_short(experts_path, span=False, meminfo="/proc/meminfo"):
     except (OSError, ValueError, IndexError):
         pass
     return None  # the size or the memory figure cannot be read
+
+
+def no_core_dumps():
+    """Stop this process and its children from writing a core dump."""
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
 def configure(manifest, model_dir, alias, gpus, context, work):
@@ -136,6 +142,11 @@ def main():
     # one hardware queue the copy never starts, and the first request stops
     # with "verify: timed out at layer N".
     os.environ.pop("GPU_MAX_HW_QUEUES", None)
+    # A core dump of the engine is as large as its memory, up to 33 GB on the
+    # test host. systemd-coredump spent 5 minutes on each one, then stopped
+    # with a timeout and kept nothing. The server and the engine inherit
+    # this limit.
+    no_core_dumps()
     os.makedirs(work, exist_ok=True)
     path = os.path.join(work, "config.json")
     with open(path, "w", encoding="utf-8") as f:
