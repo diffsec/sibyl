@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/diffsec/sibyl/internal/gpu"
+	"github.com/diffsec/sibyl/internal/hardware"
 	"github.com/diffsec/sibyl/internal/models"
 )
 
@@ -187,8 +189,9 @@ func (s *Server) ramShort(ctx context.Context, id string) error {
 	if err != nil || m.RAM == 0 {
 		return nil
 	}
+	need := m.Edge0RAMOn(s.modelGPUs(id))
 	avail := s.memInfo("MemAvailable:")
-	if avail == 0 || avail >= m.RAM {
+	if avail == 0 || avail >= need {
 		return nil // enough, or the host does not report it
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -208,7 +211,23 @@ func (s *Server) ramShort(ctx context.Context, id string) error {
 		}
 	}
 	return fmt.Errorf("the model keeps %.1f GiB of system RAM, and %.1f GiB is available",
-		float64(m.RAM)/(1<<30), float64(avail)/(1<<30))
+		float64(need)/(1<<30), float64(avail)/(1<<30))
+}
+
+// modelGPUs returns the number of GPUs that model id runs on: every
+// selected GPU for a model that spans them, else 1. It answers 1 when the
+// hardware or the settings cannot be read, which is the larger RAM need.
+func (s *Server) modelGPUs(id string) int {
+	hw, err := s.hardware()
+	if err != nil {
+		return 1
+	}
+	settings, err := models.LoadSettings(s.Paths.settingsFile())
+	if err != nil {
+		return 1
+	}
+	gpus, _ := gpu.Detect(s.Paths.SysfsRoot)
+	return max(1, len(hardware.ModelGPUs(settings[id].Layout, false, hw, gpus)))
 }
 
 func (s *Server) unloadModel(w http.ResponseWriter, r *http.Request) {

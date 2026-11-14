@@ -156,7 +156,7 @@ Each model in `GET /models` has these fields:
 | Field | Content |
 |---|---|
 | `id`, `path`, `pool`, `size_bytes`, `shards` | The model, its file, its pool (empty for the models directory), its size and its number of shard files |
-| `engine`, `context`, `ram_bytes` | `engine` is `edge0` for an Edge0 model folder, and missing for a GGUF model. `path` is then the folder, `size_bytes` is the size of all its files, `context` is the context length that the folder declares, and `ram_bytes` is the system RAM that the model keeps while it runs. An Edge0 model has no `meta` and no `fit`. |
+| `engine`, `context`, `ram_bytes` | `engine` is `edge0` for an Edge0 model folder, and missing for a GGUF model. `path` is then the folder, `size_bytes` is the size of all its files, `context` is the context length that the folder declares, and `ram_bytes` is the system RAM that the model keeps while it runs on one GPU. A model that spans GPUs keeps less. An Edge0 model has no `meta` and no `fit`. |
 | `settings` | The settings that the owner chose |
 | `fit` | The context size and KV cache types that the model runs with, where Sibyl chooses them |
 | `meta` | What the model file says about its context, and `base_repos`, the Hugging Face repositories in its `general.base_model.*` keys. Missing if the file header cannot be read. |

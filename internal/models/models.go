@@ -33,8 +33,9 @@ type Model struct {
 	// Context is the context length that an Edge0 folder declares. A GGUF
 	// model's context is in its file metadata.
 	Context int `json:"context,omitempty"`
-	// RAM is the system memory that an Edge0 model keeps while it runs.
-	// A GGUF model runs from VRAM, and it has no value here.
+	// RAM is the system memory that an Edge0 model keeps while it runs on
+	// one GPU. Edge0RAMOn gives the lower figure of a model that spans
+	// GPUs. A GGUF model runs from VRAM, and it has no value here.
 	RAM    int64  `json:"ram_bytes,omitempty"`
 	Pool   string `json:"pool,omitempty"` // empty for the models directory
 	Size   int64  `json:"size_bytes"`
@@ -56,9 +57,26 @@ const Edge0DefaultContext = 131072
 const Edge0RAMOverhead = 6 << 30
 
 // Edge0RAM returns the system memory that an Edge0 model keeps while it
-// runs, for the size of its expert file. The engine holds the whole file in
-// RAM and copies experts from there to the GPUs.
+// runs on one GPU, for the size of its expert file. The engine holds the
+// whole file in RAM and copies experts from there to the GPU.
 func Edge0RAM(experts int64) int64 { return experts + Edge0RAMOverhead }
+
+// Edge0SpanShare is the part of the expert file that stays in RAM when the
+// model spans GPUs. The launcher then starts the engine in its low-RAM
+// mode, which keeps in RAM only the experts that no GPU holds. On two 24 GB
+// cards that was 21.4 GiB of a 37.3 GiB file, which is 57%, so 65% leaves a
+// margin. More cards or larger cards keep less.
+const Edge0SpanShare = 0.65
+
+// Edge0RAMOn returns the system memory that the model keeps while it runs
+// on the given number of GPUs. A GGUF model has none.
+func (m Model) Edge0RAMOn(gpus int) int64 {
+	if m.RAM == 0 || gpus < 2 {
+		return m.RAM
+	}
+	experts := m.RAM - Edge0RAMOverhead
+	return int64(float64(experts)*Edge0SpanShare) + Edge0RAMOverhead
+}
 
 // Edge0Context returns the context that an Edge0 model runs with for the
 // ctx_size setting: the setting, or the default, and never more than the

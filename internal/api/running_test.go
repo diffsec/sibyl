@@ -159,6 +159,14 @@ func TestLoadEdge0NeedsRAM(t *testing.T) {
 		t.Errorf("load with 8 GiB free = %d %v", code, b)
 	}
 	wait()
+	// A model that spans two GPUs keeps less RAM: the launcher starts the
+	// engine in its low-RAM mode. 5 GiB is under the 6 GiB that one GPU
+	// needs, and it is under the span's need too.
+	f.do(t, "PUT", "/hardware", `{"backend":"hip","gpus":[1,0],"layout":"span"}`, true)
+	meminfo(5)
+	if code, b := f.do(t, "POST", "/models/edge0/load", "", true); code != http.StatusUnprocessableEntity {
+		t.Errorf("span load with 5 GiB free = %d %v, want 422", code, b)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if loads != 2 {

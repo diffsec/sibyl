@@ -197,3 +197,18 @@ func TestEdge0Context(t *testing.T) {
 		t.Errorf("a folder with a small context: got %d, want 32768", got)
 	}
 }
+
+func TestEdge0RAMOn(t *testing.T) {
+	const experts = 40 << 30
+	m := Model{Engine: EngineEdge0, RAM: Edge0RAM(experts)}
+	if got := m.Edge0RAMOn(1); got != experts+Edge0RAMOverhead {
+		t.Errorf("one GPU: %d", got)
+	}
+	// 65% of 40 GiB is 26 GiB, plus the overhead.
+	if got, want := m.Edge0RAMOn(2), int64(26<<30)+Edge0RAMOverhead; got != want {
+		t.Errorf("two GPUs: %d, want %d", got, want)
+	}
+	if got := (Model{}).Edge0RAMOn(2); got != 0 {
+		t.Errorf("a GGUF model: %d", got)
+	}
+}

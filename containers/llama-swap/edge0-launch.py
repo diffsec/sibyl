@@ -31,15 +31,20 @@ def absolute(value, model_dir):
     return value
 
 
-# The engine keeps the expert file in system RAM, plus about this much. The
-# same figures are in internal/models (Edge0RAM).
+# On one GPU the engine keeps the expert file in system RAM, plus about
+# RAM_OVERHEAD. On a layer split it keeps only the experts that no GPU holds
+# (--resident-experts). On two 24 GB cards that was 21.4 GiB of a 37.3 GiB
+# file, which is 57%, so SPAN_SHARE leaves a margin. The same figures are in
+# internal/models (Edge0RAM).
 RAM_OVERHEAD = 6 << 30
+SPAN_SHARE = 0.65
 
 
-def ram_short(experts_path, meminfo="/proc/meminfo"):
+def ram_short(experts_path, span=False, meminfo="/proc/meminfo"):
     """Return (needed, available) in bytes when RAM is short, else None."""
     try:
-        need = os.path.getsize(experts_path) + RAM_OVERHEAD
+        experts = os.path.getsize(experts_path)
+        need = (int(experts * SPAN_SHARE) if span else experts) + RAM_OVERHEAD
         with open(meminfo, encoding="ascii") as f:
             for line in f:
                 if line.startswith("MemAvailable:"):
@@ -59,8 +64,8 @@ def configure(manifest, model_dir, alias, gpus, context, work):
         if arg in DROP:
             i += 1 + DROP[arg]
             continue
-        # With --pcie-mode dma, a layer split never copies the first expert
-        # that a card does not hold, and the request times out.
+        # --pcie-mode dma is not tested on a layer split with the engine's
+        # split fix. Before the fix it stopped the first request.
         if arg == "--pcie-mode" and len(gpus) > 1:
             i += 2
             continue
@@ -69,6 +74,10 @@ def configure(manifest, model_dir, alias, gpus, context, work):
     args += ["--max-context", str(context)]
     if len(gpus) > 1:
         args += ["--vram-reserve-later-mib", RESERVE_LATER_MIB]
+        # Two cards hold most of the experts, so RAM keeps only the rest.
+        # Without this the engine keeps the whole expert file in RAM too.
+        if "--resident-experts" not in args:
+            args.append("--resident-experts")
 
     env = {k: absolute(v, model_dir) for k, v in manifest.get("env", {}).items()}
     return {
@@ -107,7 +116,7 @@ def main():
         return
     # Without the RAM, the engine pushes the host into swap or the kernel
     # stops a process. Refuse the load with a message that says why.
-    short = ram_short(cfg["env"].get("STRATA_LATENT_A", os.path.join(opt.model_dir, "experts.bin")))
+    short = ram_short(cfg["env"].get("STRATA_LATENT_A", os.path.join(opt.model_dir, "experts.bin")), span=len(gpus) > 1)
     if short:
         sys.exit("edge0: %s keeps %.1f GiB of system RAM, and %.1f GiB is available"
                  % (opt.alias, short[0] / (1 << 30), short[1] / (1 << 30)))
