@@ -1,19 +1,16 @@
-// Renovate keeps every pin current: the base images in the Containerfiles,
-// the third-party images in the Quadlet units, the Go modules and the
-// GitHub Actions. Each pull request runs the bootc images workflow, which
-// builds every image without pushing.
+// Renovate keeps these pins current: the base images in the Containerfiles,
+// the third-party images in the Quadlet units and the Go modules. Each pull
+// request runs the bootc images workflow, which builds every image without
+// pushing. Dependabot updates the GitHub Actions (.github/dependabot.yml),
+// because it also regenerates .github/workflows/actions.lock.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: [
-    "config:recommended",
-    // Actions stay pinned by commit SHA, with the release in a comment.
-    "helpers:pinGitHubActionDigests",
-  ],
+  extends: ["config:recommended"],
   // The built-in quadlet manager would move the digest-only pins to the
   // newest image of any version, and it reads the @IMAGE_TAG@ placeholders
   // of Sibyl's own images as digests. The regex manager below reads the
   // Quadlet units instead.
-  enabledManagers: ["dockerfile", "custom.regex", "gomod", "github-actions"],
+  enabledManagers: ["dockerfile", "custom.regex", "gomod"],
   timezone: "Etc/UTC",
   commitMessagePrefix: "Bump",
   // Patch, minor and digest updates merge themselves once every check
@@ -85,12 +82,6 @@
       matchManagers: ["gomod"],
       matchUpdateTypes: ["minor", "patch", "digest"],
       groupName: "go modules",
-      schedule: ["before 6am on monday"],
-    },
-    {
-      matchManagers: ["github-actions"],
-      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest"],
-      groupName: "github actions",
       schedule: ["before 6am on monday"],
     },
   ],
