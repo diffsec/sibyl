@@ -171,6 +171,9 @@ func (v *modelsView) editFormWith(m client.Model, fields settingsForm) tea.Cmd {
 		kv = append(kv, huh.NewOption(t, t))
 	}
 
+	if m.Engine == models.EngineEdge0 {
+		return v.edge0Form(m, layouts)
+	}
 	head := fmt.Sprintf("%s · %d shard(s)", gib(m.Size), m.Shards)
 	var fileSampling models.Sampling
 	if m.Meta != nil {
@@ -265,6 +268,28 @@ func (v *modelsView) editFormWith(m client.Model, fields settingsForm) tea.Cmd {
 			huh.NewInput().Title("Extra llama-server arguments").
 				Description("Space separated. Flags with a setting above are rejected.").Value(&f.Args),
 		).Title("Advanced"),
+	).WithShowHelp(false)
+	return v.form.Init()
+}
+
+// edge0Form builds the settings form for an Edge0 model. Its engine is not
+// llama.cpp, so the form holds only the settings that apply to it, the
+// fields of edge0Sections.
+func (v *modelsView) edge0Form(m client.Model, layouts []huh.Option[string]) tea.Cmd {
+	f := &v.fields
+	head := gib(m.Size) + " · Edge0 model folder"
+	if m.Context > 0 {
+		head += " · native context " + thousands(m.Context) + " tokens"
+	}
+	v.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().Title(m.ID).Description(head),
+			huh.NewSelect[string]().Title("Layout").Inline(true).Options(layouts...).Value(&f.Layout).
+				Description("Span runs the model as a layer split across the GPUs. Pin runs it on one GPU, and other models can use the rest."),
+			optionalNumber("Context size", "", true, &f.CtxSize).Placeholder(thousands(m.Edge0Context(0))).
+				Description(edge0ContextNote(m)),
+			huh.NewConfirm().Title("Hide from the model list").Value(&f.Hidden),
+		).Title("Model"),
 	).WithShowHelp(false)
 	return v.form.Init()
 }

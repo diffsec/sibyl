@@ -49,3 +49,25 @@ func TestSettingsSections(t *testing.T) {
 		t.Errorf("pgup on the first section went to %q", cur())
 	}
 }
+
+func TestEdge0Form(t *testing.T) {
+	v := newModelsView(nil)
+	v.list = []client.Model{{Model: models.Model{ID: "edge0-120b-q3k", Engine: models.EngineEdge0, Context: 262144}}}
+	drainForm(v.form, v.editForm(v.list[0]))
+	view := ansi.Strip(v.form.View())
+	for _, want := range []string{"Layout", "Context size", "131,072", "up to 262,144", "Hide from the model list"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the form has no %q:\n%s", want, view)
+		}
+	}
+	// llama-server settings do not apply to the Edge0 engine.
+	for _, unwanted := range []string{"Tensor split", "Parallel requests", "KV cache", "no native context", "Sampling defaults"} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("the form shows %q", unwanted)
+		}
+	}
+	v.update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if cur := currentSection(v.form.View(), v.secs); cur != 0 || v.form.State != 0 {
+		t.Errorf("pgdn left the only section: section %d, state %v", cur, v.form.State)
+	}
+}
