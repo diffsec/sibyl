@@ -22,7 +22,7 @@ Sibyl is a Fedora bootc host image plus the container images that it runs. Read 
 
 ## Rules
 
-- Pin third-party images by digest, and pin GitHub Actions by commit SHA at the latest release.
+- Pin third-party images by digest, and pin GitHub Actions in `.github/workflows/actions.lock`. A workflow names the release tag of an action, and the lockfile holds its commit. After a change to a `uses:` line, run `gh actions-lock` and commit both files.
 - Quay deletes old `fedora-bootc` manifests after the tag moves. If the host build fails with `not found` on the base image, run `scripts/bump-base-image.sh`. Renovate (`.github/renovate.json5`) keeps the digest current.
 - Fix linter findings. Do not add exclusions. Ask the maintainer if a finding cannot be fixed.
 - `bootc container lint` must pass with no warnings.

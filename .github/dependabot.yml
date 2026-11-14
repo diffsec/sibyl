@@ -1,0 +1,16 @@
+# Dependabot updates the GitHub Actions only. It rewrites the release tag in
+# the workflow and the commit in .github/workflows/actions.lock in the same
+# pull request. Renovate (.github/renovate.json5) updates everything else.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    commit-message:
+      prefix: Bump
+    groups:
+      github-actions:
+        patterns: ["*"]

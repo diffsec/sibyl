@@ -83,7 +83,7 @@ Sibyl is one bootc host image plus a set of container images. The host image is 
 | `tools/pxe/` | Network boot and unattended install, for lab hosts. |
 | `tools/vmtest/` | The VM install test that CI runs on the ISO. |
 | `.github/workflows/` | `bootc.yml` builds, signs and pushes everything. `cleanup.yml` deletes old images. |
-| `.github/renovate.json5` | Keeps the image pins in the Containerfiles and the Quadlet units, the Go modules and the actions current. |
+| `.github/renovate.json5` | Keeps the image pins in the Containerfiles and the Quadlet units, and the Go modules, current. |
 
 The Go packages, from the outside in:
 
@@ -317,7 +317,7 @@ Renovate (`.github/renovate.json5`) opens a pull request for each new version of
 | Base images | `FROM` lines of every `Containerfile`, `Containerfile.hip` and `Containerfile.vulkan` | Any time |
 | Open WebUI and Arcane | The `# vX.Y.Z` comment and the `Image=...@sha256:` line under it, in the Quadlet units | Any time |
 | Go modules | `go.mod`, in one grouped pull request | Mondays before 06:00 UTC |
-| GitHub Actions | `.github/workflows/`, pinned by commit SHA, in one grouped pull request | Mondays before 06:00 UTC |
+| GitHub Actions | `.github/workflows/` and `actions.lock`, in one grouped pull request from Dependabot, which a maintainer merges | Mondays at 06:00 UTC |
 
 - Patch, minor and digest updates merge themselves when every check passes. A major update waits for a maintainer.
 - The Quadlet `Image=` lines stay digest-only, because the offline bundle reads them as one reference (`scripts/bundle/make.sh`, `internal/bundle`). Renovate updates the version comment and the digest together.
@@ -372,7 +372,7 @@ To return to the moving tag, run the same command with `latest-amd`.
 ## Rules
 
 - Fix every linter finding. Do not add exclusions or turn off a check. If you cannot fix a finding, ask the maintainer.
-- Pin GitHub Actions by commit SHA, at the latest release, with the version in a comment.
+- Pin GitHub Actions in the lockfile `.github/workflows/actions.lock`. A workflow names the release tag, and the lockfile holds the commit that runs. After a change to a `uses:` line, run `gh actions-lock` (the `github/gh-actions-lock` extension of the GitHub CLI) and commit both files.
 - Pin third-party images by digest.
 - Every container drops all capabilities and sets `NoNewPrivileges=true`. Only Arcane runs with `SecurityLabelDisable=true`, because its Podman socket and D-Bus mounts need it.
 - `bootc container lint` must pass on the host image with no warnings.
