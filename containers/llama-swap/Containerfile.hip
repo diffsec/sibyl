@@ -36,6 +36,60 @@ RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
 COPY collect-rocm-libs.sh /usr/local/bin/collect-rocm-libs.sh
 RUN /usr/local/bin/collect-rocm-libs.sh /out "${GPU_TARGETS}" build/bin/llama-server build/bin/llama-bench build/bin/llama-batched-bench
 
+# Edge0 (edge0-strata) for Radeon RX 7900 cards. The engine is not llama.cpp:
+# it runs an Edge0 latent MoE model from a model folder, and its Python server
+# gives the OpenAI API. llama-swap starts it through edge0-launch.py.
+#
+# EDGE0_REF is a commit of github.com/diffsec/Edge0, the fork that carries the
+# gfx11 kernels. EDGE0_GPU_TARGETS must stay gfx1100: the kernels and
+# the hipBLASLt tuning table are for that architecture only.
+FROM docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete@sha256:92f309c51b52cef8762867848f1529dee821624f23cd5df38455e819538f762f AS edge0-build
+
+ARG EDGE0_REF=724ba73972b0e2a511e7ccde839b20d0eb9cd31e
+# The llama.cpp commit that edge0-strata/EDGE0.md names. It gives ggml to the build.
+ARG LLAMA_CPP_REF=3cf03257f219afbe7334045ff7c6a06ac68c627d
+ARG EDGE0_GPU_TARGETS="gfx1100"
+# ROCm 7.2.4 has hipBLASLt 1.2.2, which is tuning table 100202.
+ARG HIPBLASLT_TABLE=gfx1100-hipblaslt-100202.txt
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential cmake ninja-build git ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git init -q /edge0 \
+    && git -C /edge0 fetch -q --depth 1 https://github.com/diffsec/Edge0 "${EDGE0_REF}" \
+    && git -C /edge0 checkout -q FETCH_HEAD \
+    && mkdir -p /edge0/edge0-strata/third_party/llama.cpp \
+    && curl -fsSL "https://github.com/ggml-org/llama.cpp/archive/${LLAMA_CPP_REF}.tar.gz" \
+        | tar -xz --strip-components=1 -C /edge0/edge0-strata/third_party/llama.cpp \
+    && ln -s /edge0/edge0-strata /src
+
+# STRATA_PREFILL_MMQ=ON is required: without it the link stops with undefined
+# symbols such as strata::prefill::fused_q3k::experts_latent_q3k.
+WORKDIR /src
+RUN HIP_PATH="$(hipconfig -R)" \
+    cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DSTRATA_ENABLE_HIP=ON \
+        -DSTRATA_ENABLE_CUDA=OFF \
+        -DCMAKE_HIP_ARCHITECTURES="${EDGE0_GPU_TARGETS}" \
+        -DCMAKE_HIP_COMPILER="$(hipconfig -l)/clang++" \
+        -DCMAKE_PREFIX_PATH=/opt/rocm \
+        -DSTRATA_PREFILL_MMQ=ON \
+        -DSTRATA_NATIVE_EXPERTS=ON \
+        -DSTRATA_GGML_DIR=/src/third_party/llama.cpp \
+    && cmake --build build --target strata -j"$(nproc)"
+
+# The engine, its shared libraries, and only the rocBLAS and hipBLASLt kernel
+# files for GPU_TARGETS. The engine reads the tuning table from tuning/ beside
+# its binary. Without the table a 5.3K prompt ran at 725 tok/s, not 1150.
+COPY collect-rocm-libs.sh /usr/local/bin/collect-rocm-libs.sh
+RUN /usr/local/bin/collect-rocm-libs.sh /out "${EDGE0_GPU_TARGETS}" build/strata \
+    && mkdir -p /out/opt/edge0 /out/opt/llama/bin/tuning \
+    && cp "tools/hip/${HIPBLASLT_TABLE}" /out/opt/llama/bin/tuning/ \
+    && cp -r serve strata_control strata_cli tools requirements.txt /out/opt/edge0/ \
+    && find /out/opt/edge0 -name '__pycache__' -prune -exec rm -rf {} +
+
 FROM docker.io/ubuntu:24.04 AS llama-swap-dl
 
 ARG LLAMA_SWAP_VERSION=266
@@ -50,13 +104,19 @@ FROM docker.io/ubuntu:24.04
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libgomp1 libssl3t64 curl \
-        libdrm2 libdrm-amdgpu1 libelf1t64 libnuma1 \
+        libdrm2 libdrm-amdgpu1 libelf1t64 libnuma1 python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid 10001 --home /app --no-create-home app
 
 COPY --from=build /out/ /
 COPY --from=llama-swap-dl /out/llama-swap /app/llama-swap
+# The Edge0 engine, its server, and the server's Python packages at the
+# versions that the engine pins.
+COPY --from=edge0-build /out/ /
+RUN python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir -r /opt/edge0/requirements.txt
+COPY edge0-launch.py /opt/edge0/launch.py
 COPY config.yaml /app/config/config.yaml
 COPY check-libs.sh /usr/local/bin/check-libs.sh
 # Fail the build if any binary or library has an unresolved dependency.
@@ -70,7 +130,9 @@ ENV PATH=/app:/opt/llama/bin:${PATH} \
     ROCBLAS_TENSILE_LIBPATH=/opt/rocm/lib/rocblas/library \
     HIPBLASLT_TENSILE_LIBPATH=/opt/rocm/lib/hipblaslt/library \
     GPU_MAX_HW_QUEUES=1 \
-    SIBYL_GPU_BACKEND=ROCm
+    SIBYL_GPU_BACKEND=ROCm \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 USER 10001:10001
 WORKDIR /app

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/diffsec/sibyl/internal/client"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // A long settings form shows one group at a time. The section bar above it
@@ -32,10 +33,19 @@ var settingsSections = []settingsSection{
 	{"Advanced", []string{"Args"}},
 }
 
+// edge0Sections are the settings that apply to an Edge0 model. Its engine
+// is not llama.cpp, so the llama-server settings have no effect on it.
+var edge0Sections = []settingsSection{
+	{"Model", []string{"Layout", "CtxSize", "Hidden"}},
+}
+
 // visibleSections returns the sections that the form shows for m. The
 // form hides the experts group for a dense model, and the reasoning group
 // for a template with no reasoning control.
 func visibleSections(m client.Model) []settingsSection {
+	if m.Engine == models.EngineEdge0 {
+		return edge0Sections
+	}
 	var out []settingsSection
 	for _, s := range settingsSections {
 		switch s.title {

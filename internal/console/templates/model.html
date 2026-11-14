@@ -2,8 +2,24 @@
 {{define "content"}}
 <p><a href="/console/models">Back to the models</a></p>
 {{with .FlashError}}<p class="error" role="alert">{{.}}</p>{{end}}
-{{template "optimizer" .}}
 {{$f := .Form}}
+{{if eq .Model.Engine "edge0"}}
+<form method="post" action="/console/models/edit" class="stack">
+<input type="hidden" name="id" value="{{.Model.ID}}">
+<section class="card stack">
+  <h1 class="mono">{{.Model.ID}}</h1>
+  <p class="muted">{{.Head}}</p>
+  <p class="muted">The Edge0 engine runs this model, not llama.cpp. A model that spans the GPUs runs as a layer split, and no other chat model runs beside it. A model pinned to one GPU leaves the other GPUs to other models.</p>
+  <div class="row">
+    <label>Layout <select name="layout">{{range .Layouts}}<option value="{{index . 0}}"{{if eq (index . 0) $f.Layout}} selected{{end}}>{{index . 1}}</option>{{end}}</select></label>
+    <label>Context size <input name="ctxsize" inputmode="numeric" placeholder="{{.Edge0Context}}" value="{{$f.CtxSize}}"></label>
+  </div>
+  <label class="check"><input type="checkbox" name="hidden"{{if $f.Hidden}} checked{{end}}> Hide from the model list</label>
+</section>
+<button type="submit">Save and apply</button>
+</form>
+{{else}}
+{{template "optimizer" .}}
 <form method="post" action="/console/models/edit" class="stack">
 <input type="hidden" name="id" value="{{.Model.ID}}">
 <section class="card stack">
@@ -95,6 +111,7 @@
 </section>
 <button type="submit">Save and apply</button>
 </form>
+{{end}}
 {{end}}
 
 {{define "optimizer"}}

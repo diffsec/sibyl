@@ -157,6 +157,10 @@ func (s *Server) loadModel(w http.ResponseWriter, r *http.Request) {
 	if !s.servedModel(w, id) {
 		return
 	}
+	if err := s.ramShort(r.Context(), id); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err)
+		return
+	}
 	if !s.loads.start(id) {
 		writeError(w, http.StatusConflict, errString("the model is already loading"))
 		return
@@ -171,6 +175,40 @@ func (s *Server) loadModel(w http.ResponseWriter, r *http.Request) {
 		s.loads.finish(id, err)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "loading"})
+}
+
+// ramShort returns an error when the host does not have the free system
+// RAM that model id keeps while it runs. Only an Edge0 model has such a
+// need. A model that llama-swap already runs holds its RAM, so it passes.
+// The launcher in the image makes the same check, for a load that a chat
+// request starts.
+func (s *Server) ramShort(ctx context.Context, id string) error {
+	m, err := s.findModel(id)
+	if err != nil || m.RAM == 0 {
+		return nil
+	}
+	avail := s.memInfo("MemAvailable:")
+	if avail == 0 || avail >= m.RAM {
+		return nil // enough, or the host does not report it
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if body, err := s.llamaSwapDo(ctx, http.MethodGet, "/running"); err == nil {
+		var raw struct {
+			Running []struct {
+				Model string `json:"model"`
+			} `json:"running"`
+		}
+		if json.Unmarshal(body, &raw) == nil {
+			for _, r := range raw.Running {
+				if r.Model == id {
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("the model keeps %.1f GiB of system RAM, and %.1f GiB is available",
+		float64(m.RAM)/(1<<30), float64(avail)/(1<<30))
 }
 
 func (s *Server) unloadModel(w http.ResponseWriter, r *http.Request) {

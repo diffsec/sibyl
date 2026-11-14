@@ -148,3 +148,52 @@ func TestLoadSettingsMovesBatchArgs(t *testing.T) {
 		t.Errorf("b keeps its typed batch: %+v", b)
 	}
 }
+
+func TestScanEdge0Folder(t *testing.T) {
+	dir := t.TempDir()
+	folder := filepath.Join(dir, "Edge0-145B-q3k")
+	touch(t, filepath.Join(folder, "experts.bin"), 40)
+	touch(t, filepath.Join(folder, "model-skeleton.gguf"), 6)
+	touch(t, filepath.Join(folder, "ple-fp8.gguf"), 51)
+	touch(t, filepath.Join(folder, "mtp", "experts.bin"), 2)
+	if err := os.WriteFile(filepath.Join(folder, "model.json"), []byte(`{"family":"Edge0","context":262144}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A folder with a model.json of another family stays a GGUF folder.
+	touch(t, filepath.Join(dir, "other", "Other.gguf"), 3)
+	if err := os.WriteFile(filepath.Join(dir, "other", "model.json"), []byte(`{"family":"X"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Scan(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := int64(len(`{"family":"Edge0","context":262144}`))
+	want := []Model{
+		{ID: "edge0-145b-q3k", Path: "Edge0-145B-q3k", Engine: EngineEdge0, Context: 262144, RAM: 40 + Edge0RAMOverhead, Size: 99 + manifest, Shards: 1},
+		{ID: "other", Path: filepath.Join("other", "Other.gguf"), Size: 3, Shards: 1},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("model %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEdge0Context(t *testing.T) {
+	m := Model{Engine: EngineEdge0, Context: 262144}
+	for _, c := range []struct{ setting, want int }{
+		{0, Edge0DefaultContext}, {65536, 65536}, {262144, 262144}, {500000, 262144},
+	} {
+		if got := m.Edge0Context(c.setting); got != c.want {
+			t.Errorf("Edge0Context(%d) = %d, want %d", c.setting, got, c.want)
+		}
+	}
+	if got := (Model{Context: 32768}).Edge0Context(0); got != 32768 {
+		t.Errorf("a folder with a small context: got %d, want 32768", got)
+	}
+}

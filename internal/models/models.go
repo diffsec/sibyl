@@ -1,7 +1,8 @@
-// Package models lists installed GGUF models and stores per-model settings.
+// Package models lists installed models and stores per-model settings.
 package models
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -19,10 +20,22 @@ import (
 	"github.com/diffsec/sibyl/internal/hardware"
 )
 
-// Model is one installed GGUF model. A split model is listed once, by its first shard.
+// EngineEdge0 is the Engine of an Edge0 model folder, which edge0-strata
+// runs. A GGUF model has an empty Engine, and llama.cpp runs it.
+const EngineEdge0 = "edge0"
+
+// Model is one installed model: a GGUF model, listed once by its first
+// shard, or an Edge0 model folder.
 type Model struct {
 	ID     string `json:"id"`
-	Path   string `json:"path"`           // relative to the models directory, or to its pool
+	Path   string `json:"path"` // relative to the models directory, or to its pool
+	Engine string `json:"engine,omitempty"`
+	// Context is the context length that an Edge0 folder declares. A GGUF
+	// model's context is in its file metadata.
+	Context int `json:"context,omitempty"`
+	// RAM is the system memory that an Edge0 model keeps while it runs.
+	// A GGUF model runs from VRAM, and it has no value here.
+	RAM    int64  `json:"ram_bytes,omitempty"`
 	Pool   string `json:"pool,omitempty"` // empty for the models directory
 	Size   int64  `json:"size_bytes"`
 	Shards int    `json:"shards"`
@@ -30,6 +43,35 @@ type Model struct {
 	// itself, such as a DFlash or EAGLE-3 drafter. The scan does not set
 	// it: the System API reads it from the file's architecture.
 	Drafter bool `json:"drafter,omitempty"`
+}
+
+// Edge0DefaultContext is the context that an Edge0 model runs with when its
+// settings name none. It is the value that the model's own launch
+// configuration uses, and the value the engine was measured with.
+const Edge0DefaultContext = 131072
+
+// Edge0RAMOverhead is the system memory that the Edge0 engine keeps beside
+// the expert file. On the test host, Edge0 145B with a 37.3 GiB expert file
+// took 41 GiB of RAM.
+const Edge0RAMOverhead = 6 << 30
+
+// Edge0RAM returns the system memory that an Edge0 model keeps while it
+// runs, for the size of its expert file. The engine holds the whole file in
+// RAM and copies experts from there to the GPUs.
+func Edge0RAM(experts int64) int64 { return experts + Edge0RAMOverhead }
+
+// Edge0Context returns the context that an Edge0 model runs with for the
+// ctx_size setting: the setting, or the default, and never more than the
+// folder declares.
+func (m Model) Edge0Context(ctxSize int) int {
+	ctx := ctxSize
+	if ctx <= 0 {
+		ctx = Edge0DefaultContext
+	}
+	if m.Context > 0 && ctx > m.Context {
+		ctx = m.Context
+	}
+	return ctx
 }
 
 // PoolRE matches the name of a model pool directory.
@@ -111,7 +153,25 @@ func Scan(dir string) ([]Model, error) {
 			if path != dir && strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir // partial downloads live in hidden directories
 			}
-			return nil
+			if path == dir {
+				return nil
+			}
+			ctx, experts, ok := edge0Folder(path)
+			if !ok {
+				return nil
+			}
+			// The folder is one model. Its GGUF files are parts of it.
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			size, err := dirSize(path)
+			if err != nil {
+				return err
+			}
+			id := ID(rel)
+			byID[id] = &Model{ID: id, Path: rel, Engine: EngineEdge0, Context: ctx, RAM: Edge0RAM(experts), Size: size, Shards: 1}
+			return filepath.SkipDir
 		}
 		name := d.Name()
 		if !strings.HasSuffix(strings.ToLower(name), ".gguf") || strings.HasPrefix(strings.ToLower(name), "mmproj") {
@@ -156,6 +216,54 @@ func Scan(dir string) ([]Model, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// edge0Manifest is the part of an Edge0 folder's model.json that Sibyl reads.
+type edge0Manifest struct {
+	Family  string `json:"family"`
+	Context int    `json:"context"`
+}
+
+// edge0Folder reports whether dir is an Edge0 model folder. It returns the
+// context length that the folder's model.json declares, and the size of the
+// expert file. The folder holds a strata pack: the expert file, and a
+// model.json that names the Edge0 family.
+func edge0Folder(dir string) (ctx int, experts int64, ok bool) {
+	path := filepath.Join(dir, "model.json")
+	// The manifest is about 2 KB. A large file is not one.
+	if fi, err := os.Stat(path); err != nil || fi.Size() > 1<<20 {
+		return 0, 0, false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	var m edge0Manifest
+	if err := json.Unmarshal(raw, &m); err != nil || m.Family != "Edge0" {
+		return 0, 0, false
+	}
+	fi, err := os.Stat(filepath.Join(dir, "experts.bin"))
+	if err != nil {
+		return 0, 0, false
+	}
+	return m.Context, fi.Size(), true
+}
+
+// dirSize returns the total size of the regular files under dir.
+func dirSize(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
 }
 
 // ID turns a relative path into a model ID that is safe in URLs and llama-swap config.

@@ -10,6 +10,7 @@ import (
 	"github.com/diffsec/sibyl/internal/gpu"
 	"github.com/diffsec/sibyl/internal/hardware"
 	"github.com/diffsec/sibyl/internal/hf"
+	"github.com/diffsec/sibyl/internal/models"
 )
 
 // Fit says how a model of a given size can run on this host.
@@ -77,16 +78,26 @@ func (s *Server) hfRepo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errString("revision must be a 40-character commit SHA"))
 		return
 	}
-	files, err := s.HF.Files(r.Context(), repo, rev)
+	variants, err := s.HF.RepoVariants(r.Context(), repo, rev)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
 	vram, ram, known := s.memory()
 	out := repoView{Repo: repo, Revision: rev, VRAM: vram, RAM: ram}
-	for _, v := range hf.Variants(files) {
+	for _, v := range variants {
 		f := FitUnknown
-		if known {
+		switch {
+		case v.Engine == models.EngineEdge0:
+			// The engine keeps the expert file in system RAM and fills
+			// the VRAM it finds, so RAM decides the fit.
+			if ram > 0 {
+				f = FitNo
+				if v.RAM <= ram {
+					f = FitSplit
+				}
+			}
+		case known:
 			f = fit(v.Size, vram, ram)
 		}
 		out.Variants = append(out.Variants, variantView{Variant: v, Fit: f})
@@ -122,17 +133,25 @@ func (s *Server) memory() (vram, ram int64, known bool) {
 			}
 		}
 	}
-	if f, err := os.Open(s.Paths.MemInfo); err == nil {
-		defer func() { _ = f.Close() }()
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			if fields := strings.Fields(sc.Text()); len(fields) >= 2 && fields[0] == "MemTotal:" {
-				kb, _ := strconv.ParseInt(fields[1], 10, 64)
-				ram = kb << 10
-			}
+	return vram, s.memInfo("MemTotal:"), known
+}
+
+// memInfo returns one value of /proc/meminfo in bytes, or 0 when the file
+// or the field cannot be read. field includes the colon, as in "MemTotal:".
+func (s *Server) memInfo(field string) int64 {
+	f, err := os.Open(s.Paths.MemInfo)
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = f.Close() }()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		if fields := strings.Fields(sc.Text()); len(fields) >= 2 && fields[0] == field {
+			kb, _ := strconv.ParseInt(fields[1], 10, 64)
+			return kb << 10
 		}
 	}
-	return vram, ram, known
+	return 0
 }
 
 type downloadRequest struct {

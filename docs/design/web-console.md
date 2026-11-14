@@ -41,7 +41,7 @@ The console uses Go `html/template` pages on the server with htmx for partial up
 
 The pages use one stylesheet with a light and a dark theme from `prefers-color-scheme`. The layout works at phone width. Live views, such as download progress and the router's last decisions, refresh every 5 seconds with `hx-trigger="every 5s"`, as the TUI does.
 
-The model settings form of the console and the TUI's form share `internal/modelform`, so both check a value the same way.
+The model settings form of the console and the TUI's form share `internal/modelform`, so both check a value the same way. For an Edge0 model, both forms show only the layout, the context size and the hidden flag, because the other settings are llama-server flags.
 
 ## Components
 

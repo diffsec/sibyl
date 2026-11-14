@@ -187,6 +187,9 @@ func (s *Server) optimizeInput(id string, profile optimize.Profile, adv *Optimiz
 	if err != nil {
 		return optimize.Input{}, nil, fmt.Errorf("%w: %v", os.ErrNotExist, err)
 	}
+	if m.Engine != "" {
+		return optimize.Input{}, nil, errLlamaOnly
+	}
 	settings, err := models.LoadSettings(s.Paths.settingsFile())
 	if err != nil {
 		return optimize.Input{}, nil, err

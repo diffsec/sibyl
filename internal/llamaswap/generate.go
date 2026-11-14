@@ -126,9 +126,18 @@ func Generate(hw hardware.Config, installed []models.Model, settings map[string]
 			}
 		}
 		p := place(hw, s, selected)
+		cmd := command(m, s, p, selected, devPrefix, draftPath)
+		if m.Engine == models.EngineEdge0 {
+			// The engine is built for HIP only, and it has no embedding mode.
+			if hw.Backend != hardware.BackendHIP || s.Embedding {
+				issues = append(issues, Issue{ID: m.ID, Reason: "an Edge0 model needs the hip backend, and it cannot be an embedding model", Skipped: true})
+				continue
+			}
+			cmd = edge0Command(m, s, p, selected)
+		}
 		cfg.Models[m.ID] = ModelEntry{
 			Name:     m.ID,
-			Cmd:      command(m, s, p, selected, devPrefix, draftPath),
+			Cmd:      cmd,
 			Unlisted: s.Hidden,
 		}
 		switch {
@@ -225,6 +234,34 @@ func command(m models.Model, s models.Settings, p placement, selected int, devPr
 		args = append(args, s.Speculative.Flags(draftPath)...)
 	}
 	args = append(args, s.Args...)
+	return strings.Join(args, " ")
+}
+
+// Edge0Launcher starts edge0-strata's server for one model folder. It is in
+// the HIP llama-swap image.
+const Edge0Launcher = "/opt/venv/bin/python /opt/edge0/launch.py"
+
+// edge0Command is the launcher command for an Edge0 model folder. The engine
+// takes GPU numbers as HIP numbers them inside the container, which is the
+// position in the selected GPU list. A spanning model is a layer split across
+// every selected GPU. The llama.cpp settings do not apply to this engine.
+func edge0Command(m models.Model, s models.Settings, p placement, selected int) string {
+	gpus := strconv.Itoa(p.gpu)
+	if p.span && selected > 1 {
+		parts := make([]string, selected)
+		for i := range parts {
+			parts[i] = strconv.Itoa(i)
+		}
+		gpus = strings.Join(parts, ",")
+	}
+	args := []string{
+		Edge0Launcher,
+		"--model-dir", modelPath(m),
+		"--alias", m.ID,
+		"--gpus", gpus,
+		"--context", strconv.Itoa(m.Edge0Context(s.CtxSize)),
+		"--port", "${PORT}",
+	}
 	return strings.Join(args, " ")
 }
 

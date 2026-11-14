@@ -322,7 +322,7 @@ Renovate (`.github/renovate.json5`) opens a pull request for each new version of
 - Patch, minor and digest updates merge themselves when every check passes. A major update waits for a maintainer.
 - The Quadlet `Image=` lines stay digest-only, because the offline bundle reads them as one reference (`scripts/bundle/make.sh`, `internal/bundle`). Renovate updates the version comment and the digest together.
 - Renovate leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
-- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand. A llama.cpp release can rename the speculative decoding flags that Sibyl writes.
+- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes.
 - Renovate's built-in `quadlet` manager is off. It would move the digest-only pins to the newest image of any version, and it reads the `@IMAGE_TAG@` placeholders as digests.
 
 ## Release
