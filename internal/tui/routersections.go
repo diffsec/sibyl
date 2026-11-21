@@ -497,7 +497,7 @@ func (v *routerView) profileDetails() string {
 		fmt.Fprintf(&b, "%s\n", titleSty.Render(fmt.Sprintf("Rule %d of %s", r.rule+1, r.profile)))
 		fmt.Fprintf(&b, "Name   %s\nWhen   %s\nRoute  %s\n", rule.Name, whenText(rule.When), rule.Route)
 		if rule.Route == "local" {
-			fmt.Fprintf(&b, "       %s\n", mutedSty.Render("local is "+p.LocalModel))
+			fmt.Fprintf(&b, "       %s\n", mutedSty.Render("local is "+p.LocalText()))
 		}
 		b.WriteString("\n" + mutedSty.Render("The first rule that matches a request picks its route.") + "\n")
 		return b.String()
@@ -507,7 +507,7 @@ func (v *routerView) profileDetails() string {
 		model = "auto:" + model
 	}
 	b.WriteString(titleSty.Render("Profile "+model) + "\n")
-	fmt.Fprintf(&b, "Local model  %s\n", p.LocalModel)
+	fmt.Fprintf(&b, "Local model  %s\n", p.LocalText())
 	wait := p.LocalWaitSeconds
 	if wait == 0 {
 		wait = 30

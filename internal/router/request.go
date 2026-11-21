@@ -59,6 +59,8 @@ type Features struct {
 	HasImages    bool   `json:"has_images"`
 	HasTools     bool   `json:"has_tools"`
 	JSONSchema   bool   `json:"json_schema"`
+	// LocalModel is the model that the route local means for this request.
+	LocalModel   string `json:"local_model,omitempty"`
 	LocalContext int    `json:"local_context"`
 	LocalReady   bool   `json:"local_ready"`
 	Sensitive    bool   `json:"sensitive"`

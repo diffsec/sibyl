@@ -208,6 +208,7 @@ profiles:
 | Field | Type | Default | Meaning |
 |---|---|---|---|
 | `local_model` | string | required | The local model that the route `local` means. |
+| `prefer_loaded` | boolean | `false` | When `true`, the route `local` means the chat model that llama-swap has loaded when a request comes. It means `local_model` only when no chat model is loaded. [Use the loaded model](../guides/router.md#use-the-loaded-model) has the rules. |
 | `rules` | list of [rules](#rule) | empty | The rules, in order. |
 | `fallback` | list of routes | empty | The routes that the router tries, in order, when the chosen route fails. A `local-only` client skips every provider in it. |
 | `local_wait_seconds` | integer | 30 | How long the router waits for a local model to start answering before it tries the next route. 0 to 3600. It applies only when a next route exists. |
@@ -218,7 +219,7 @@ profiles:
 |---|---|---|---|
 | `name` | string | required | A name for the decision log. |
 | `when` | [conditions](#conditions) | empty | The conditions. A rule with no conditions always matches. |
-| `route` | string | required | `local` (the profile's `local_model`), a local model ID, or `<provider>/<model>`. |
+| `route` | string | required | `local` (the profile's `local_model`, or the loaded model with `prefer_loaded`), a local model ID, or `<provider>/<model>`. |
 
 A rule that names a provider does not match for a `local-only` client, and the next rule runs.
 
@@ -233,7 +234,7 @@ A rule matches when every condition that it sets matches.
 | `has_tools` | boolean | The request has tools, or not. |
 | `json_schema` | boolean | The request asks for a `json_schema` or `json_object` response format, or not. |
 | `stream` | boolean | The request streams, or not. |
-| `local_ready` | boolean | llama-swap has the profile's local model loaded, or not. |
+| `local_ready` | boolean | llama-swap has the profile's local model loaded, or not. With `prefer_loaded`, the local model is the loaded model, so the condition is `false` only when no chat model is ready. |
 | `needs_provider` | boolean | The vote of the nearest calibration outcomes says the request needs a provider, or not. The vote is unknown below 20 outcomes for the profile's local model, and then the condition matches neither `true` nor `false`. |
 | `prompt_tokens_over` | integer or `local_context` | The prompt has more tokens than the number, or than the local model's context size. |
 | `max_tokens_over` | integer | The request's `max_tokens` is more than the number. Must not be negative. |

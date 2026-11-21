@@ -97,7 +97,8 @@ Before the rules run, the router computes a profile of the request. Only local w
 | `prompt_tokens` | An estimate: the characters of the message text, tool calls and tool definitions, divided by 3. English text runs near 4 characters per token, so the estimate is high, and a request near the local context goes to the larger context. The design asked llama-server's `/tokenize` near a limit. That call is not made, because it loads the model in llama-swap. |
 | `max_tokens`, `stream` | The request |
 | `has_images`, `has_tools`, `json_schema` | The request |
-| `local_context` | The context size of the local model that the profile names. The System API writes it to `models.json` on each apply: the context that llama-server runs the model with, divided by the slots when the model sets `parallel`, else the model file's native context (see the [overview](overview.md#context-size-and-memory-estimate)). |
+| `local_model` | The local model of the request: the profile's `local_model`, or the loaded model with `prefer_loaded` |
+| `local_context` | The context size of the local model of the request. The System API writes it to `models.json` on each apply: the context that llama-server runs the model with, divided by the slots when the model sets `parallel`, else the model file's native context (see the [overview](overview.md#context-size-and-memory-estimate)). |
 | `local_ready` | llama-swap's `/running`: whether the local model is loaded and ready. The router asks only when a rule tests it. llama-swap does not report the requests in flight, so "busy" is not known. |
 | `sensitive` | Local detectors: private keys, API tokens, credential patterns, and the owner's `sensitive_words` |
 | `task`, `difficulty` | The classifier, when one is configured. Otherwise `unknown`. |
@@ -134,6 +135,7 @@ profiles:
 ```
 
 - `route: local` means the profile's `local_model`. A rule can also name a local model ID.
+- `prefer_loaded: true` makes `local` mean the chat model that llama-swap has loaded, and `local_model` only when it has none. The router reads llama-swap's `/running` once for each request to such a profile. It takes the profile's own model if that is in the list, then the first other chat model that is `ready`, then the first that is `starting`. A model that is `starting` counts because a request for another model makes llama-swap stop that load. The embedding models of `models.json` never count. The model that wins is the local model of the whole decision: `local_context`, `local_ready`, the calibration vote and the sample all use it. Added on 2026-11-21, for a client that must not name one model.
 - `fallback` is the order that the router tries when the chosen route fails. A `local-only` client skips every provider in it.
 - `local_wait_seconds` (default 30) limits the wait for a local route, but only when a next route exists. With no next route, the router waits as long as llama-swap takes to load the model.
 - Conditions: `sensitive`, `has_images`, `has_tools`, `json_schema`, `stream`, `local_ready` and `needs_provider` take true or false. `prompt_tokens_over` takes a number or `local_context`. `max_tokens_over` takes a number. `task`, `difficulty`, `hint` and `clients` take a list of values.

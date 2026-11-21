@@ -415,9 +415,15 @@ func TestRuleChanges(t *testing.T) {
 func TestProfileAndSettings(t *testing.T) {
 	h := newHarness(t)
 	h.login()
-	h.do("POST", "/console/router/profile", url.Values{"name": {"auto"}, "local_model": {"gemma"}, "fallback": {"local cloud/big"}}, true)
+	h.do("POST", "/console/router/profile", url.Values{"name": {"auto"}, "local_model": {"gemma"}, "fallback": {"local cloud/big"},
+		"prefer_loaded": {"1"}}, true)
 	p := h.api.profiles.Profiles["auto"]
-	if p.LocalModel != "gemma" || len(p.Fallback) != 2 || len(p.Rules) != 2 {
+	if p.LocalModel != "gemma" || !p.PreferLoaded || len(p.Fallback) != 2 || len(p.Rules) != 2 {
+		t.Fatalf("profile %+v", p)
+	}
+	// An unchecked box turns the setting off.
+	h.do("POST", "/console/router/profile", url.Values{"name": {"auto"}, "local_model": {"gemma"}, "fallback": {"local cloud/big"}}, true)
+	if p = h.api.profiles.Profiles["auto"]; p.PreferLoaded || len(p.Rules) != 2 {
 		t.Fatalf("profile %+v", p)
 	}
 	w := h.do("POST", "/console/router/profile", url.Values{"new": {"1"}, "name": {"auto"}, "local_model": {"qwen"}}, true)

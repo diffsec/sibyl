@@ -322,6 +322,7 @@ func (c *Console) saveProfile(r *http.Request) (string, error) {
 			return "", fmt.Errorf("profile %q exists", name)
 		}
 		p.LocalModel, p.LocalWaitSeconds = r.PostFormValue("local_model"), wait
+		p.PreferLoaded = r.PostFormValue("prefer_loaded") != ""
 		p.Fallback = strings.Fields(r.PostFormValue("fallback"))
 		f.Profiles[name] = p
 		return "save profile " + name, nil

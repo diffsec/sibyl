@@ -127,6 +127,8 @@ Every request goes through the model router. The model name in the request tells
 | `auto` | The route that the rules of the `auto` profile choose |
 | `auto:<profile>`, such as `auto:coding` | The route that the rules of that profile choose |
 
+A profile with Use the loaded model turned on sends `auto` to the chat model that is loaded at that moment, so a program does not have to name one model. [Use the router](router.md#use-the-loaded-model) explains it.
+
 `GET /v1/models` lists the names that the calling client can use: the local models, the provider models that its policy allows, and the profiles. [Models](models.md) explains sampling presets. [Use the router](router.md) explains providers and profiles.
 
 ## Route headers

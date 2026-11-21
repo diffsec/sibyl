@@ -183,6 +183,7 @@ A profile has these parts:
 | Part | Meaning |
 |---|---|
 | Local model | The model that the route `local` means |
+| Use the loaded model | When on, `local` means the chat model that is loaded when a request comes. See [Use the loaded model](#use-the-loaded-model). |
 | Rules | An ordered list. The first rule whose conditions all match decides the route. |
 | Fallback | The routes to try, in order, when the chosen route fails |
 | Local wait | The seconds to wait for a local model before the next route. The default is 30. With no next route, the router waits until the model loads. |
@@ -210,7 +211,7 @@ A rule that names a provider does not match a `local-only` client, so the next r
 
 The Profiles section lists each profile with its rules under it.
 
-- Select a profile and press `e` to change its local model, its fallback routes and its local wait. `d` deletes it, and `n` makes a new profile.
+- Select a profile and press `e` to change its local model, Use the loaded model, its fallback routes and its local wait. `d` deletes it, and `n` makes a new profile.
 - Select a rule and press `e` to edit it, `<` or `>` to move it up or down, or `d` to delete it. `a` adds a rule to the profile.
 
 The rule form shows the common conditions. It keeps the conditions that it does not show.
@@ -219,7 +220,7 @@ The rule form shows the common conditions. It keeps the conditions that it does 
 
 The Profiles and rules section lists each profile with its rules.
 
-- Change the profile edits the local model, the fallback and the local wait.
+- Change the profile edits the local model, Use the loaded model, the fallback and the local wait.
 - New profile makes a profile.
 - Add a rule adds a rule to that profile.
 - Edit, Up, Down and Delete act on one rule.
@@ -245,6 +246,29 @@ profiles:
         route: local
     fallback: [local]
 ```
+
+### Use the loaded model
+
+A program can keep one model name while you change the model that the host runs. Give the program the model `auto`, or `auto:<profile>`, and turn on Use the loaded model in that profile.
+
+The route `local` of that profile then follows these rules, in order:
+
+1. If the profile's local model is loaded or loading, `local` means that model.
+2. If another chat model is loaded, `local` means that model. The request does not unload it.
+3. If another chat model is loading, `local` means that model, and the request waits for it.
+4. If no chat model is loaded, `local` means the profile's local model, and llama-swap loads it.
+
+An embedding model does not count, because it stays loaded next to every chat model. When several other chat models are loaded, the router takes the first that llama-swap lists.
+
+The loaded model is the local model of the request in every part of the profile. `prompt_tokens_over: local_context` tests the context size of the loaded model, and calibration records the sample under the loaded model. A rule or a fallback route that names a model ID still means that model.
+
+To turn it on:
+
+- TUI: in the Profiles section, select the profile, press `e`, and set Use the loaded model.
+- Web console: open Change the profile, and check Use the loaded model.
+- API: set `"prefer_loaded": true` in the profile, in `PUT /system/router/profiles`.
+
+The `X-Sibyl-Route` response header names the model that answered, such as `local/qwen3-32b-q4_k_m`. Explain shows it as `local_model` in the request's profile.
 
 ### Test a route without sending the request
 

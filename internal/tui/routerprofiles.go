@@ -21,6 +21,7 @@ import (
 type profileForm struct {
 	profile, action, name string
 	model, fallback, wait string
+	preferLoaded          bool
 	// pick is "<profile>\x00<rule index>" or "<profile>\x00add".
 	pick string
 	// The rule form.
@@ -166,7 +167,7 @@ func (v *routerView) profileForm() tea.Cmd {
 	p := v.r.Profiles.Profiles[v.pf.profile]
 	v.mode = "profile"
 	v.pf.name, v.pf.model, v.pf.wait = "", p.LocalModel, itoa(p.LocalWaitSeconds)
-	v.pf.fallback = strings.Join(p.Fallback, " ")
+	v.pf.fallback, v.pf.preferLoaded = strings.Join(p.Fallback, " "), p.PreferLoaded
 	models := v.modelOptions(false, p.LocalModel)
 	if len(models) == 0 {
 		return note(false, "no chat model is installed")
@@ -191,6 +192,9 @@ func (v *routerView) profileForm() tea.Cmd {
 		huh.NewSelect[string]().Title("Local model").
 			Description("The route local means this model. Calibration measures it, and a model it has not measured gets the 60 seed requests.").
 			Options(models...).Value(&v.pf.model),
+		huh.NewConfirm().Title("Use the loaded model").
+			Description("Yes: local means the chat model that is loaded when a request comes, and the model above only when none is loaded.").
+			Value(&v.pf.preferLoaded),
 		huh.NewInput().Title("Fallback routes").
 			Description("Tried in order when the chosen route fails, separated by spaces, such as: local orcarouter/<model>").
 			Value(&v.pf.fallback),
@@ -491,6 +495,7 @@ func (v *routerView) changeProfiles(f *router.ProfilesFile) (string, error) {
 			name, p = strings.TrimSpace(v.pf.name), router.Profile{}
 		}
 		p.LocalModel, p.LocalWaitSeconds = v.pf.model, atoi(v.pf.wait)
+		p.PreferLoaded = v.pf.preferLoaded
 		p.Fallback = strings.Fields(v.pf.fallback)
 		f.Profiles[name] = p
 		return "save profile " + name, nil

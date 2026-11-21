@@ -247,9 +247,10 @@ func TestRouterProfileLocalModel(t *testing.T) {
 		t.Fatalf("mode %q model %q", v.mode, v.pf.model)
 	}
 	v.pf.model, v.pf.fallback = "gemma", "local orcarouter/deepseek/deepseek-v4.1-flash-1017"
+	v.pf.preferLoaded = true
 	finish(v)
 	p := got.Profiles["auto"]
-	if p.LocalModel != "gemma" || len(p.Fallback) != 2 || len(p.Rules) != 2 {
+	if p.LocalModel != "gemma" || !p.PreferLoaded || len(p.Fallback) != 2 || len(p.Rules) != 2 {
 		t.Errorf("profile %+v", p)
 	}
 	// The settings that the form does not show are kept.

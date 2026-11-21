@@ -36,6 +36,14 @@ type fakeUpstream struct {
 	status int
 	// verdict, when set, is the answer to a judge request.
 	verdict string
+	// running, when set, is the answer to /running.
+	running string
+}
+
+func (f *fakeUpstream) setRunning(body string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.running = body
 }
 
 func (f *fakeUpstream) last() map[string]any {
@@ -57,7 +65,13 @@ func (f *fakeUpstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/v1")
 	switch path {
 	case "/running":
-		_, _ = io.WriteString(w, `{"running":[{"model":"small","state":"ready"}]}`)
+		f.mu.Lock()
+		running := f.running
+		f.mu.Unlock()
+		if running == "" {
+			running = `{"running":[{"model":"small","state":"ready"}]}`
+		}
+		_, _ = io.WriteString(w, running)
 		return
 	case "/models":
 		_, _ = io.WriteString(w, `{"object":"list","data":[{"id":"small","object":"model"},{"id":"embed","object":"model"}]}`)
@@ -348,6 +362,82 @@ func TestAutoRules(t *testing.T) {
 				t.Errorf("status %d route %q, want %q", resp.StatusCode, got, c.want)
 			}
 		})
+	}
+}
+
+// TestPreferLoaded checks that the route local of a profile with
+// prefer_loaded is the chat model that llama-swap has loaded, and the
+// profile's own model when it has none.
+func TestPreferLoaded(t *testing.T) {
+	const profiles = `profiles:
+  auto:
+    local_model: small
+    prefer_loaded: true
+    rules:
+      - name: too long
+        when: {prompt_tokens_over: local_context}
+        route: cloud/big
+      - name: everything else
+        route: local
+    fallback: [local]
+  fixed:
+    local_model: small
+    rules:
+      - name: everything else
+        route: local
+`
+	h := newHarness(t, profiles)
+	write(t, filepath.Join(h.dir, ModelsName), `[{"id":"small","context":1000},{"id":"other","context":4000},
+		{"id":"third"},{"id":"embed","embedding":true}]`)
+	if err := h.router.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	entry := func(model, state string) string { return fmt.Sprintf(`{"model":%q,"state":%q}`, model, state) }
+	for _, c := range []struct {
+		name    string
+		model   string
+		running []string
+		want    string
+	}{
+		{"another chat model is loaded", "auto", []string{entry("embed", "ready"), entry("other", "ready")}, "other"},
+		{"another chat model is loading", "auto", []string{entry("other", "starting")}, "other"},
+		{"the profile's model is loading", "auto", []string{entry("other", "ready"), entry("small", "starting")}, "small"},
+		{"a loaded model comes before a loading one", "auto", []string{entry("third", "starting"), entry("other", "ready")}, "other"},
+		{"the profile's model is loaded too", "auto", []string{entry("other", "ready"), entry("small", "ready")}, "small"},
+		{"only the embedding model is loaded", "auto", []string{entry("embed", "ready")}, "small"},
+		{"nothing is loaded", "auto", nil, "small"},
+		{"a model that stops does not count", "auto", []string{entry("other", "stopping")}, "small"},
+		{"an unknown model does not count", "auto", []string{entry("ghost", "ready")}, "small"},
+		{"a profile without the setting", "auto:fixed", []string{entry("other", "ready")}, "small"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h.local.setRunning(`{"running":[` + strings.Join(c.running, ",") + `]}`)
+			resp := h.post(t, "/v1/chat/completions", localKey, chatBody(c.model, "hi"))
+			got, _, _ := strings.Cut(resp.Header.Get("X-Sibyl-Route"), ";")
+			if resp.StatusCode != 200 || got != "local/"+c.want {
+				t.Errorf("status %d route %q, want local/%s", resp.StatusCode, got, c.want)
+			}
+			if m := h.local.last()["model"]; m != c.want {
+				t.Errorf("llama-swap got the model %v, want %s", m, c.want)
+			}
+		})
+	}
+
+	// The context size in the rules is that of the loaded model: 1,334
+	// tokens are over the 1,000 of small, and under the 4,000 of other.
+	h.local.setRunning(`{"running":[` + entry("other", "ready") + `]}`)
+	resp := h.post(t, "/sibyl/explain", adminKey,
+		map[string]any{"client": "laptop", "request": chatBody("auto", strings.Repeat("x", 4000))})
+	var d struct {
+		Route    string   `json:"route"`
+		Fallback []string `json:"fallback"`
+		Features Features `json:"features"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Route != "local/other" || d.Features.LocalModel != "other" || d.Features.LocalContext != 4000 || len(d.Fallback) != 0 {
+		t.Errorf("explain %+v", d)
 	}
 }
 

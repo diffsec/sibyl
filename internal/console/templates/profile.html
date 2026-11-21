@@ -12,6 +12,8 @@
       {{range .Models}}<option value="{{.}}"{{if eq . $.Profile.LocalModel}} selected{{end}}>{{.}}</option>{{end}}
     </select></label>
     <p class="muted">The route local means this model. Calibration measures it, and a model with no measurements gets the 60 labelled requests first.</p>
+    <label class="check"><input type="checkbox" name="prefer_loaded" value="1"{{if .Profile.PreferLoaded}} checked{{end}}> Use the loaded model</label>
+    <p class="muted">When this is on, local means the chat model that is loaded when a request comes, and the model above only when none is loaded.</p>
     <label>Fallback routes, in order, separated by spaces <input name="fallback" value="{{.Fallback}}" placeholder="local orcarouter/&lt;model&gt;"></label>
     <label>Local wait (seconds) <input name="local_wait_seconds" inputmode="numeric" placeholder="30" value="{{if .Profile.LocalWaitSeconds}}{{.Profile.LocalWaitSeconds}}{{end}}"></label>
     <button type="submit">Save</button>

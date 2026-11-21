@@ -274,13 +274,27 @@ type Rule struct {
 // auto:<profile>.
 type Profile struct {
 	// LocalModel is the local model that the route "local" means.
-	LocalModel string   `yaml:"local_model" json:"local_model"`
-	Rules      []Rule   `yaml:"rules,omitempty" json:"rules,omitempty"`
-	Fallback   []string `yaml:"fallback,omitempty" json:"fallback,omitempty"`
+	LocalModel string `yaml:"local_model" json:"local_model"`
+	// PreferLoaded makes "local" mean the chat model that llama-swap has
+	// loaded when a request comes, and LocalModel only when it has none.
+	// A client can then keep one model name while the owner changes the
+	// loaded model, and its requests do not unload that model.
+	PreferLoaded bool     `yaml:"prefer_loaded,omitempty" json:"prefer_loaded,omitempty"`
+	Rules        []Rule   `yaml:"rules,omitempty" json:"rules,omitempty"`
+	Fallback     []string `yaml:"fallback,omitempty" json:"fallback,omitempty"`
 	// LocalWaitSeconds is how long the router waits for a local model to
 	// start answering before it tries the next route. It applies only when
 	// a next route exists. The default is 30.
 	LocalWaitSeconds int `yaml:"local_wait_seconds,omitempty" json:"local_wait_seconds,omitempty"`
+}
+
+// LocalText says what the route "local" means in the profile, for a
+// person.
+func (p Profile) LocalText() string {
+	if p.PreferLoaded {
+		return "the loaded model, or " + p.LocalModel
+	}
+	return p.LocalModel
 }
 
 // ProfilesFile is profiles.yaml.
@@ -407,6 +421,25 @@ func ParseRoute(s, localModel string, providers ProvidersFile) (Route, error) {
 		return Route{}, fmt.Errorf("route %q is not a local model ID", s)
 	}
 	return Route{Model: s}, nil
+}
+
+// preferLoaded returns the local model of a profile that prefers the
+// loaded model. running lists the models that llama-swap has loaded or is
+// loading, the loaded ones first. The profile's own model wins when it is
+// in the list. Otherwise the first chat model of the list wins: an
+// embedding model stays loaded next to every chat model, so it never
+// counts, and neither does a model that models.json does not list. With
+// no such model, the answer is the profile's own model.
+func (c *Config) preferLoaded(running []string, localModel string) string {
+	if slices.Contains(running, localModel) {
+		return localModel
+	}
+	for _, id := range running {
+		if lm, ok := c.localModel(id); ok && !lm.Embedding {
+			return id
+		}
+	}
+	return localModel
 }
 
 // LocalModel is what the router knows about one local model. The System

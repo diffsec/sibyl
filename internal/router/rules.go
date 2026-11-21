@@ -39,8 +39,8 @@ type Decision struct {
 	Price *Price `json:"price,omitempty"`
 	// LocalWait limits the wait for a local route when a next route exists.
 	LocalWait time.Duration `json:"-"`
-	// LocalModel is the profile's local model, the last resort of a client
-	// whose budget is spent.
+	// LocalModel is the local model of the profile for this request, the
+	// last resort of a client whose budget is spent.
 	LocalModel string `json:"-"`
 	// Preset is the sampling preset of <model>:<preset>, and Sampling its
 	// values, which fill the fields that the request leaves out.
@@ -91,6 +91,10 @@ type resolver struct {
 	// ready reports whether llama-swap has the local model loaded. It is
 	// called only when a rule tests local_ready.
 	ready func(model string) bool
+	// loaded lists the models that llama-swap has loaded or is loading,
+	// the loaded ones first. It is called only for a profile that prefers
+	// the loaded model.
+	loaded func() []string
 	// classify labels the text of a request. It is called only when a rule
 	// tests task or difficulty.
 	classify func(cc ClassifierConfig, text string) *Classification
@@ -135,30 +139,36 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 	if !ok {
 		return d, refuse(http.StatusNotFound, "no routing profile %q", name)
 	}
-	d.Profile, d.LocalModel = name, p.LocalModel
+	// localModel is what the route local means for this request.
+	localModel := p.LocalModel
+	if p.PreferLoaded && rs.loaded != nil {
+		localModel = rs.cfg.preferLoaded(rs.loaded(), p.LocalModel)
+	}
+	d.Profile, d.LocalModel = name, localModel
 	f.Client, f.Policy, f.Hint = rs.client.Name, rs.client.Policy, rs.hint
-	if lm, ok := rs.cfg.localModel(p.LocalModel); ok {
+	f.LocalModel = localModel
+	if lm, ok := rs.cfg.localModel(localModel); ok {
 		f.LocalContext = lm.Context
 	}
 	if rs.ready != nil && p.usesLocalReady() {
-		f.LocalReady = rs.ready(p.LocalModel)
+		f.LocalReady = rs.ready(localModel)
 	}
 	if rs.classify != nil && p.usesLabels() {
 		d.Classification = rs.classify(rs.cfg.Profiles.Classifier, f.query)
 		f.Task, f.Difficulty = d.Classification.Task, d.Classification.Difficulty
 		if rs.vote != nil && p.usesOutcomes() {
-			rs.vote(p.LocalModel, rs.cfg.Profiles.Classifier.k(), d.Classification)
+			rs.vote(localModel, rs.cfg.Profiles.Classifier.k(), d.Classification)
 			f.NeedsProvider = d.Classification.NeedsProvider
 		}
 	}
 	d.Features = &f
 
-	d.Route = Route{Model: p.LocalModel}
+	d.Route = Route{Model: localModel}
 	d.Rule = "no rule matched"
 	decided := false
 	for _, r := range p.Rules {
 		res := RuleResult{Name: r.Name, Route: r.Route}
-		route, err := ParseRoute(r.Route, p.LocalModel, rs.cfg.Providers)
+		route, err := ParseRoute(r.Route, localModel, rs.cfg.Providers)
 		switch {
 		case err != nil:
 			res.Reason = err.Error()
@@ -178,7 +188,7 @@ func (rs resolver) decide(model string, f Features) (Decision, error) {
 	}
 
 	for _, s := range p.Fallback {
-		route, err := ParseRoute(s, p.LocalModel, rs.cfg.Providers)
+		route, err := ParseRoute(s, localModel, rs.cfg.Providers)
 		if err != nil || (local && !route.Local()) || route == d.Route || slices.Contains(d.Fallback, route) {
 			continue
 		}
