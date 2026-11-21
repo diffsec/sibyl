@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -41,6 +42,10 @@ type Meta struct {
 	// AttentionLayers is the number of caches counted above. A looped
 	// layer counts once for each pass.
 	AttentionLayers int `json:"attention_layers"`
+	// Looped tells that the model runs some blocks more than once for each
+	// token, and LoopStart is the index of the first of those blocks.
+	Looped    bool `json:"looped,omitempty"`
+	LoopStart int  `json:"loop_start,omitempty"`
 	// RecurrentLayers is the number of recurrent (SSM) layers, and
 	// RecurrentElems the f32 elements of state that each one keeps for one
 	// sequence: the convolution state and the SSM state. The state does not
@@ -62,6 +67,41 @@ type Meta struct {
 	ExpertBytes []int64 `json:"expert_layer_bytes,omitempty"`
 	// Reasoning is how the chat template sets the reasoning, if it can.
 	Reasoning *ReasoningControl `json:"reasoning,omitempty"`
+}
+
+// HostLayers returns the number of layers whose experts can go to system
+// RAM. For a looped model that is the layers before the loop: on the test
+// host (llama.cpp b12600, ROCm), Inkling 2 Mini, which loops from layer 6,
+// answered correctly with the experts of 4, 5 and 6 layers in system RAM,
+// and with a line of question marks at 7 and 8, with and without the cache.
+func (m Meta) HostLayers() int {
+	if m.Looped {
+		return min(m.LoopStart, len(m.ExpertBytes))
+	}
+	return len(m.ExpertBytes)
+}
+
+// CheckMoE checks the MoE settings against the model file. llama.cpp
+// refuses a MoE cache on a dense model, and it gives wrong output with the
+// experts of a looped layer in system RAM.
+func (m Meta) CheckMoE(moe MoE) error {
+	if !moe.Enabled() {
+		return nil
+	}
+	if m.ExpertCount == 0 {
+		return errors.New("moe: the model file has no experts")
+	}
+	if !m.Looped {
+		return nil
+	}
+	limit := m.HostLayers()
+	if limit == 0 {
+		return errors.New("moe.cpu_layers: the model loops from its first layer, and llama.cpp gives wrong output with the experts of a looped layer in system RAM")
+	}
+	if moe.CPULayers == AllLayers || moe.CPULayers > limit {
+		return fmt.Errorf("moe.cpu_layers: use 1 to %d, because the model loops from layer %d, and llama.cpp gives wrong output with the experts of a looped layer in system RAM", limit, limit)
+	}
+	return nil
 }
 
 // Weights returns the bytes of weights on the GPUs: GPUWeights, or the
@@ -394,6 +434,9 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 	// src/models/inkling2-loop.cpp).
 	loopStart, loopEnd := get("loop.start").Int(), get("loop.end").Int()
 	passes := min(get("loop.count").Int(), maxLoopPasses)
+	if passes > 1 && loopEnd > loopStart {
+		m.Looped, m.LoopStart = true, max(loopStart, 0)
+	}
 
 	for i := 0; i < layers; i++ {
 		if recurrent != nil && recurrent[i] != 0 {

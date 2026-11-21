@@ -117,6 +117,21 @@ func TestReadMetaLoopedLayers(t *testing.T) {
 	// ROCm, one RX 7900 XTX), from the change in VRAM between two context
 	// sizes. Each head has its own attention mask, so the micro-batch
 	// size sets most of the cost.
+	if !m.Looped || m.LoopStart != 6 {
+		t.Errorf("looped = %v from layer %d", m.Looped, m.LoopStart)
+	}
+	m.ExpertBytes = make([]int64, 24)
+	for layers, ok := range map[int]bool{0: true, 4: true, 6: true, 7: false, 24: false, AllLayers: false} {
+		if err := m.CheckMoE(MoE{CPULayers: layers}); (err == nil) != ok {
+			t.Errorf("experts of %d layers in system RAM: %v", layers, err)
+		}
+	}
+	if err := (Meta{ExpertCount: 128, ExpertBytes: make([]int64, 24)}).CheckMoE(MoE{CPULayers: AllLayers}); err != nil {
+		t.Errorf("a model with no loop: %v", err)
+	}
+	if err := (Meta{}).CheckMoE(MoE{CPULayers: 2}); err == nil {
+		t.Error("a dense model took MoE settings")
+	}
 	if m.MaskHeads != 24 {
 		t.Errorf("mask heads = %d", m.MaskHeads)
 	}
