@@ -254,17 +254,24 @@ func (in *Installer) Install(ctx context.Context, o Options) (res Result, err er
 	// storage to a file in /var/tmp, and it ignores TMPDIR. On the live
 	// system /var/tmp is in RAM: the VM install test on Fedora 45 (skopeo
 	// 1.25) failed with "write /var/tmp/container_images_...: no space left
-	// on device". The namespace therefore gets a directory on the target's
-	// boot partition as /var/tmp. bootc does not look inside /boot, because
-	// it is a mount point, but it refuses any other entry in an empty root.
+	// on device" on a layer of 107,270,144 bytes. The live system therefore
+	// gets a directory on the target's boot partition as /var/tmp while
+	// bootc runs. It must be the live system's mount and not one in bootc's
+	// namespace, because bootc mounts the host's /var/tmp over its own.
+	// bootc does not look inside /boot, because it is a mount point, but it
+	// refuses any other entry in an empty root. The cleanup unmounts
+	// /var/tmp first, and then removes the directory.
 	varTmp := filepath.Join(target, "boot", installTmp)
 	if err := os.MkdirAll(varTmp, 0o700); err != nil {
 		return res, err
 	}
-	defer func() { _ = os.RemoveAll(varTmp) }()
+	cleanup = append(cleanup, Cmd{Name: "rm", Args: []string{"-rf", varTmp}})
+	if _, err := run("", Cmd{Name: "mount", Args: []string{"--bind", varTmp, "/var/tmp"}}); err != nil {
+		return res, err
+	}
+	cleanup = append(cleanup, Cmd{Name: "umount", Args: []string{"/var/tmp"}})
 	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "unshare", Args: []string{
 		"--mount", "--propagation", "private", "--",
-		"sh", "-c", `mount --bind "$0" /var/tmp && exec "$@"`, varTmp,
 		"bootc", "install", "to-filesystem",
 		"--source-imgref", "containers-storage:" + o.Payload,
 		"--target-imgref", o.Target,
