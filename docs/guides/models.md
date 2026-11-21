@@ -175,7 +175,7 @@ A client can pick a preset for one request without a model reload. Ask for the m
 
 Inkling 2 Mini is a looped Mixture of Experts model from Thinking Machines Lab. Its middle 12 layers run 3 times for each token. Sibyl runs it from llama.cpp b12600.
 
-1. Download a variant from `ggml-org/Inkling-2-Mini-GGUF`. The files at the top of `unsloth/Inkling-2-Mini-GGUF` use a different layout, and this llama.cpp release cannot load them.
+1. Download a variant from `unsloth/Inkling-2-Mini-GGUF` or from `ggml-org/Inkling-2-Mini-GGUF`. For the Unsloth repository, Sibyl downloads the file from its `Mainline_Support` folder, because llama.cpp cannot load the file of the same name at the top of the repository.
 2. Open the model's settings and set Layout to one GPU, if the file fits on one GPU. The loop sends each token across the GPUs many times, so a model that spans GPUs is slow.
 3. Leave the context size empty. Sibyl chooses the largest context that fits.
 
@@ -194,6 +194,7 @@ The context costs about four times as much as on a dense model of the same size,
 These limits apply:
 
 - Sibyl does not load the vision projector (`mmproj`) files, so the model reads text only.
+- The Unsloth files need a llama.cpp fix that the AMD and Intel images of Sibyl have. The NVIDIA image does not have it.
 - The `draft-mtp` type does not apply, and llama.cpp b12600 cannot run the model's DSpark drafter.
 - The Reasoning setting offers `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. The template refuses any other value.
 

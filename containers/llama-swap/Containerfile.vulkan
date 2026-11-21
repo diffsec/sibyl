@@ -12,6 +12,11 @@ RUN apt-get update \
 
 RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp /src
 
+# Fixes that llama.cpp did not merge yet. patches/README.md gives the source
+# of each file and says when to remove it.
+COPY patches/ /patches/
+RUN git -C /src apply --verbose /patches/*.patch
+
 WORKDIR /src
 RUN cmake -S . -B build \
         -DCMAKE_BUILD_TYPE=Release \

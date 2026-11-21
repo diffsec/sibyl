@@ -31,6 +31,29 @@ func TestVariants(t *testing.T) {
 	}
 }
 
+// unsloth/Inkling-2-Mini-GGUF keeps its files for mainline llama.cpp in a
+// folder, with the extension .gguf_file. The picker offers each of them
+// under the plain name, in place of the file that mainline cannot load.
+func TestVariantsPreferMainlineFiles(t *testing.T) {
+	got := Variants([]File{
+		{Path: "Model-UD-Q4_K_XL.gguf", Size: 10},
+		{Path: "Model-UD-Q8_K_XL.gguf", Size: 20},
+		{Path: "Mainline_Support/Model-UD-Q4_K_XL.gguf_file", Size: 11, Dest: "Model-UD-Q4_K_XL.gguf"},
+		{Path: "dspark-Model-Q8_0.gguf", Size: 1},
+	})
+	if len(got) != 3 {
+		t.Fatalf("variants = %+v", got)
+	}
+	v, err := FindVariant(got, "Model-UD-Q4_K_XL")
+	if err != nil || v.Size != 11 || v.Shards != 1 || v.Files[0].Path != "Mainline_Support/Model-UD-Q4_K_XL.gguf_file" {
+		t.Errorf("mainline variant = %+v, %v", v, err)
+	}
+	// A quant with no mainline file keeps its own file.
+	if v, err := FindVariant(got, "Model-UD-Q8_K_XL"); err != nil || v.Size != 20 {
+		t.Errorf("plain variant = %+v, %v", v, err)
+	}
+}
+
 func TestSafePathAndValidators(t *testing.T) {
 	for p, want := range map[string]bool{
 		"a.gguf": true, "dir/a.gguf": true, "../a.gguf": false, "/a.gguf": false,
