@@ -103,7 +103,7 @@
   <h2>Profiles and rules</h2>
   <p class="muted">A client asks for a profile with the model auto or auto:&lt;name&gt;. The first rule that matches picks the route.</p>
   {{range $name := .ProfileNames}}{{$p := index $rt.Profiles.Profiles $name}}
-  <h3>{{if eq $name "auto"}}auto{{else}}auto:{{$name}}{{end}} <span class="muted">· local {{$p.LocalModel}}{{with $p.Fallback}} · fallback {{join . " "}}{{end}}</span></h3>
+  <h3>{{if eq $name "auto"}}auto{{else}}auto:{{$name}}{{end}} <span class="muted">· local {{$p.LocalText}}{{with $p.Fallback}} · fallback {{join . " "}}{{end}}</span></h3>
   <div class="actions">
     <a href="/console/router/profile?name={{$name}}">Change the profile</a>
     <a href="/console/router/rule?profile={{$name}}&amp;i=new">Add a rule</a>

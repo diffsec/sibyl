@@ -290,38 +290,64 @@ func errCode(err error) int {
 
 // resolver returns the decision inputs for a client and request.
 func (s *Server) resolver(c Client, h http.Header) resolver {
-	return resolver{cfg: s.config(), client: c, hint: hint(h, c), ready: s.localReady,
+	return resolver{cfg: s.config(), client: c, hint: hint(h, c), ready: s.localReady, loaded: s.loadedModels,
 		classify: s.classifier().classify, vote: s.classifier().vote}
 }
 
-// localReady asks llama-swap whether model is loaded and ready.
-func (s *Server) localReady(model string) bool {
+// runningModel is one entry of llama-swap's /running.
+type runningModel struct {
+	Model string `json:"model"`
+	State string `json:"state"`
+}
+
+// The states of a model in llama-swap's /running that the router reads.
+const (
+	stateReady    = "ready"
+	stateStarting = "starting"
+)
+
+// running asks llama-swap for its models that are not stopped. It returns
+// nil when llama-swap does not answer.
+func (s *Server) running() []runningModel {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.LocalURL+"/running", nil)
 	if err != nil {
-		return false
+		return nil
 	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
-		return false
+		return nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 	var running struct {
-		Running []struct {
-			Model string `json:"model"`
-			State string `json:"state"`
-		} `json:"running"`
+		Running []runningModel `json:"running"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&running) != nil {
-		return false
+		return nil
 	}
-	for _, m := range running.Running {
-		if m.Model == model && m.State == "ready" {
-			return true
+	return running.Running
+}
+
+// localReady asks llama-swap whether model is loaded and ready.
+func (s *Server) localReady(model string) bool {
+	return slices.Contains(s.running(), runningModel{Model: model, State: stateReady})
+}
+
+// loadedModels lists the models that llama-swap has loaded, then the
+// models that it is loading. A request for a model that is loading waits
+// for it. A request for another model makes llama-swap stop the load.
+func (s *Server) loadedModels() []string {
+	running := s.running()
+	var out []string
+	for _, state := range []string{stateReady, stateStarting} {
+		for _, m := range running {
+			if m.State == state {
+				out = append(out, m.Model)
+			}
 		}
 	}
-	return false
+	return out
 }
 
 // withSampling sets the sampling fields of a chat request that the request
