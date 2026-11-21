@@ -15,7 +15,7 @@ Sibyl is an all-in-one inference server. It is a hardened, immutable Linux host 
 
 | Area | Decision | Reason |
 |---|---|---|
-| Host OS | Fedora bootc (`quay.io/fedora/fedora-bootc:44`) | The OS is a Containerfile. Updates are atomic, with rollback. The kernel is current for new GPUs. |
+| Host OS | Fedora bootc (`quay.io/fedora/fedora-bootc:45`) | The OS is a Containerfile. Updates are atomic, with rollback. The kernel is current for new GPUs. |
 | Container runtime | Podman with Quadlet, rootless | Fedora default. Quadlet units start at boot without a daemon. |
 | Container UI | Arcane (BSD-3-Clause) | Compose editor, Git Sync, native Podman and Quadlet pages. Dockhand is source-available (BSL 1.1), so it is out. |
 | Inference engine | llama.cpp `llama-server` behind llama-swap | One engine for every GPU vendor, with fast single-stream GGUF inference. llama-swap swaps models and places them on GPUs. |
@@ -93,7 +93,7 @@ Caddy sends `/v1/*` to the model router. The router checks each client's key and
 
 ### Host image
 
-`os/Containerfile` starts from `quay.io/fedora/fedora-bootc:44` and adds:
+`os/Containerfile` starts from `quay.io/fedora/fedora-bootc:45` and adds:
 
 - The packages in `os/packages/common.txt` and `os/packages/<variant>.txt`.
 - The `sibyl` user, its subordinate ID ranges, and lingering so its user manager starts at boot.
