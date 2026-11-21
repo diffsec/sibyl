@@ -386,11 +386,13 @@ func (s *Server) setModel(id string, set models.Settings) (int, error) {
 	if m.Engine == models.EngineEdge0 && set.Embedding {
 		return http.StatusUnprocessableEntity, errors.New("embedding: an Edge0 model cannot be an embedding model")
 	}
-	// llama.cpp refuses a MoE cache on a dense model, and the model would
-	// not load.
+	// The MoE settings must suit the model file, or the model does not
+	// load, or it loads and gives wrong output.
 	meta := s.modelMeta(m)
-	if set.MoE.Enabled() && meta != nil && meta.ExpertCount == 0 {
-		return http.StatusUnprocessableEntity, errors.New("moe: the model file has no experts")
+	if meta != nil {
+		if err := meta.CheckMoE(set.MoE); err != nil {
+			return http.StatusUnprocessableEntity, err
+		}
 	}
 	// The variable and the values differ by model family, so the setting
 	// must match what this model's chat template reads.

@@ -72,7 +72,7 @@ qwen3-32b-q4_k_m:
 | `speculative.draft_min` | integer | 0 to 64, at most `draft_max` | `--spec-draft-n-min` | The fewest draft tokens. |
 | `speculative.ngram_mod_min` | integer | 1 to 64 | `--spec-ngram-mod-n-min` | For `ngram-mod`. |
 | `speculative.ngram_mod_max` | integer | 1 to 64 | `--spec-ngram-mod-n-max` | For `ngram-mod`. |
-| `moe.cpu_layers` | integer | -1 (all layers), 0 (off), or 1 to 4096 | `--n-cpu-moe`, or `--cpu-moe` for -1 | Keeps the expert weights of the first N layers in system RAM. |
+| `moe.cpu_layers` | integer | -1 (all layers), 0 (off), or 1 to 4096 | `--n-cpu-moe`, or `--cpu-moe` for -1 | Keeps the expert weights of the first N layers in system RAM. A looped model, such as Inkling 2 Mini, takes only the layers before its loop, and not -1. |
 | `moe.cache_mib` | integer | 0 (off) to 1,048,576 | `--moe-cache-mib` | A GPU cache, in MiB, for the experts in system RAM. Needs `moe.cpu_layers`. |
 | `args` | list of strings | letters, digits and `_ . , : = / + -` | as given | Extra llama-server flags for anything that the typed fields do not cover. |
 

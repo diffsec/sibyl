@@ -189,10 +189,11 @@ On the test host, the IQ4_NL variant (17.6 GB) gave these results on one Radeon 
 | Memory for each context token, f16 KV cache | 134 KB |
 | Memory for each context token, `q8_0` KV cache | 119 KB |
 
-The context costs about four times as much as on a dense model of the same size, so a 24 GB GPU holds about 45,000 tokens. One GPU of the test host is on a slow PCIe link, which makes the result across two GPUs worse than on most hosts.
+The context costs about four times as much as on a dense model of the same size, so a 24 GB GPU holds about 45,000 tokens. A micro-batch of 256 and a `q8_0` KV cache gave 69,632 tokens. With the experts of 6 layers in system RAM and an expert GPU cache of 1,024 MiB, the same GPU gave 106,496 tokens, and generation ran at 26.1 tokens per second. One GPU of the test host is on a slow PCIe link, which makes the result across two GPUs worse than on most hosts.
 
 These limits apply:
 
+- Experts in system RAM takes the first 6 layers at most. The model loops from layer 6, and llama.cpp gives wrong output with the experts of a looped layer in system RAM. Sibyl refuses a larger number.
 - Sibyl does not load the vision projector (`mmproj`) files, so the model reads text only.
 - The Unsloth files need a llama.cpp fix that the AMD and Intel images of Sibyl have. The NVIDIA image does not have it.
 - The `draft-mtp` type does not apply, and llama.cpp b12600 cannot run the model's DSpark drafter.

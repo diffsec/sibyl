@@ -117,6 +117,10 @@ func formMoE(f *settingsForm) models.MoE {
 func moeNote(m client.Model, f *settingsForm) string {
 	lines := []string{fmt.Sprintf("\"all\", or the first N of %d layers. Empty keeps every expert on the GPUs.",
 		len(m.Meta.ExpertBytes))}
+	if m.Meta.Looped {
+		lines = []string{fmt.Sprintf("The first N layers, up to %d. The model loops from layer %d, and the experts of a\n"+
+			"looped layer must stay on the GPUs. Empty keeps every expert on the GPUs.", m.Meta.HostLayers(), m.Meta.HostLayers())}
+	}
 	moe := formMoE(f)
 	host := m.Meta.HostExperts(moe)
 	if host == 0 {
