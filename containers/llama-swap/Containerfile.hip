@@ -50,7 +50,7 @@ RUN /usr/local/bin/collect-rocm-libs.sh /out "${GPU_TARGETS}" build/bin/llama-se
 # the hipBLASLt tuning table are for that architecture only.
 FROM docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete@sha256:92f309c51b52cef8762867848f1529dee821624f23cd5df38455e819538f762f AS edge0-build
 
-ARG EDGE0_REF=0f5597d53d099ad10751b4622edaf7885e2c6988
+ARG EDGE0_REF=594950f9532c1fbd2c02b3b975f242e224dfbc11
 # The llama.cpp commit that edge0-strata/EDGE0.md names. It gives ggml to the build.
 ARG LLAMA_CPP_REF=3cf03257f219afbe7334045ff7c6a06ac68c627d
 ARG EDGE0_GPU_TARGETS="gfx1100"
