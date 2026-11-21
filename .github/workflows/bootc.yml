@@ -295,6 +295,8 @@ jobs:
 
       - id: build
         uses: docker/build-push-action@v7.4.0
+        env:
+          MOK_KEY: ${{ secrets.MOK_PRIVATE_KEY }}
         with:
           context: .
           file: os/Containerfile
@@ -303,8 +305,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # The MOK key signs the NVIDIA kernel modules (os/variants/nvidia.sh).
-          secrets: |
-            mok_key=${{ secrets.MOK_PRIVATE_KEY }}
+          # secret-envs passes the PEM key whole. The secrets input reads its
+          # value line by line, and sign-file then fails with "DECODER
+          # routines::unsupported".
+          secret-envs: |
+            mok_key=MOK_KEY
           build-args: |
             GPU_VARIANT=${{ matrix.variant }}
             IMAGE_TAG=${{ needs.tag.outputs.image_tag }}
