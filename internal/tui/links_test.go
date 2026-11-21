@@ -13,8 +13,8 @@ func TestServiceLinks(t *testing.T) {
 		{Name: "wlp4s0", State: "unmanaged"},
 	}}
 	got := serviceLinks(st)
-	if len(got) != 4 || got[0].url != "https://192.168.1.26/" || got[1].url != "https://192.168.1.26:9443/" ||
-		got[2].url != "https://192.168.1.26:8443/v1" {
+	if len(got) != 5 || got[0].url != "https://192.168.1.26/" || got[1].url != "https://192.168.1.26:9443/" ||
+		got[2].url != "https://192.168.1.26:8443/console/" || got[3].url != "https://192.168.1.26:8443/v1" {
 		t.Fatalf("links %+v", got)
 	}
 	out := renderLinks(st)

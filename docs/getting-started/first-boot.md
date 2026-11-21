@@ -84,7 +84,7 @@ Step 6. Make one key for each program, such as a laptop or Home Assistant. In th
 
 Programs can also use the default key in `/var/lib/sibyl-operator/inference.key`. The key in `api.key` is for the System API only.
 
-Step 7. The TUI Status screen lists the addresses of Open WebUI, Arcane and the APIs as links. The last step also shows the SHA-256 fingerprint of the Sibyl CA certificate. You need this fingerprint in the next section.
+Step 7. The TUI Status screen lists the addresses of Open WebUI, Arcane, the web console and the APIs as links. The last step also shows the SHA-256 fingerprint of the Sibyl CA certificate. You need this fingerprint in the next section.
 
 ## Trust the certificate
 
