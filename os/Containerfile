@@ -9,7 +9,7 @@
 # diagnostics and inference watchdog. sibyl-docker-shim gives Arcane the
 # BuildKit endpoints that Podman lacks. They run on the host, so they are
 # built here.
-FROM cgr.dev/chainguard/go:latest@sha256:c983eb7e033512b641248ff9e8d1e0f79d85e676dabbafb4c0a9720e2cfbac86 AS hostd
+FROM cgr.dev/chainguard/go:latest@sha256:0e87094aeae3d022d3926c756d7358dcc67bb1028a890989eb4224e2349c8481 AS hostd
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
