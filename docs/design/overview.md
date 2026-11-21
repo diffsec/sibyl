@@ -181,7 +181,7 @@ Edge0 120B (Q3_K) has a 26.7 GiB expert file, and two 24 GB cards hold all of it
 The span needs each card to read only its own latent weights. Before fork commit `49d5def`, the second card of a split got pointers to the first card's latent weights and token embedding table. A card cannot read another card's VRAM, so the first request never finished. Upstream `main` now gives each stage its own weights. The `sibyl-main` branch adds two commits on top:
 
 - Each card stores the latent D/U weights of its own layers only (upstream PR #326, open).
-- The HIP build links `src/core/latent_tables.cpp`. Without it, the Linux HIP link of upstream `main` fails with undefined `LatentTables` symbols.
+- The HIP build links `src/core/latent_tables.cpp` (upstream PR #332, open).
 
 On 2026-11-21, Edge0 120B on the test host stopped with `an illegal memory access was encountered` (in `dequant launch` or `prefill copy_i32`) on some requests. The old engine (`7777bc6`) and the engine at upstream `main` both did it, on one card and across two cards. llama-swap starts the engine again on the next request. The cause is not known.
 
