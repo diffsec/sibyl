@@ -31,7 +31,7 @@ func TestTailscaleText(t *testing.T) {
 		}
 	}
 	links := serviceLinks(hostd.State{Tailscale: &hostd.TailscaleState{Backend: "Running", IPs: []string{"100.64.0.5", "fd7a::1"}}})
-	if len(links) != 4 || links[0].url != "https://100.64.0.5/" {
+	if len(links) != 5 || links[0].url != "https://100.64.0.5/" {
 		t.Errorf("links %v", links)
 	}
 }

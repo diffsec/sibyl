@@ -35,7 +35,7 @@ func (a *App) wizardHeader() string {
 	head := fmt.Sprintf("Setup %d/%d: %s", a.step+1, len(wizardSteps), s.title)
 	if a.step == len(wizardSteps)-1 {
 		return titleSty.Render(head) + "\n" +
-			"  The Status screen (1) lists the addresses of Open WebUI, Arcane and the APIs as links.\n" +
+			"  The Status screen (1) lists the addresses of Open WebUI, Arcane, the web console and the APIs as links.\n" +
 			"  Programs use a key from the Router screen (6), or the default key in\n" +
 			"  /var/lib/sibyl-operator/inference.key. api.key is for the System API only.\n" +
 			"  Sibyl CA certificate SHA-256: " + a.opts.Fingerprint + "\n" +

@@ -44,6 +44,7 @@ func serviceLinks(st hostd.State) []service {
 		out = append(out,
 			service{"Open WebUI", "https://" + ip + "/", "chat"},
 			service{"Arcane", "https://" + ip + ":9443/", "containers"},
+			service{"Web console", "https://" + ip + ":8443/console/", "Sibyl settings"},
 			service{"OpenAI API", "https://" + ip + ":8443/v1", "needs a client key"},
 			service{"Ollama API", "https://" + ip + ":8443/api", "needs a client key"},
 		)
