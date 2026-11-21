@@ -321,7 +321,9 @@ Dependabot (`.github/dependabot.yml`) opens a pull request for each new version 
 
 - When every build of `bootc.yml` passes, its `dependabot-merge` job squash-merges the pull request, then starts `bootc.yml` on `main`. A push from the workflow's token starts no workflow, so the job starts it with `workflow_dispatch`.
 - A major update waits for a maintainer.
-- A pull request that changes no path in the `bootc.yml` filters, such as one for `tools/pxe`, runs no build, so it waits for a maintainer.
+- A new digest of the same image tag merges. Dependabot reports it as a major update, because a digest has no version. The job therefore reads the pull request: if every line that it removes is equal, without its digest, to a line that it adds, the update is not a major one. Until 2026-11-21 these pull requests waited for a maintainer.
+- A pull request for `tools/pxe` also builds the PXE server image (`pxe-image`), which no other run builds.
+- A pull request that changes no path in the `bootc.yml` filters runs no build, so it waits for a maintainer.
 - Dependabot leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
 - Open WebUI and Arcane move by hand. Dependabot does not read Quadlet units. Update the `# vX.Y.Z` comment and the `Image=...@sha256:` line under it together. The `Image=` line stays digest-only, because the offline bundle reads it as one reference (`scripts/bundle/make.sh`, `internal/bundle`).
 - llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes. The NVIDIA image takes llama.cpp's own CUDA image, which llama.cpp publishes for fewer builds, so it can be behind `LLAMA_CPP_REF`.

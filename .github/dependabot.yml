@@ -1,7 +1,8 @@
 # Dependabot keeps the pins current. Each pull request runs the bootc
 # images workflow, which builds every image without pushing. When every
 # build passes, the workflow's dependabot-merge job merges a pull request
-# that is not a major update.
+# that is not a major update. A new digest of the same image tag merges
+# too.
 #
 # Quay deletes old fedora-bootc manifests within days of the tag moving, so
 # the container images are checked daily.
