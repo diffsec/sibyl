@@ -600,7 +600,7 @@ func (s *Server) effectiveAll(installed []models.Model, settings map[string]mode
 		}
 		total := weights
 		if meta != nil {
-			total += meta.ContextBytes(st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV)
+			total += meta.ContextBytes(st.CtxSize, st.KVCache.TypeK, st.KVCache.TypeV, st.UBatch)
 		}
 		for _, g := range used {
 			resident[g.Index] += total / int64(len(used))
@@ -663,7 +663,7 @@ func (s *Server) effective(m models.Model, st models.Settings, hw hardware.Confi
 	fit := meta.FitContext(models.FitInput{
 		Mode: st.Fit, Weights: meta.VRAMWeights(m.Size, st.MoE), VRAM: vram, Reserved: reserved,
 		Ctx: st.CtxSize, TypeK: st.KVCache.TypeK, TypeV: st.KVCache.TypeV, Slots: st.Parallel,
-		DraftWeights: draft, Rollback: st.Speculative.Rollback(),
+		DraftWeights: draft, Rollback: st.Speculative.Rollback(), UBatch: st.UBatch,
 	})
 	fit.TensorSplit = st.TensorSplit
 	if fit.Auto {

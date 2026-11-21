@@ -307,6 +307,7 @@ Quay deletes old `fedora-bootc` manifests after the tag moves, so the digest in 
 
 - Dependabot checks the `fedora-bootc` digest daily and opens a pull request when it changes. The pull request builds every image, and it merges when every build passes.
 - If the host build fails with `not found` on the base image, run `scripts/bump-base-image.sh`.
+- Dependabot leaves a new Fedora release alone. A pull request for a new release is a major update, which does not merge by itself, and while it is open Dependabot opens no pull request for the digest of the current release. On 2026-11-21 the digest was gone again for this reason. To move to a new release, run `scripts/bump-base-image.sh <release>`, and start `bootc.yml` with the `iso` input to test an install.
 
 ### Pin updates
 
@@ -323,7 +324,8 @@ Dependabot (`.github/dependabot.yml`) opens a pull request for each new version 
 - A pull request that changes no path in the `bootc.yml` filters, such as one for `tools/pxe`, runs no build, so it waits for a maintainer.
 - Dependabot leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
 - Open WebUI and Arcane move by hand. Dependabot does not read Quadlet units. Update the `# vX.Y.Z` comment and the `Image=...@sha256:` line under it together. The `Image=` line stays digest-only, because the offline bundle reads it as one reference (`scripts/bundle/make.sh`, `internal/bundle`).
-- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes.
+- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes. The NVIDIA image takes llama.cpp's own CUDA image, which llama.cpp publishes for fewer builds, so it can be behind `LLAMA_CPP_REF`.
+- `containers/llama-swap/patches/` holds fixes that llama.cpp did not merge yet. The HIP and Vulkan builds apply them. Its `README.md` lists the source of each patch. Delete a patch when `LLAMA_CPP_REF` moves to a release that has the fix.
 
 ## Release
 

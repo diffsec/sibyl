@@ -32,6 +32,18 @@ var (
 	splitRe    = regexp.MustCompile(`^(.*)-([0-9]{5})-of-([0-9]{5})\.gguf$`)
 )
 
+// altExt is the extension of a GGUF file that a repository keeps out of the
+// file lists of other tools. unsloth/Inkling-2-Mini-GGUF has its files for
+// mainline llama.cpp as Mainline_Support/<name>.gguf_file, next to files
+// with the same names in a layout that only Unsloth's llama.cpp reads.
+const altExt = ".gguf_file"
+
+// isGGUF reports a GGUF file, by either extension.
+func isGGUF(p string) bool { return strings.HasSuffix(strings.ToLower(p), ".gguf") || isAlt(p) }
+
+// isAlt reports a file with the altExt extension.
+func isAlt(p string) bool { return strings.HasSuffix(strings.ToLower(p), altExt) }
+
 // ValidRepo reports whether id looks like "owner/name".
 func ValidRepo(id string) bool { return repoRe.MatchString(id) && !strings.Contains(id, "..") }
 
@@ -214,13 +226,18 @@ func (c *Client) Files(ctx context.Context, repo, rev string) ([]File, error) {
 	}
 	var out []File
 	for _, e := range tree {
-		if e.Type != "file" || !strings.HasSuffix(strings.ToLower(e.Path), ".gguf") {
+		if e.Type != "file" || !isGGUF(e.Path) {
 			continue
 		}
 		if !SafePath(e.Path) || e.LFS == nil || !sha256Re.MatchString(e.LFS.OID) {
 			continue // unsafe name, or no digest to verify against
 		}
-		out = append(out, File{Path: e.Path, Size: e.Size, SHA256: e.LFS.OID})
+		f := File{Path: e.Path, Size: e.Size, SHA256: e.LFS.OID}
+		if isAlt(e.Path) {
+			// llama-server and the model scan need the .gguf extension.
+			f.Dest = strings.TrimSuffix(path.Base(e.Path), path.Ext(e.Path)) + ".gguf"
+		}
+		out = append(out, f)
 	}
 	return out, nil
 }
@@ -314,16 +331,33 @@ func SafePath(p string) bool {
 
 // Variants groups GGUF files into downloadable models. A split set is one
 // variant, and only when every shard is present. Multimodal projector files
-// (mmproj-*) are left out.
+// (mmproj-*) and importance matrices (imatrix*), which a quantizer reads and
+// llama-server cannot run, are left out.
+//
+// A .gguf_file file is the build of a model for mainline llama.cpp. It
+// takes the name of the model, without its folder, and it replaces the
+// .gguf file of the same name, which mainline llama.cpp cannot load.
 func Variants(files []File) []Variant {
 	byName := map[string]*Variant{}
 	want := map[string]int{}
+	alt := map[string]bool{}
+	for _, f := range files {
+		if isAlt(f.Path) {
+			alt[strings.TrimSuffix(path.Base(f.Path), path.Ext(f.Path))] = true
+		}
+	}
 	for _, f := range files {
 		base := path.Base(f.Path)
-		if strings.HasPrefix(strings.ToLower(base), "mmproj") {
+		if lower := strings.ToLower(base); strings.HasPrefix(lower, "mmproj") || strings.HasPrefix(lower, "imatrix") {
 			continue
 		}
 		name := strings.TrimSuffix(f.Path, path.Ext(f.Path))
+		if stem := strings.TrimSuffix(base, path.Ext(base)); alt[stem] {
+			if !isAlt(f.Path) {
+				continue
+			}
+			name = stem
+		}
 		if m := splitRe.FindStringSubmatch(f.Path); m != nil {
 			name = m[1]
 			n, _ := strconv.Atoi(m[3]) // five digits, so it always parses

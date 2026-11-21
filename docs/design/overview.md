@@ -319,7 +319,7 @@ Each model has typed settings in `models.yaml`. The System API checks every valu
 | `tensor_split` | `--tensor-split` | The share of the layers on each GPU of a spanning model |
 | `reasoning` | `--chat-template-kwargs` | A value of the variable that the model's chat template reads |
 
-The flag names and the `--spec-type` values come from llama.cpp b11889. A llama.cpp upgrade must recheck them, because llama.cpp renames speculative flags between releases.
+The flag names and the `--spec-type` values come from llama.cpp b11889, and llama.cpp b12600 still takes each of them. A llama.cpp upgrade must recheck them, because llama.cpp renames speculative flags between releases.
 
 - Sampling settings are server defaults. A client can still override them per request through the OpenAI API.
 - The types `draft-simple`, `draft-eagle3`, `draft-dflash` and `draft-dspark` need `draft_model`. `draft-mtp` uses the model's own multi-token prediction layer, and the `ngram-*` types need no second model.
@@ -389,11 +389,14 @@ On the test host, the 63.3 GB FN-R1 quant of Qwen3.8-Flash-Next REAP-288 runs fu
 The estimate per token is the sum of:
 
 - the K and V elements of every layer that keeps a full-length cache, at the cache type's size (recurrent layers, sliding-window layers and multi-token prediction layers are left out),
+- the same elements again for each extra pass of a looped layer, because each pass keeps its own cache (`loop.start`, `loop.end` and `loop.count` of `inkling2_loop`),
 - the sparse attention indexer, if the model has one, in f16,
-- 8 KiB of compute buffer,
-- for a quantized cache, 4 bytes for each K and V element of the largest layer.
+- 8 KiB of compute buffer, or for a model with a relative-position bias (`Meta.MaskHeads`), 8 bytes for each attention head plus 6, times the micro-batch size,
+- for a quantized cache, 4 bytes for each K and V element of the largest layer. A model with a relative-position bias does not pay this term.
 
 These terms come from measurements on the test host (llama.cpp b11889, ROCm): the VRAM change between a 32,768 and a 131,072 token context. The estimate matched six of seven measurements within 0.4%, across a dense model, a hybrid model, and a sliding-window model at f16, q8_0 and q4_0. It was 3% low on a model with compressed attention layers. `internal/models/meta_test.go` holds the measured values.
+
+Inkling 2 Mini (`inkling2_loop`) gave the looped-layer term and the mask term, on llama.cpp b12600 with one RX 7900 XTX. llama.cpp gives each of its 24 attention heads its own mask, so the compute buffer grows with the context and with the micro-batch. The measured cost was 133,978 bytes per token at f16 and 118,616 at q8_0 with the default micro-batch of 512. It was 83,350 at a micro-batch of 256 and 235,206 at 1,024. The estimate is within 0.2% of each. A 65,536-token context at f16 did not load on a 24 GB GPU.
 
 ### Mixture of Experts offload
 

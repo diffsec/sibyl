@@ -90,6 +90,8 @@ If you leave the context size empty, Sibyl chooses it:
 - Sibyl takes the native context of the model if it fits on the model's GPUs.
 - Otherwise, Sibyl takes the largest multiple of 4,096 tokens that fits in 92% of their VRAM, less the memory of the embedding models on them.
 - An embedding model with no context size gets 8,192 tokens.
+- A looped model, such as Inkling 2 Mini, runs some layers more than once for each token. Each pass keeps its own context memory, and Sibyl counts every pass.
+- A model with an attention mask for each head, such as Inkling 2 Mini, needs more memory for each token when the micro-batch size is larger. Sibyl counts the micro-batch size that you set.
 
 The field shows what Sibyl chooses and its memory estimate. A number that you enter is kept even when it does not fit. The field then says that llama.cpp keeps part of the model in system RAM, which is slower. Sibyl chooses again after a GPU change, because it saves only the values that you enter.
 
@@ -138,7 +140,7 @@ Model families use different names and values for this:
 Sibyl reads the chat template in the GGUF file to find the name and the values. The form then offers these choices:
 
 - "Template default", which leaves the template's own default.
-- The values that the template compares the variable with, such as `xhigh`. Sibyl also finds them when the template copies the variable into another name first.
+- The values that the template compares the variable with, such as `xhigh`. Sibyl also finds them when the template copies the variable into another name first, or looks the variable up in a map of levels. For example, Inkling 2 Mini maps `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max` to numbers.
 - If the template reads both levels and a switch, the levels and `off`. For example, Qwen3.8 reads `reasoning_effort` and `enable_thinking`.
 - A text field, if the template lists no values.
 
@@ -168,6 +170,33 @@ gpt-oss keeps OpenAI's one setting, temperature 1.0 and top-p 1.0, for every pre
 ### Pick a preset in a request
 
 A client can pick a preset for one request without a model reload. Ask for the model name `<model>:<preset>`, such as `qwen3.8-flash-next-reap-288-fn-r1:coding`. The model lists show each model with each preset. The preset fills only the fields that the request leaves out. [API clients](api-clients.md) shows how to call the APIs.
+
+## Inkling 2 Mini
+
+Inkling 2 Mini is a looped Mixture of Experts model from Thinking Machines Lab. Its middle 12 layers run 3 times for each token. Sibyl runs it from llama.cpp b12600.
+
+1. Download a variant from `unsloth/Inkling-2-Mini-GGUF` or from `ggml-org/Inkling-2-Mini-GGUF`. For the Unsloth repository, Sibyl downloads the file from its `Mainline_Support` folder, because llama.cpp cannot load the file of the same name at the top of the repository.
+2. Open the model's settings and set Layout to one GPU, if the file fits on one GPU. The loop sends each token across the GPUs many times, so a model that spans GPUs is slow.
+3. Leave the context size empty. Sibyl chooses the largest context that fits.
+
+On the test host, the IQ4_NL variant (17.6 GB) gave these results on one Radeon RX 7900 XTX:
+
+| Measurement | Result |
+|---|---|
+| Prompt speed, 512 tokens | 1,448 tokens per second |
+| Generation speed | 29.9 tokens per second |
+| Generation speed across two GPUs | 10.6 tokens per second |
+| Memory for each context token, f16 KV cache | 134 KB |
+| Memory for each context token, `q8_0` KV cache | 119 KB |
+
+The context costs about four times as much as on a dense model of the same size, so a 24 GB GPU holds about 45,000 tokens. One GPU of the test host is on a slow PCIe link, which makes the result across two GPUs worse than on most hosts.
+
+These limits apply:
+
+- Sibyl does not load the vision projector (`mmproj`) files, so the model reads text only.
+- The Unsloth files need a llama.cpp fix that the AMD and Intel images of Sibyl have. The NVIDIA image does not have it.
+- The `draft-mtp` type does not apply, and llama.cpp b12600 cannot run the model's DSpark drafter.
+- The Reasoning setting offers `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. The template refuses any other value.
 
 ## Benchmark the backends
 

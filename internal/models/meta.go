@@ -34,7 +34,12 @@ type Meta struct {
 	// IndexerElems are the per-token elements of a sparse attention
 	// indexer, which llama.cpp keeps in f16.
 	IndexerElems int64 `json:"indexer_elements,omitempty"`
-	// AttentionLayers is the number of layers counted above.
+	// MaskHeads is the number of attention heads of a model with a
+	// relative-position bias, or 0. llama.cpp gives each head of such a
+	// model its own attention mask, which grows with the context.
+	MaskHeads int `json:"mask_heads,omitempty"`
+	// AttentionLayers is the number of caches counted above. A looped
+	// layer counts once for each pass.
 	AttentionLayers int `json:"attention_layers"`
 	// RecurrentLayers is the number of recurrent (SSM) layers, and
 	// RecurrentElems the f32 elements of state that each one keeps for one
@@ -101,7 +106,7 @@ var hostTensors = map[string]bool{
 }
 
 // expertTensor matches the routed expert tensors of a block. It is
-// LLM_FFN_EXPS_REGEX in llama.cpp b11889 (common/common.h), which
+// LLM_FFN_EXPS_REGEX in llama.cpp b12600 (common/common.h), which
 // --n-cpu-moe and --cpu-moe use. Shared experts (ffn_*_shexp) stay on
 // the GPUs.
 var expertTensor = regexp.MustCompile(`^blk\.([0-9]+)\.ffn_(up|down|gate|gate_up)_(ch|)exps`)
@@ -170,6 +175,28 @@ func shardPaths(path string) []string {
 // matched within 0.4% on three of them.
 const computePerToken = 8192
 
+// DefaultUBatch is llama-server's --ubatch-size when it is not set.
+const DefaultUBatch = 512
+
+// maskBytes is the compute buffer growth of a model with per-head attention
+// masks (Meta.MaskHeads), for each context token and each token of the
+// micro-batch: 8 bytes for each head, and 6 more. It was measured on the
+// test host (llama.cpp b12600, ROCm, one RX 7900 XTX) on Inkling 2 Mini,
+// which has 24 heads: the VRAM change between two context sizes gave 197.6,
+// 197.7 and 197.7 bytes at micro-batches of 256, 512 and 1024.
+func maskBytes(heads int) float64 { return float64(8*heads + 6) }
+
+// computeBytes is the compute buffer growth per context token.
+func (m Meta) computeBytes(ubatch int) float64 {
+	if m.MaskHeads == 0 {
+		return computePerToken
+	}
+	if ubatch <= 0 {
+		ubatch = DefaultUBatch
+	}
+	return maskBytes(m.MaskHeads) * float64(ubatch)
+}
+
 // cacheBytes are the bytes per element of each KV cache type: ggml stores
 // the quantized types in blocks of 32 elements.
 var cacheBytes = map[string]float64{
@@ -182,8 +209,10 @@ func quantized(t string) bool { return t != "" && t != "f32" && t != "f16" && t 
 
 // BytesPerToken estimates the GPU memory that one token of context costs:
 // the KV cache plus the compute buffers that grow with the context. An
-// empty cache type is f16, llama-server's default.
-func (m Meta) BytesPerToken(typeK, typeV string) int64 {
+// empty cache type is f16, llama-server's default. ubatch is the
+// micro-batch size, and 0 is llama-server's default. Only a model with
+// per-head attention masks costs more with a larger micro-batch.
+func (m Meta) BytesPerToken(typeK, typeV string, ubatch int) int64 {
 	bk, ok := cacheBytes[typeK]
 	if !ok {
 		bk = 2
@@ -192,14 +221,16 @@ func (m Meta) BytesPerToken(typeK, typeV string) int64 {
 	if !ok {
 		bv = 2
 	}
-	per := float64(m.KElems)*bk + float64(m.VElems)*bv + float64(m.IndexerElems)*2 + computePerToken
-	if quantized(typeK) || quantized(typeV) {
+	per := float64(m.KElems)*bk + float64(m.VElems)*bv + float64(m.IndexerElems)*2 + m.computeBytes(ubatch)
+	// The measurements on Inkling 2 Mini show no f32 buffer next to the
+	// masks: q8_0 saved 15,362 bytes per token, which is the cache alone.
+	if m.MaskHeads == 0 && (quantized(typeK) || quantized(typeV)) {
 		per += 4 * float64(m.MaxLayerKV)
 	}
 	return int64(per)
 }
 
-// draftArchs are the llama.cpp b11889 architectures (src/llama-arch.cpp)
+// draftArchs are the llama.cpp b12600 architectures (src/llama-arch.cpp)
 // that only draft tokens for a target model.
 var draftArchs = map[string]bool{"dflash": true, "eagle3": true}
 
@@ -223,12 +254,16 @@ func (m Meta) RecurrentBytes(slots, rollback int) int64 {
 
 // ContextBytes estimates the GPU memory for ctx tokens of context. A ctx of
 // 0 means the native context.
-func (m Meta) ContextBytes(ctx int, typeK, typeV string) int64 {
+func (m Meta) ContextBytes(ctx int, typeK, typeV string, ubatch int) int64 {
 	if ctx <= 0 {
 		ctx = m.ContextLength
 	}
-	return int64(ctx) * m.BytesPerToken(typeK, typeV)
+	return int64(ctx) * m.BytesPerToken(typeK, typeV, ubatch)
 }
+
+// maxLoopPasses bounds loop.count, so that a corrupt header cannot
+// overflow the estimate.
+const maxLoopPasses = 64
 
 // archKeys are the architecture keys that ReadMeta uses, without the
 // "<architecture>." prefix.
@@ -236,8 +271,8 @@ var archKeys = []string{
 	"context_length", "block_count", "nextn_predict_layers", "embedding_length",
 	"attention.head_count", "attention.head_count_kv", "attention.key_length", "attention.value_length",
 	"attention.recurrent_layers", "full_attention_interval", "attention.sliding_window", "attention.sliding_window_pattern",
-	"attention.indexer.head_count", "attention.indexer.key_length",
-	"expert_count",
+	"attention.indexer.head_count", "attention.indexer.key_length", "attention.relative_extent",
+	"expert_count", "loop.start", "loop.end", "loop.count",
 	"ssm.conv_kernel", "ssm.inner_size", "ssm.state_size", "ssm.group_count",
 }
 
@@ -334,6 +369,9 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 		swa = nil
 	}
 	idx := get("attention.indexer.head_count").Num * get("attention.indexer.key_length").Num
+	if get("attention.relative_extent").Num > 0 {
+		m.MaskHeads = int(heads)
+	}
 
 	// A recurrent layer keeps a convolution state of (conv_kernel - 1) x
 	// (inner_size + 2 x group_count x state_size) and an SSM state of
@@ -347,6 +385,14 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 		m.RecurrentElems = int64(conv + state*inner)
 	}
 
+	// A looped model runs the blocks from loop.start to loop.end - 1
+	// loop.count times for each token, with the same weights. Each pass
+	// keeps its own cache, so a looped block costs loop.count caches
+	// (the cache slots of inkling2_loop in llama.cpp b12600,
+	// src/models/inkling2-loop.cpp).
+	loopStart, loopEnd := get("loop.start").Int(), get("loop.end").Int()
+	passes := min(get("loop.count").Int(), maxLoopPasses)
+
 	for i := 0; i < layers; i++ {
 		if recurrent != nil && recurrent[i] != 0 {
 			m.RecurrentLayers++
@@ -354,6 +400,10 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 		}
 		if swa != nil && swa[i] != 0 {
 			continue
+		}
+		caches := int64(1)
+		if passes > 1 && i >= loopStart && i < loopEnd {
+			caches = int64(passes)
 		}
 		h := 0.0
 		if headsKV != nil {
@@ -363,11 +413,11 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 			continue
 		}
 		k, v := int64(h*kLen), int64(h*vLen)
-		m.KElems += k
-		m.VElems += v
+		m.KElems += caches * k
+		m.VElems += caches * v
 		m.MaxLayerKV = max(m.MaxLayerKV, k+v)
-		m.IndexerElems += int64(idx)
-		m.AttentionLayers++
+		m.IndexerElems += caches * int64(idx)
+		m.AttentionLayers += int(caches)
 	}
 
 	s := func(k string) *float64 {

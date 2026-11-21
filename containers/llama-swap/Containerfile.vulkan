@@ -3,7 +3,7 @@
 
 FROM docker.io/ubuntu:26.04 AS build
 
-ARG LLAMA_CPP_REF=b11889
+ARG LLAMA_CPP_REF=b12600
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates libssl-dev \
@@ -11,6 +11,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp /src
+
+# Fixes that llama.cpp did not merge yet. patches/README.md gives the source
+# of each file and says when to remove it.
+COPY patches/ /patches/
+RUN git -C /src apply --verbose /patches/*.patch
 
 WORKDIR /src
 RUN cmake -S . -B build \

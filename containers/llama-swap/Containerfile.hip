@@ -4,7 +4,7 @@
 
 FROM docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete AS build
 
-ARG LLAMA_CPP_REF=b11889
+ARG LLAMA_CPP_REF=b12600
 # RDNA2 (RX 6800/6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5
 # (Ryzen AI 300 and Strix Halo APUs), RDNA4 (RX 9000, AI PRO R9700). The same
 # list as llama.cpp's own ROCm image, without the Instinct cards.
@@ -16,6 +16,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 --branch "${LLAMA_CPP_REF}" https://github.com/ggml-org/llama.cpp /src
+
+# Fixes that llama.cpp did not merge yet. patches/README.md gives the source
+# of each file and says when to remove it.
+COPY patches/ /patches/
+RUN git -C /src apply --verbose /patches/*.patch
 
 WORKDIR /src
 RUN HIPCXX="$(hipconfig -l)/clang" HIP_PATH="$(hipconfig -R)" \
