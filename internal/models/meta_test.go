@@ -97,8 +97,10 @@ func TestReadMetaLoopedLayers(t *testing.T) {
 	kv := map[string]any{
 		"general.architecture": "inkling2_loop", "inkling2_loop.block_count": 24, "inkling2_loop.context_length": 1048576,
 		"inkling2_loop.embedding_length": 2304, "inkling2_loop.expert_count": 128,
-		"inkling2_loop.attention.head_count": 24, "inkling2_loop.attention.head_count_kv": 8,
-		"inkling2_loop.attention.key_length": 128, "inkling2_loop.attention.value_length": 128,
+		// The file gives both head counts for each layer.
+		"inkling2_loop.attention.head_count":    repeat([]int{24}, 24),
+		"inkling2_loop.attention.head_count_kv": repeat([]int{8}, 24),
+		"inkling2_loop.attention.key_length":    128, "inkling2_loop.attention.value_length": 128,
 		"inkling2_loop.attention.relative_extent":        uint32(1024),
 		"inkling2_loop.attention.sliding_window":         uint32(1024),
 		"inkling2_loop.attention.sliding_window_pattern": repeat([]bool{true, true, true, true, true, false}, 24),

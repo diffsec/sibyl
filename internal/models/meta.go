@@ -337,7 +337,9 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 	if layers <= 0 {
 		return m
 	}
-	heads := get("attention.head_count").Num
+	// Some headers give the head count once, and some give it for each
+	// layer, as ggml-org/Inkling-2-Mini-GGUF does.
+	heads := largest(get("attention.head_count"))
 	embd := get("embedding_length").Num
 	kLen, vLen := get("attention.key_length").Num, get("attention.value_length").Num
 	if kLen == 0 && heads > 0 {
@@ -433,6 +435,14 @@ func metaFrom(arch string, vals map[string]gguf.Value) Meta {
 		m.Sampling.TopK = &n
 	}
 	return m
+}
+
+// largest returns a scalar, or the largest value of a per-layer array.
+func largest(v gguf.Value) float64 {
+	if v.IsArr && len(v.Array) > 0 {
+		return slices.Max(v.Array)
+	}
+	return v.Num
 }
 
 // perLayer turns a scalar or a per-layer array into one value per layer.
