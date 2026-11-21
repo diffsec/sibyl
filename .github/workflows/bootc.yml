@@ -11,6 +11,8 @@ on:
       - 'go.sum'
       - '.github/workflows/bootc.yml'
       - '.github/workflows/actions.lock'
+      # No image of tools/pxe is published, so only a pull request builds it.
+      - 'tools/pxe/**'
   push:
     branches: [main]
     tags: ['v*']
@@ -510,12 +512,23 @@ jobs:
             "ghcr.io/diffsec/sibyl-bundle:${TAG}-${VARIANT},latest-${VARIANT}" \
             manifest.json manifest.json.sig ./*.oci.tar
 
+  # tools/pxe publishes no image. This build is the check for a Dependabot
+  # pull request that moves one of its base images.
+  pxe-image:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Build the PXE server image
+        run: docker build -f tools/pxe/Containerfile tools/pxe
+
   # A Dependabot pull request merges when every build above passed, unless
-  # it is a major update. The merge uses the workflow's token, and a push
+  # it is a major update. A new digest of the same image tag is not a major
+  # update, although Dependabot reports it as one. The merge uses the workflow's token, and a push
   # from that token starts no workflow, so the job starts this workflow on
   # main by hand: workflow_dispatch is the exception to that rule.
   dependabot-merge:
-    needs: [go, service-images, os-image]
+    needs: [go, service-images, os-image, pxe-image]
     if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
@@ -525,13 +538,32 @@ jobs:
     steps:
       - id: meta
         uses: dependabot/fetch-metadata@v3.1.0
-      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
-        env:
+      - env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          UPDATE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
         run: |
+          # Dependabot reports a new digest of an image tag as a major
+          # update, because a digest has no version. Such an update merges
+          # when the pull request changes digests only: each line that it
+          # removes is equal, without its digest, to a line that it adds.
+          if [[ "$UPDATE" == version-update:semver-major ]]; then
+            if [[ "$ECOSYSTEM" != docker ]]; then
+              echo "A major update waits for a maintainer."
+              exit 0
+            fi
+            diff="$(gh pr diff "$PR" --repo "$REPO")"
+            digest='s/@sha256:[0-9a-f]{64}//'
+            old="$(grep -E '^-[^-]' <<<"$diff" | sed -E "s/^-//; $digest" | sort || true)"
+            new="$(grep -E '^\+[^+]' <<<"$diff" | sed -E "s/^\+//; $digest" | sort || true)"
+            if [[ -z "$old" || "$old" != "$new" ]]; then
+              echo "The pull request changes an image tag, so it waits for a maintainer."
+              exit 0
+            fi
+          fi
           # The head check refuses a merge when Dependabot pushed again
           # after these builds started.
           gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD"
