@@ -84,7 +84,7 @@ The System API also makes these checks:
 - `args` cannot set a flag that Sibyl sets: `--model`, `-m`, `--host`, `--port`, `--device`, `-dev`, `--split-mode`, `-sm`, `--hf-repo`, `-hf`, `--api-key`, `--api-key-file`, `--chat-template-kwargs`.
 - `args` cannot set a flag that has a typed field, or any alias of it. Set the typed field instead.
 
-The flag names and the `--spec-type` values come from llama.cpp b11889.
+The flag names and the `--spec-type` values come from llama.cpp b11889, and llama.cpp b12600 still takes each of them.
 
 `models.yaml` keeps only the values that you set. The values that Sibyl chooses, such as an automatic context, go into the llama-swap configuration and `models.json`. `GET /models` reports them as `fit`.
 
@@ -94,7 +94,7 @@ Sibyl reads the chat template in the GGUF file to find its reasoning control. It
 
 | Template reads | Choices that the form offers | Flag value |
 |---|---|---|
-| `reasoning_effort` with listed levels | each level, such as `low`, `high` or `xhigh` | `{"reasoning_effort":"<level>"}` |
+| `reasoning_effort` with listed levels, or with a map of levels | each level, such as `low`, `high` or `xhigh` | `{"reasoning_effort":"<level>"}` |
 | `reasoning_effort` with no listed levels | any level, in a text field | `{"reasoning_effort":"<level>"}` |
 | `enable_thinking` or `thinking` only | `on`, `off` | `{"<var>":true}` or `{"<var>":false}` |
 | `reasoning_effort` and `enable_thinking` | each level, and `off` through `enable_thinking` | the level, or `{"enable_thinking":false}` |

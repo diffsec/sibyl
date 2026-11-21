@@ -314,13 +314,14 @@ func SafePath(p string) bool {
 
 // Variants groups GGUF files into downloadable models. A split set is one
 // variant, and only when every shard is present. Multimodal projector files
-// (mmproj-*) are left out.
+// (mmproj-*) and importance matrices (imatrix*), which a quantizer reads and
+// llama-server cannot run, are left out.
 func Variants(files []File) []Variant {
 	byName := map[string]*Variant{}
 	want := map[string]int{}
 	for _, f := range files {
 		base := path.Base(f.Path)
-		if strings.HasPrefix(strings.ToLower(base), "mmproj") {
+		if lower := strings.ToLower(base); strings.HasPrefix(lower, "mmproj") || strings.HasPrefix(lower, "imatrix") {
 			continue
 		}
 		name := strings.TrimSuffix(f.Path, path.Ext(f.Path))

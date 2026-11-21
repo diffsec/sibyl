@@ -17,6 +17,7 @@ func TestVariants(t *testing.T) {
 		{Path: "big/Model-Q8_0-00002-of-00002.gguf", Size: 6},
 		{Path: "Model-IQ2-00001-of-00003.gguf", Size: 1}, // incomplete split set
 		{Path: "mmproj-F16.gguf", Size: 3},
+		{Path: "imatrix.gguf", Size: 2},
 	}
 	got := Variants(files)
 	if len(got) != 2 {

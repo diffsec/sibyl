@@ -323,7 +323,7 @@ Dependabot (`.github/dependabot.yml`) opens a pull request for each new version 
 - A pull request that changes no path in the `bootc.yml` filters, such as one for `tools/pxe`, runs no build, so it waits for a maintainer.
 - Dependabot leaves the ROCm and Ubuntu major and minor releases alone, because a new release changes the llama.cpp build. A maintainer moves them by hand after a benchmark.
 - Open WebUI and Arcane move by hand. Dependabot does not read Quadlet units. Update the `# vX.Y.Z` comment and the `Image=...@sha256:` line under it together. The `Image=` line stays digest-only, because the offline bundle reads it as one reference (`scripts/bundle/make.sh`, `internal/bundle`).
-- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes.
+- llama.cpp (`LLAMA_CPP_REF`) and llama-swap (`LLAMA_SWAP_VERSION`) move by hand, and so does the Edge0 engine (`EDGE0_REF` in `Containerfile.hip`). A llama.cpp release can rename the speculative decoding flags that Sibyl writes. The NVIDIA image takes llama.cpp's own CUDA image, which llama.cpp publishes for fewer builds, so it can be behind `LLAMA_CPP_REF`.
 
 ## Release
 

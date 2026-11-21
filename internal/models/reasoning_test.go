@@ -1,6 +1,7 @@
 package models
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,6 +36,24 @@ func TestDetectReasoning(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
+	}
+}
+
+// The template of thinkingmachines/Inkling-2-Mini keeps its levels as the
+// keys of a map, and reaches reasoning_effort through two aliases.
+func TestDetectReasoningLevelsFromAMap(t *testing.T) {
+	b, err := os.ReadFile("testdata/inkling2-mini.jinja")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := &ReasoningControl{Var: "reasoning_effort", Values: []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}}
+	if got := DetectReasoning(string(b)); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	// A map that the variable is not looked up in gives no levels.
+	other := `{%- set roles = {"user": "U", "tool": "T"} -%}{%- if message.role not in roles -%}{%- endif -%}{{ reasoning_effort }}`
+	if got := DetectReasoning(other); got == nil || len(got.Values) != 0 {
+		t.Errorf("got %+v, want no levels", got)
 	}
 }
 

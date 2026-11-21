@@ -15,7 +15,7 @@ func fitMeta() Meta {
 func TestFitContext(t *testing.T) {
 	m := fitMeta()
 	gib := int64(1 << 30)
-	per := m.BytesPerToken("", "")
+	per := m.BytesPerToken("", "", 0)
 	for _, c := range []struct {
 		name     string
 		mode     FitMode
@@ -47,7 +47,7 @@ func TestFitContext(t *testing.T) {
 		if want == 0 {
 			// The largest multiple of 4096 that fits.
 			budget := int64(FitMargin*float64(c.vram)) - c.weights
-			want = int(budget / m.BytesPerToken(c.wantK, c.wantK) / 4096 * 4096)
+			want = int(budget / m.BytesPerToken(c.wantK, c.wantK, 0) / 4096 * 4096)
 		}
 		if f.Ctx != want || f.TypeK != c.wantK || f.TypeV != c.wantK || f.Fits != c.wantFits || f.Auto != c.wantAuto {
 			t.Errorf("%s: %+v, want ctx %d type %q fits %v auto %v", c.name, f, want, c.wantK, c.wantFits, c.wantAuto)
@@ -71,7 +71,7 @@ func TestFitContext(t *testing.T) {
 func TestFitSlotsAndReserved(t *testing.T) {
 	m := fitMeta() // 1 MiB per token at f16, native 100,000
 	gib := int64(1 << 30)
-	per := m.BytesPerToken("", "")
+	per := m.BytesPerToken("", "", 0)
 
 	// 200 GiB holds 100,000 tokens but not 2 x 100,000: two slots get the
 	// largest multiple of 4096 tokens each that fits.

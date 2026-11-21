@@ -81,11 +81,57 @@ func TestBytesPerTokenMatchesMeasurements(t *testing.T) {
 			t.Fatalf("%s: %v", c.name, err)
 		}
 		for typ, want := range c.want {
-			got := m.BytesPerToken(typ, typ)
+			got := m.BytesPerToken(typ, typ, 0)
 			if d := float64(got-want) / float64(want); d > 0.01 || d < -0.01 {
 				t.Errorf("%s %s: %d bytes per token, measured %d", c.name, typ, got, want)
 			}
 		}
+	}
+}
+
+// A looped model keeps one cache for each pass through its looped blocks.
+// The header copies ggml-org/Inkling-2-Mini-GGUF: 24 blocks, of which 5,
+// 11, 17 and 23 have full attention, and blocks 6 to 17 run 3 times. Blocks
+// 11 and 17 are in the loop, so the context pays for 2 + 2 x 3 = 8 caches.
+func TestReadMetaLoopedLayers(t *testing.T) {
+	kv := map[string]any{
+		"general.architecture": "inkling2_loop", "inkling2_loop.block_count": 24, "inkling2_loop.context_length": 1048576,
+		"inkling2_loop.embedding_length": 2304, "inkling2_loop.expert_count": 128,
+		"inkling2_loop.attention.head_count": 24, "inkling2_loop.attention.head_count_kv": 8,
+		"inkling2_loop.attention.key_length": 128, "inkling2_loop.attention.value_length": 128,
+		"inkling2_loop.attention.relative_extent":        uint32(1024),
+		"inkling2_loop.attention.sliding_window":         uint32(1024),
+		"inkling2_loop.attention.sliding_window_pattern": repeat([]bool{true, true, true, true, true, false}, 24),
+		"inkling2_loop.loop.start":                       uint32(6), "inkling2_loop.loop.end": uint32(18), "inkling2_loop.loop.count": uint32(3),
+	}
+	m, err := ReadMeta(writeGGUF(t, kv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.AttentionLayers != 8 || m.KElems != 8*8*128 || m.VElems != 8*8*128 || m.MaxLayerKV != 2*8*128 {
+		t.Errorf("looped: %d caches, K %d, V %d, largest layer %d", m.AttentionLayers, m.KElems, m.VElems, m.MaxLayerKV)
+	}
+	// The measured bytes per token on the test host (llama.cpp b12600,
+	// ROCm, one RX 7900 XTX), from the change in VRAM between two context
+	// sizes. Each head has its own attention mask, so the micro-batch
+	// size sets most of the cost.
+	if m.MaskHeads != 24 {
+		t.Errorf("mask heads = %d", m.MaskHeads)
+	}
+	for _, c := range []struct {
+		typ    string
+		ubatch int
+		want   int64
+	}{{"f16", 0, 133978}, {"q8_0", 0, 118616}, {"f16", 256, 83350}, {"f16", 1024, 235206}} {
+		got := m.BytesPerToken(c.typ, c.typ, c.ubatch)
+		if d := float64(got-c.want) / float64(c.want); d > 0.01 || d < -0.01 {
+			t.Errorf("%s at micro-batch %d: %d bytes per token, measured %d", c.typ, c.ubatch, got, c.want)
+		}
+	}
+	// Without the loop keys, each block has one cache.
+	delete(kv, "inkling2_loop.loop.count")
+	if m, err = ReadMeta(writeGGUF(t, kv)); err != nil || m.AttentionLayers != 4 {
+		t.Errorf("no loop: %d caches, %v", m.AttentionLayers, err)
 	}
 }
 
@@ -109,7 +155,7 @@ func TestReadMetaSamplingAndNativeContext(t *testing.T) {
 	if m.Sampling.TopK == nil || *m.Sampling.TopK != 20 || m.Sampling.Temperature == nil {
 		t.Errorf("sampling = %+v", m.Sampling)
 	}
-	if m.ContextBytes(0, "", "") != 8192*m.BytesPerToken("", "") {
+	if m.ContextBytes(0, "", "", 0) != 8192*m.BytesPerToken("", "", 0) {
 		t.Error("a context of 0 must use the native context")
 	}
 }

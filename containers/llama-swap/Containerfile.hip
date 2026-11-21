@@ -4,7 +4,7 @@
 
 FROM docker.io/rocm/dev-ubuntu-24.04:7.2.4-complete AS build
 
-ARG LLAMA_CPP_REF=b11889
+ARG LLAMA_CPP_REF=b12600
 # RDNA2 (RX 6800/6900, PRO W6800), RDNA3 (RX 7000, PRO W7000), RDNA3.5
 # (Ryzen AI 300 and Strix Halo APUs), RDNA4 (RX 9000, AI PRO R9700). The same
 # list as llama.cpp's own ROCm image, without the Instinct cards.

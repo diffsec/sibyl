@@ -78,6 +78,9 @@ type FitInput struct {
 	// Rollback is the number of copies of the recurrent state that
 	// speculative decoding keeps for each sequence (Speculative.Rollback).
 	Rollback int
+	// UBatch is the micro-batch size (--ubatch-size). 0 is llama-server's
+	// default.
+	UBatch int
 }
 
 // DraftOverhead is the GPU memory of a draft model besides its weights.
@@ -131,7 +134,7 @@ func (m Meta) FitContext(in FitInput) (f Fit) {
 		if budget <= 0 {
 			return 0
 		}
-		return budget / m.BytesPerToken(s[0], s[1])
+		return budget / m.BytesPerToken(s[0], s[1], in.UBatch)
 	}
 
 	// The first step that reaches the target, else the step that gives

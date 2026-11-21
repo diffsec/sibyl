@@ -83,19 +83,41 @@ const literal = `['"]([A-Za-z0-9_-]{1,32})['"]`
 
 var (
 	literalRE = regexp.MustCompile(literal)
+	mapKeyRE  = regexp.MustCompile(literal + `\s*:`)
 	valueRE   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 )
 
+// maxAliases bounds the variables that levels follows from one name.
+const maxAliases = 8
+
+// mapKeys returns the string keys of {% set name = {"x": ..., "y": ...} %},
+// in the template's order.
+func mapKeys(template, name string) []string {
+	m := regexp.MustCompile(`set\s+` + regexp.QuoteMeta(name) + `\s*=\s*\{([^{}]*)\}`).FindStringSubmatch(template)
+	if m == nil {
+		return nil
+	}
+	var out []string
+	for _, k := range mapKeyRE.FindAllStringSubmatch(m[1], -1) {
+		out = append(out, k[1])
+	}
+	return out
+}
+
 // levels finds the values that a template compares name with: in
 // name == "x", "x" == name, name in ("x", "y") and name | default("x").
-// It follows {% set alias = name ... %}, because templates often resolve
-// the default into another variable first.
+// It follows {% set alias = name ... %}, and an alias of an alias, because
+// templates often resolve the default into another variable first. For
+// name in levels, where the template sets levels to a map, the values are
+// the keys of the map.
 func levels(template, name string) []string {
 	names := []string{name}
-	aliasRE := regexp.MustCompile(`set\s+(\w+)\s*=\s*` + regexp.QuoteMeta(name) + `\b`)
-	for _, m := range aliasRE.FindAllStringSubmatch(template, -1) {
-		if !slices.Contains(names, m[1]) {
-			names = append(names, m[1])
+	for i := 0; i < len(names) && len(names) < maxAliases; i++ {
+		aliasRE := regexp.MustCompile(`set\s+(\w+)\s*=\s*` + regexp.QuoteMeta(names[i]) + `\b`)
+		for _, m := range aliasRE.FindAllStringSubmatch(template, -1) {
+			if !slices.Contains(names, m[1]) && len(names) < maxAliases {
+				names = append(names, m[1])
+			}
 		}
 	}
 	var out []string
@@ -113,6 +135,12 @@ func levels(template, name string) []string {
 				for _, lit := range literalRE.FindAllStringSubmatch(m[1], -1) {
 					add(lit[1])
 				}
+			}
+		}
+		inMapRE := regexp.MustCompile(`\b` + v + `\s+(?:not\s+)?in\s+([A-Za-z_]\w*)`)
+		for _, m := range inMapRE.FindAllStringSubmatch(template, -1) {
+			for _, k := range mapKeys(template, m[1]) {
+				add(k)
 			}
 		}
 		for _, re := range []*regexp.Regexp{

@@ -3,7 +3,7 @@
 
 FROM docker.io/ubuntu:26.04 AS build
 
-ARG LLAMA_CPP_REF=b11889
+ARG LLAMA_CPP_REF=b12600
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates libssl-dev \

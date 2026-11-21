@@ -230,8 +230,8 @@ func (s *Server) optimizeInput(id string, profile optimize.Profile, adv *Optimiz
 		// model runs with now, so the context still fits. The verify
 		// stage checks the load at the real context.
 		if fit != nil {
-			now := meta.ContextBytes(fit.Ctx, fit.TypeK, fit.TypeV)
-			in.KVFits = func(k, v string) bool { return meta.ContextBytes(fit.Ctx, k, v) <= now }
+			now := meta.ContextBytes(fit.Ctx, fit.TypeK, fit.TypeV, set.UBatch)
+			in.KVFits = func(k, v string) bool { return meta.ContextBytes(fit.Ctx, k, v, set.UBatch) <= now }
 		}
 		in.MoE = moeCandidates(set.MoE.CPULayers, in.Layers, meta.ExpertCount)
 	}

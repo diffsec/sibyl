@@ -42,9 +42,10 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	if n, err := strconv.Atoi(strings.TrimSpace(f.DraftMax)); err == nil {
 		spec.DraftMax = &n
 	}
+	ubatch, _ := strconv.Atoi(strings.TrimSpace(f.UBatch))
 	fit := m.Meta.FitContext(models.FitInput{Mode: models.FitMode(f.Fit), Weights: gpuWeights, VRAM: vram,
 		Reserved: reserved, Ctx: max(set, 0), TypeK: f.KVTypeK, TypeV: f.KVTypeV, Slots: slots,
-		DraftWeights: draftWeights, Rollback: spec.Rollback()})
+		DraftWeights: draftWeights, Rollback: spec.Rollback(), UBatch: ubatch})
 	draft, recurrent := fit.Draft, fit.Recurrent
 	ctx, typeK, typeV := fit.Ctx, fit.TypeK, fit.TypeV
 	if ctx == 0 {
@@ -71,7 +72,7 @@ func contextNote(m client.Model, f *settingsForm, hw hardware.Config, gpus []gpu
 	if ctx/slots > native {
 		lines = append(lines, "This is over the native context, so answers can get worse.")
 	}
-	cost := m.Meta.ContextBytes(ctx, typeK, typeV)
+	cost := m.Meta.ContextBytes(ctx, typeK, typeV, ubatch)
 	total := cost + gpuWeights + reserved + draft + recurrent
 	line := fmt.Sprintf("At %s tokens: context about %s + weights %s", thousands(ctx), gib(cost), gib(gpuWeights))
 	if moe.Enabled() {
