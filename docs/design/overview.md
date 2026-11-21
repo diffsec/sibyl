@@ -527,7 +527,7 @@ The Hardware step writes `/var/lib/sibyl/config/hardware.yaml`. The System API r
 
 Notes on step 5:
 
-- bootc runs under `unshare --mount`, so its mounts go away when it exits. In that namespace, `/var/tmp` is a directory on the target's boot partition, because containers/image writes each layer that it reads from container storage to `/var/tmp`, and the live system keeps `/var/tmp` in RAM. With skopeo 1.25 on Fedora 45, the VM install test failed with `no space left on device` there.
+- bootc runs under `unshare --mount`, so its mounts go away when it exits. While bootc runs, the live system's `/var/tmp` is a bind mount of a directory on the target's boot partition, because containers/image writes each layer that it reads from container storage to `/var/tmp`, and the live system keeps `/var/tmp` in RAM. With skopeo 1.25 on Fedora 45, the VM install test failed with `no space left on device` there, on a layer of 107,270,144 bytes. The mount must be in the live system's namespace, because bootc mounts the host's `/var/tmp` over its own.
 - It cannot run in a container of the embedded image. That image sits in a read-only image store on the squashfs, and crun cannot find `/tmp` in the nested overlay.
 - bootc remounts the target read-only at the end, so the installer remounts it read-write for step 6.
 
