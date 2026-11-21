@@ -1,7 +1,7 @@
 # Caddy TLS front door on Wolfi.
 
 
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:1f6b749929164c3d9e7cad0289254f39b2ba51e1dddaeb0fa57532ea03f2db31
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:be019c1c74fe69204a42c4e10bc4d886a49bf5403ffa74374ef7baa408fc9a26
 
 RUN apk add --no-cache caddy \
     && addgroup -S -g 10001 caddy-nd \

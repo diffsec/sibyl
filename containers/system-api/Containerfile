@@ -2,7 +2,7 @@
 # Build context: the repository root.
 
 
-FROM cgr.dev/chainguard/go:latest@sha256:c983eb7e033512b641248ff9e8d1e0f79d85e676dabbafb4c0a9720e2cfbac86 AS build
+FROM cgr.dev/chainguard/go:latest@sha256:0e87094aeae3d022d3926c756d7358dcc67bb1028a890989eb4224e2349c8481 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -11,7 +11,7 @@ COPY cmd/ cmd/
 COPY internal/ internal/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sibyl-api ./cmd/sibyl-api
 
-FROM cgr.dev/chainguard/static:latest@sha256:fc42af33e643f20d08baf03cddcc1c02ba57052dfb02edb0d79f3fc47bcea8d9
+FROM cgr.dev/chainguard/static:latest@sha256:8658e9eaeb2294fa0e49b0667f7d66b4e21fa7690b8d2a4c30cd1d013ceb9eb7
 
 COPY --from=build /out/sibyl-api /usr/bin/sibyl-api
 
