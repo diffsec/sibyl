@@ -119,6 +119,9 @@ const (
 	// ProvisionFile is where the admin account waits for its first boot,
 	// relative to the target's /var.
 	ProvisionFile = "lib/sibyl-install/admin.json"
+	// installTmp is the directory on the boot partition that bootc uses as
+	// /var/tmp during the install.
+	installTmp = ".sibyl-install-tmp"
 )
 
 var sfdiskScript = `label: gpt
@@ -246,8 +249,22 @@ func (in *Installer) Install(ctx context.Context, o Options) (res Result, err er
 	// bootc makes its own mount namespace only inside a container. unshare
 	// gives it a private one here, so its mounts, such as /run/bootc/storage,
 	// go away when it exits.
+	//
+	// containers/image writes each layer that it reads from container
+	// storage to a file in /var/tmp, and it ignores TMPDIR. On the live
+	// system /var/tmp is in RAM: the VM install test on Fedora 45 (skopeo
+	// 1.25) failed with "write /var/tmp/container_images_...: no space left
+	// on device". The namespace therefore gets a directory on the target's
+	// boot partition as /var/tmp. bootc does not look inside /boot, because
+	// it is a mount point, but it refuses any other entry in an empty root.
+	varTmp := filepath.Join(target, "boot", installTmp)
+	if err := os.MkdirAll(varTmp, 0o700); err != nil {
+		return res, err
+	}
+	defer func() { _ = os.RemoveAll(varTmp) }()
 	if _, err := run("Installing "+o.Target+" (this takes a few minutes)", Cmd{Name: "unshare", Args: []string{
 		"--mount", "--propagation", "private", "--",
+		"sh", "-c", `mount --bind "$0" /var/tmp && exec "$@"`, varTmp,
 		"bootc", "install", "to-filesystem",
 		"--source-imgref", "containers-storage:" + o.Payload,
 		"--target-imgref", o.Target,
