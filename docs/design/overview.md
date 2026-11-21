@@ -158,7 +158,7 @@ The HIP image sets `GPU_MAX_HW_QUEUES=1`. With the default of 4 hardware queues 
 
 ### Edge0 models
 
-An Edge0 model is a folder, not a GGUF file. The folder holds a `model.json` with `"family": "Edge0"`, an expert file, and the rest of the pack. The scanner lists the folder as one model with `engine` set to `edge0` (`models.Scan`). llama.cpp cannot run it. The engine is edge0-strata, from the fork `github.com/diffsec/Edge0`, which carries the kernels for the Radeon RX 7900 matrix cores.
+An Edge0 model is a folder, not a GGUF file. The folder holds a `model.json` with `"family": "Edge0"`, an expert file, and the rest of the pack. The scanner lists the folder as one model with `engine` set to `edge0` (`models.Scan`). llama.cpp cannot run it. The engine is edge0-strata, from the fork `github.com/diffsec/Edge0`. Upstream `Edge0-AI/Edge0` has the kernels for the Radeon RX 7900 matrix cores since PR #224. The fork's `sibyl-main` branch is upstream `main` plus the commits that Sibyl needs and upstream did not merge yet.
 
 The HIP image builds the engine in a stage of its own, for `gfx1100` only, and adds its Python server. `EDGE0_REF` pins the fork's commit. The model's llama-swap command is `containers/llama-swap/edge0-launch.py`. It reads the folder's `model.json`, which is a server configuration for a start from inside the folder, and changes these parts:
 
@@ -178,7 +178,12 @@ On the test host, Edge0 145B (Q3_K) on one RX 7900 XTX in this image, with the Q
 
 Edge0 120B (Q3_K) has a 26.7 GiB expert file, and two 24 GB cards hold all of it. On one card it decoded at 70.5 to 78.7 tokens per second and read a 6K-token prompt at 1284, with 34 GB of host RAM in use. Across both cards it decoded at 65.4 to 67.1 tokens per second and read a 6K-token prompt at 403, with 19 GB of host RAM in use. The 120B and 145B repositories share five large files with the same SHA-256, 59.6 GB in total. The download does not link them, so each folder holds its own copy.
 
-The span needs the fork at `49d5def` or later. Before that commit, the second card of a split was given pointers to the first card's latent weights and token embedding table. A card cannot read another card's VRAM, so the first request never finished.
+The span needs each card to read only its own latent weights. Before fork commit `49d5def`, the second card of a split got pointers to the first card's latent weights and token embedding table. A card cannot read another card's VRAM, so the first request never finished. Upstream `main` now gives each stage its own weights. The `sibyl-main` branch adds two commits on top:
+
+- Each card stores the latent D/U weights of its own layers only (upstream PR #326, open).
+- The HIP build links `src/core/latent_tables.cpp`. Without it, the Linux HIP link of upstream `main` fails with undefined `LatentTables` symbols.
+
+On 2026-11-21, Edge0 120B on the test host stopped with `an illegal memory access was encountered` (in `dequant launch` or `prefill copy_i32`) on some requests. The old engine (`7777bc6`) and the engine at upstream `main` both did it, on one card and across two cards. llama-swap starts the engine again on the next request. The cause is not known.
 
 The download picker offers an Edge0 repository as one variant, the whole folder (`hf.Client.Edge0Variant`). A repository counts as Edge0 when `model.json` and `experts.bin` are at its root. The variant leaves out the `assets` folder and hidden files, and its fit is `split` when the host's total RAM holds the model, or `no`. The download keeps the subfolders. Hugging Face gives a SHA-256 for LFS files only, so the download checks each small file against its Git blob ID, which is the SHA-1 of `blob <size>`, a zero byte, and the content. The commit pins both kinds of file.
 
