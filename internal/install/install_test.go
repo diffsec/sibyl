@@ -90,7 +90,7 @@ func TestInstall(t *testing.T) {
 		"mount /dev/mapper/luks-1111-2222 " + work + "/target",
 		"mount /dev/nvme0n1p2 " + work + "/target/boot",
 		"mount /dev/nvme0n1p1 " + work + "/target/boot/efi",
-		"unshare --mount --propagation private -- bootc install to-filesystem",
+		"unshare --mount --propagation private -- sh -c",
 		"mount -o remount,rw " + work + "/target",
 		"umount --recursive " + work + "/target",
 		"cryptsetup close luks-1111-2222",
@@ -103,8 +103,9 @@ func TestInstall(t *testing.T) {
 		}
 		last = i
 	}
-	pod := f.calls[f.index("unshare --mount --propagation private -- bootc install to-filesystem")].String()
-	for _, want := range []string{"--source-imgref containers-storage:ghcr.io/diffsec/sibyl-os:sha-1-amd",
+	pod := f.calls[f.index("unshare --mount --propagation private -- sh -c")].String()
+	for _, want := range []string{`mount --bind "$0" /var/tmp && exec "$@" ` + work + "/target/boot/" + installTmp + " bootc install to-filesystem",
+		"--source-imgref containers-storage:ghcr.io/diffsec/sibyl-os:sha-1-amd",
 		"--target-imgref ghcr.io/diffsec/sibyl-os:latest-amd", "--karg rd.luks.uuid=luks-1111-2222", work + "/target"} {
 		if !strings.Contains(pod, want) {
 			t.Errorf("bootc command lacks %q: %s", want, pod)
@@ -112,6 +113,9 @@ func TestInstall(t *testing.T) {
 	}
 	if !strings.Contains(f.calls[f.index("sfdisk")].Stdin, `type=4F68BCE3-E8CD-4DB1-96E7-FBCAF984B709, name="root"`) {
 		t.Error("sfdisk script has no root partition")
+	}
+	if _, err := os.Stat(filepath.Join(work, "target/boot", installTmp)); !os.IsNotExist(err) {
+		t.Error("the temporary directory is still on the boot partition")
 	}
 	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
 		t.Error("the key file is still on disk")
