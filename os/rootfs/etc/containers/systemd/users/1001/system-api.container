@@ -20,9 +20,12 @@ Volume=/run/sibyl-secret:/run/sibyl-secret:z
 # Written by sibyl-hostd as root. It labels the files itself, so no :z here.
 Volume=/var/lib/sibyl-host/out:/run/sibyl-host:ro
 Volume=/var/lib/sibyl/home/.config/containers/systemd/llama-swap.container.d:/quadlet:z
-Secret=sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0400,uid=10001,gid=10001
+# Secrets go under /run/keys, not /run/secrets. Podman 6.2 mounts its own
+# /run/secrets read-only, and crun then cannot make a mount point in it for a
+# container with ReadOnly=true.
+Secret=sibyl-api-key,type=mount,target=/run/keys/api-key,mode=0400,uid=10001,gid=10001
 # The router key of Open WebUI, which the System API gives to Open WebUI.
-Secret=sibyl-router-owui-key,type=mount,target=/run/secrets/open-webui-key,mode=0400,uid=10001,gid=10001
+Secret=sibyl-router-owui-key,type=mount,target=/run/keys/open-webui-key,mode=0400,uid=10001,gid=10001
 Environment=SIBYL_IMAGE_TAG=@IMAGE_TAG@
 Environment=SIBYL_GPU_VARIANT=@GPU_VARIANT@
 Environment=SIBYL_VERSION=@IMAGE_TAG@

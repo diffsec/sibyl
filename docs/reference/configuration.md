@@ -318,7 +318,7 @@ The Sibyl programs read these environment variables. The Quadlet units and the `
 | Variable | Default | Meaning |
 |---|---|---|
 | `SIBYL_LISTEN` | `:3001` | The listen address. |
-| `SIBYL_API_KEY_FILE` | `/run/secrets/api-key` | The file with the System API key. |
+| `SIBYL_API_KEY_FILE` | `/run/keys/api-key` | The file with the System API key. |
 | `SIBYL_CONFIG_DIR` | `/config` | The configuration directory. |
 | `SIBYL_MODELS_DIR` | `/models` | The models directory. |
 | `SIBYL_POOLS_DIR` | `/pools` | The model pools directory. |
@@ -332,7 +332,7 @@ The Sibyl programs read these environment variables. The Quadlet units and the `
 | `SIBYL_IMAGE_TAG` | `latest` | The image tag. The unit sets it at build time. |
 | `SIBYL_GPU_VARIANT` | `amd` | The GPU variant. The unit sets it at build time. |
 | `SIBYL_VERSION` | `dev` | The version that the API reports. |
-| `SIBYL_HF_TOKEN_FILE` | `/run/secrets/hf-token` | A Hugging Face token file, used when `hf-token` in the configuration directory is empty. |
+| `SIBYL_HF_TOKEN_FILE` | `/run/keys/hf-token` | A Hugging Face token file, used when `hf-token` in the configuration directory is empty. |
 | `SIBYL_MODELS_DEV_URL` | `https://models.dev/api.json` | The models.dev index for prices. An empty value turns the daily fetch off. |
 | `SIBYL_ROUTER_URL` | `http://router:8080` | The router. |
 | `SIBYL_LLAMA_SWAP_URL` | `http://llama-swap:8080` | llama-swap. |
@@ -345,9 +345,9 @@ The Sibyl programs read these environment variables. The Quadlet units and the `
 | Variable | Default | Meaning |
 |---|---|---|
 | `SIBYL_LISTEN` | `:8080` | The listen address. |
-| `SIBYL_API_KEY_FILE` | `/run/secrets/api-key` | The System API key, which the router accepts for its admin routes. |
-| `SIBYL_DEFAULT_KEY_FILE` | `/run/secrets/default-key` | The key of the `default` client. Without it, that client is off. |
-| `SIBYL_OPEN_WEBUI_KEY_FILE` | `/run/secrets/open-webui-key` | The key of the `open-webui` client. Without it, that client is off. |
+| `SIBYL_API_KEY_FILE` | `/run/keys/api-key` | The System API key, which the router accepts for its admin routes. |
+| `SIBYL_DEFAULT_KEY_FILE` | `/run/keys/default-key` | The key of the `default` client. Without it, that client is off. |
+| `SIBYL_OPEN_WEBUI_KEY_FILE` | `/run/keys/open-webui-key` | The key of the `open-webui` client. Without it, that client is off. |
 | `SIBYL_ROUTER_CONFIG` | `/config` | The router configuration directory. |
 | `SIBYL_ROUTER_LOG_DIR` | `/log` | The directory of `decisions.jsonl` and `usage.json`. |
 | `SIBYL_ROUTER_CALIBRATION_DIR` | `/calibration` | The calibration directory. |
@@ -360,7 +360,7 @@ The `sibyl` command sets these values when it starts the TUI.
 | Variable | Default | Value that `sibyl` sets | Meaning |
 |---|---|---|---|
 | `SIBYL_API_URL` | `http://system-api:3001` | `https://127.0.0.1:18443/system` | The System API address. |
-| `SIBYL_CA_FILE` | none | `/run/secrets/sibyl-ca` | The CA certificate that the TUI checks the System API with. |
+| `SIBYL_CA_FILE` | none | `/run/keys/sibyl-ca` | The CA certificate that the TUI checks the System API with. |
 | `SIBYL_TLS_SERVER_NAME` | none | `sibyl.local` | The name that the TUI expects in the certificate. |
 | `SIBYL_WIZARD` | none | `1` for `sibyl setup` | `1` starts the setup wizard. |
 

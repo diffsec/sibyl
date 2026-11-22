@@ -3,7 +3,7 @@
 // It needs the System API address and the API key:
 //
 //	SIBYL_API_URL       default http://system-api:3001 (inside the sibyl network)
-//	SIBYL_API_KEY_FILE  default /run/secrets/api-key
+//	SIBYL_API_KEY_FILE  default /run/keys/api-key
 //	SIBYL_CA_FILE       optional PEM file to trust, for the host's self-signed certificate
 //	SIBYL_TLS_SERVER_NAME  optional name to verify, such as sibyl.local when connecting to 127.0.0.1
 //	SIBYL_WIZARD        1 to walk through the setup steps (sibyl setup)
@@ -37,7 +37,7 @@ func main() {
 }
 
 func run() error {
-	key, err := os.ReadFile(env("SIBYL_API_KEY_FILE", "/run/secrets/api-key"))
+	key, err := os.ReadFile(env("SIBYL_API_KEY_FILE", "/run/keys/api-key"))
 	if err != nil {
 		return err
 	}
