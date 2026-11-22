@@ -58,15 +58,15 @@ func readKey(path string) (string, error) {
 }
 
 func run(log *slog.Logger, addr string) error {
-	admin, err := readKey(env("SIBYL_API_KEY_FILE", "/run/secrets/api-key"))
+	admin, err := readKey(env("SIBYL_API_KEY_FILE", "/run/keys/api-key"))
 	if err != nil {
 		return err
 	}
-	def, err := readKey(env("SIBYL_DEFAULT_KEY_FILE", "/run/secrets/default-key"))
+	def, err := readKey(env("SIBYL_DEFAULT_KEY_FILE", "/run/keys/default-key"))
 	if err != nil {
 		log.Warn("no key for the client default; it is off", "err", err)
 	}
-	owui, err := readKey(env("SIBYL_OPEN_WEBUI_KEY_FILE", "/run/secrets/open-webui-key"))
+	owui, err := readKey(env("SIBYL_OPEN_WEBUI_KEY_FILE", "/run/keys/open-webui-key"))
 	if err != nil {
 		log.Warn("no Open WebUI key; the open-webui client is off", "err", err)
 	}

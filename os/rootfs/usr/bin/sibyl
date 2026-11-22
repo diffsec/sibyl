@@ -32,13 +32,15 @@ if ! podman image exists "$image" && [[ -r "$offline/sibyl-tui.oci.tar" ]] \
     skopeo copy --quiet --preserve-digests "oci-archive:$offline/sibyl-tui.oci.tar" "containers-storage:$image"
 fi
 
+# The secrets go under /run/keys: Podman 6.2 mounts its own /run/secrets
+# read-only, so a mount point in it fails with --read-only.
 exec podman run --rm -it --network host \
     --read-only --cap-drop all --security-opt no-new-privileges \
     -e TERM="${TERM:-xterm-256color}" \
     -e SIBYL_API_URL=https://127.0.0.1:18443/system \
     -e SIBYL_TLS_SERVER_NAME=sibyl.local \
-    -e SIBYL_CA_FILE=/run/secrets/sibyl-ca \
+    -e SIBYL_CA_FILE=/run/keys/sibyl-ca \
     -e SIBYL_WIZARD="$wizard" \
-    --secret sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0444 \
-    --secret sibyl-ca,type=mount,target=/run/secrets/sibyl-ca,mode=0444 \
+    --secret sibyl-api-key,type=mount,target=/run/keys/api-key,mode=0444 \
+    --secret sibyl-ca,type=mount,target=/run/keys/sibyl-ca,mode=0444 \
     "$image"

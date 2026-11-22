@@ -42,7 +42,7 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
-	token, err := os.ReadFile(env("SIBYL_API_KEY_FILE", "/run/secrets/api-key"))
+	token, err := os.ReadFile(env("SIBYL_API_KEY_FILE", "/run/keys/api-key"))
 	if err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func run(log *slog.Logger) error {
 	// An optional Hugging Face token, for gated and private repositories. The
 	// TUI and PUT /integrations/huggingface store it in the config directory.
 	hfToken := api.LoadHFToken(s.Paths.Config)
-	if b, err := os.ReadFile(env("SIBYL_HF_TOKEN_FILE", "/run/secrets/hf-token")); hfToken == "" && err == nil {
+	if b, err := os.ReadFile(env("SIBYL_HF_TOKEN_FILE", "/run/keys/hf-token")); hfToken == "" && err == nil {
 		hfToken = strings.TrimSpace(string(b))
 	}
 	s.HF = hf.New(env("SIBYL_HF_BASE", hf.DefaultBase), hfToken)
@@ -104,7 +104,7 @@ func run(log *slog.Logger) error {
 	s.Arcane = &api.Arcane{Client: arcane.New(env("SIBYL_ARCANE_URL", "http://arcane:3552"))}
 	// The router key of the client "open-webui". Without it, Open WebUI
 	// keeps its current connection.
-	if b, err := os.ReadFile(env("SIBYL_OPEN_WEBUI_KEY_FILE", "/run/secrets/open-webui-key")); err == nil {
+	if b, err := os.ReadFile(env("SIBYL_OPEN_WEBUI_KEY_FILE", "/run/keys/open-webui-key")); err == nil {
 		s.OpenWebUI.Key = strings.TrimSpace(string(b))
 	} else {
 		log.Warn("no Open WebUI router key; Open WebUI keeps its connection", "err", err)

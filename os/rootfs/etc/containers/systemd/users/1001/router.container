@@ -13,9 +13,12 @@ Volume=/var/lib/sibyl/config/router/log:/log:z
 Volume=/var/lib/sibyl/config/router/calibration:/calibration:z
 # The System API key is not an inference key: it can only ask the router to
 # explain a decision. The client "default" has its own key.
-Secret=sibyl-api-key,type=mount,target=/run/secrets/api-key,mode=0400,uid=10001,gid=10001
-Secret=sibyl-inference-key,type=mount,target=/run/secrets/default-key,mode=0400,uid=10001,gid=10001
-Secret=sibyl-router-owui-key,type=mount,target=/run/secrets/open-webui-key,mode=0400,uid=10001,gid=10001
+# Secrets go under /run/keys, not /run/secrets. Podman 6.2 mounts its own
+# /run/secrets read-only, and crun then cannot make a mount point in it for a
+# container with ReadOnly=true.
+Secret=sibyl-api-key,type=mount,target=/run/keys/api-key,mode=0400,uid=10001,gid=10001
+Secret=sibyl-inference-key,type=mount,target=/run/keys/default-key,mode=0400,uid=10001,gid=10001
+Secret=sibyl-router-owui-key,type=mount,target=/run/keys/open-webui-key,mode=0400,uid=10001,gid=10001
 DropCapability=ALL
 NoNewPrivileges=true
 ReadOnly=true
