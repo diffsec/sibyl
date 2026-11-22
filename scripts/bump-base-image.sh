@@ -4,7 +4,7 @@
 # the build within days. Run this, review the diff, and commit.
 # Usage: scripts/bump-base-image.sh [release]
 set -euo pipefail
-release="${1:-44}"
+release="${1:-45}"
 cd "$(git rev-parse --show-toplevel)"
 digest="$(curl -fsS "https://quay.io/api/v1/repository/fedora/fedora-bootc/tag/?specificTag=${release}&onlyActiveTags=true" \
     | python3 -c 'import sys, json; print(json.load(sys.stdin)["tags"][0]["manifest_digest"])')"
