@@ -428,7 +428,7 @@ jobs:
           path: ${{ runner.temp }}/vmtest/*.log
           if-no-files-found: ignore
 
-      - uses: oras-project/setup-oras@v2.0.3
+      - uses: oras-project/setup-oras@v2.0.4
 
       - name: Push the ISO
         id: push
@@ -504,7 +504,7 @@ jobs:
             --new-bundle-format=false --use-signing-config=false \
             --output-signature bundle/manifest.json.sig bundle/manifest.json
 
-      - uses: oras-project/setup-oras@v2.0.3
+      - uses: oras-project/setup-oras@v2.0.4
 
       - name: Push the bundle
         env:
